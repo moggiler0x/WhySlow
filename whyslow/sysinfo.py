@@ -12,7 +12,7 @@ from pathlib import Path
 
 import psutil
 
-from . import lhm
+from . import lhm, macsensors
 from .util import IS_LINUX, IS_MAC, IS_WINDOWS, run
 
 
@@ -138,6 +138,8 @@ def temperatures(wait: bool = False) -> dict[str, float]:
     """
     if IS_WINDOWS:
         return lhm.temperatures(wait)
+    if IS_MAC:
+        return macsensors.temperatures()
     out = {}
     try:
         sensors = psutil.sensors_temperatures()
@@ -148,6 +150,19 @@ def temperatures(wait: bool = False) -> dict[str, float]:
         if vals:
             out[name] = max(vals)
     return out
+
+
+def core_kinds() -> list[str]:
+    """Тип каждого логического ядра: «P» — производительное, «E» — энергоэффективное.
+    Пока умеем только Apple Silicon: там первыми идут E-ядра, за ними P-ядра."""
+    if not IS_MAC:
+        return []
+    code_p, perf = run(["sysctl", "-n", "hw.perflevel0.logicalcpu"])
+    code_e, eff = run(["sysctl", "-n", "hw.perflevel1.logicalcpu"])
+    if code_p or code_e or not perf.strip().isdigit() or not eff.strip().isdigit():
+        return []
+    kinds = ["E"] * int(eff) + ["P"] * int(perf)
+    return kinds if len(kinds) == psutil.cpu_count() else []
 
 
 def static_info() -> dict:
@@ -168,6 +183,92 @@ def static_info() -> dict:
     }
 
 
+class _WinGpuLoad:
+    """Загрузка видеокарты в Windows — из счётчиков «GPU Engine», как в Диспетчере задач.
+
+    Счётчик читается через PDH по английскому имени (PdhAddEnglishCounterW), поэтому
+    работает на русской Windows. Запрос живёт между вызовами: проценты считаются
+    по разнице двух замеров."""
+
+    PATH = "\\GPU Engine(*)\\Utilization Percentage"
+
+    def __init__(self):
+        self.pdh = None
+        self.counter = None
+        self.failed = False
+
+    def _open(self):
+        import ctypes
+        from ctypes import byref, c_void_p
+        pdh = ctypes.WinDLL("pdh")
+        query, counter = c_void_p(), c_void_p()
+        if pdh.PdhOpenQueryW(None, None, byref(query)) or \
+                pdh.PdhAddEnglishCounterW(query, ctypes.c_wchar_p(self.PATH), None, byref(counter)):
+            raise OSError("PDH")
+        pdh.PdhCollectQueryData(query)
+        self.pdh, self.query, self.counter = pdh, query, counter
+
+    def get(self) -> float | None:
+        if self.failed:
+            return None
+        import ctypes
+        from ctypes import byref, c_double, c_uint32, c_wchar_p
+
+        class Item(ctypes.Structure):
+            _fields_ = [("name", c_wchar_p), ("status", c_uint32), ("value", c_double)]
+
+        try:
+            if self.pdh is None:
+                self._open()
+                return None  # первый замер — точка отсчёта
+            self.pdh.PdhCollectQueryData(self.query)
+            size, count = c_uint32(0), c_uint32(0)
+            self.pdh.PdhGetFormattedCounterArrayW(self.counter, 0x200, byref(size), byref(count), None)
+            if not size.value:
+                return 0.0
+            buf = ctypes.create_string_buffer(size.value)
+            if self.pdh.PdhGetFormattedCounterArrayW(self.counter, 0x200, byref(size), byref(count), buf):
+                return None
+            items = ctypes.cast(buf, ctypes.POINTER(Item * count.value)).contents
+        except (OSError, AttributeError, ValueError):
+            self.failed = True
+            return None
+        # Как Диспетчер задач: складываем процессы по типу движка (3D, Video Decode…)
+        # и показываем самый загруженный движок
+        engines: dict[str, float] = {}
+        for it in items:
+            if it.status in (0, 1) and it.name:
+                kind = it.name.split("_engtype_")[-1]
+                engines[kind] = engines.get(kind, 0.0) + it.value
+        return min(max(engines.values(), default=0.0), 100.0)
+
+
+_win_gpu = _WinGpuLoad()
+
+
+def gpu_load() -> float | None:
+    """Загрузка видеоядра в процентах или None, если система её не отдаёт."""
+    if shutil.which("nvidia-smi"):
+        code, out = run(["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"], timeout=3)
+        vals = [_num(x.strip()) for x in out.splitlines()] if code == 0 else []
+        vals = [v for v in vals if v is not None]
+        if vals:
+            return max(vals)
+    if IS_MAC:
+        return macsensors.gpu_load()
+    if IS_WINDOWS:
+        return _win_gpu.get()
+    if IS_LINUX:  # AMD и часть Intel отдают загрузку прямо в sysfs
+        vals = []
+        for f in Path("/sys/class/drm").glob("card*/device/gpu_busy_percent"):
+            try:
+                vals.append(float(f.read_text()))
+            except (OSError, ValueError):
+                pass
+        return max(vals) if vals else None
+    return None
+
+
 _MAC_DATA = "/System/Volumes/Data"
 
 
@@ -176,7 +277,8 @@ def disks() -> list[dict]:
     for p in psutil.disk_partitions(all=False):
         if IS_LINUX and (p.mountpoint.startswith(("/snap", "/boot/efi", "/var/snap")) or p.fstype in ("squashfs", "overlay")):
             continue
-        if IS_MAC and p.mountpoint.startswith("/System/Volumes/") and p.mountpoint != _MAC_DATA:
+        # Служебные тома macOS (VM, Preboot, Update, xarts…): Finder их тоже не показывает
+        if IS_MAC and p.mountpoint != _MAC_DATA and (p.mountpoint.startswith("/System/Volumes/") or "nobrowse" in p.opts):
             continue
         try:
             u = psutil.disk_usage(p.mountpoint)
