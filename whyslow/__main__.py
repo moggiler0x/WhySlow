@@ -1,3 +1,4 @@
+import os
 import sys
 
 
@@ -15,6 +16,10 @@ def selfcheck() -> int:
     for name in names:
         importlib.import_module(f"{__package__}.{name}")
     print(__version__)
+    out = os.environ.get("WHYSLOW_SELFCHECK_OUT")  # у оконного WhySlow.exe нет stdout, версию читают из файла
+    if out:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(__version__)
     return 0
 
 

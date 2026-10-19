@@ -2,7 +2,9 @@
 #
 # Проще всего: Actions → Release → Run workflow. Версию можно не вписывать —
 # возьмётся следующая (0.2.5 → 0.2.6). Workflow сам запишет её в whyslow/__init__.py,
-# закоммитит в main, поставит тег и создаст релиз.
+# закоммитит в main, поставит тег и создаст релиз. Потом соберёт приложения для
+# Windows, macOS и Linux (build.yml), прикрепит их к релизу и только после этого
+# опубликует его — так встроенное обновление не увидит релиз без файлов.
 #
 # Если релиз всё же выпустили на сайте (Releases → Draft a new release) или
 # отправили тег из терминала, а версию в коде поднять забыли, workflow сам
@@ -30,6 +32,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      draft: ${{ steps.create.outputs.draft }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,9 +90,33 @@ jobs:
           fi
 
       - name: Создать релиз
+        id: create
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.v.outputs.version }}
         run: |
-          gh release view "v$VERSION" >/dev/null 2>&1 && exit 0
-          gh release create "v$VERSION" --title "WhySlow $VERSION" --generate-notes --verify-tag
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            # Релиз уже есть (например, опубликован на сайте) — просто приложим к нему сборки
+            echo "draft=$(gh release view "v$VERSION" --json isDraft -q .isDraft)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Черновик: его не видно, пока не готовы приложения
+          gh release create "v$VERSION" --title "WhySlow $VERSION" --generate-notes --verify-tag --draft
+          echo "draft=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: release
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: v${{ needs.release.outputs.version }}
+
+  publish:
+    needs: [release, build]
+    if: needs.release.outputs.draft == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Опубликовать релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: gh release edit "v$VERSION" --draft=false --latest --repo "$GITHUB_REPOSITORY"
