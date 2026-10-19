@@ -106,27 +106,29 @@ def _cpu(f, cpu, procs):
 
 
 def _ram(f, procs):
-    vm = psutil.virtual_memory()
+    used, total, pct = sysinfo.memory()
     swap = psutil.swap_memory()
     top = _top(procs, lambda p: p.mem)
-    detail = f"Занято {human_size(vm.used)} из {human_size(vm.total)}. Больше всех: {top}."
-    if vm.percent > 85:
-        f.append(Finding(BAD, f"Оперативка забита на {vm.percent:.0f}%", detail,
+    detail = f"Занято {human_size(used)} из {human_size(total)}. Больше всех: {top}."
+    # пороги в процентах, одинаковые для любого объёма памяти
+    if pct >= 90:
+        f.append(Finding(BAD, f"Оперативка забита на {pct:.0f}%", detail,
                          "Система начинает сбрасывать память на диск — отсюда тормоза. "
                          "Закройте лишнее или уберите программы из автозагрузки.", "procs"))
-    elif vm.percent > 70:
-        f.append(Finding(WARN, f"Оперативка занята на {vm.percent:.0f}%", detail, tab="procs"))
+    elif pct >= 70:
+        f.append(Finding(WARN, f"Оперативка занята на {pct:.0f}%", detail,
+                         "Пока терпимо, но запаса мало. Закройте то, чем не пользуетесь.", "procs"))
     else:
-        f.append(Finding(OK, f"Оперативка: {vm.percent:.0f}%", detail))
-    if vm.total < 6 * 2**30:
-        f.append(Finding(INFO, f"Всего {human_size(vm.total)} оперативной памяти",
+        f.append(Finding(OK, f"Оперативка: {pct:.0f}%", detail))
+    if total < 6 * 2**30:
+        f.append(Finding(INFO, f"Всего {human_size(total)} оперативной памяти",
                          by_os("Для современного браузера и Windows этого маловато.",
                                "Для современного браузера и macOS этого маловато.",
                                "Для современного браузера и рабочего стола этого маловато."),
                          by_os("Самый дешёвый апгрейд — докупить планку памяти.",
                                "На Mac память не докупить: держите открытыми поменьше вкладок и программ.",
                                "Самый дешёвый апгрейд — докупить планку памяти. Помогает и zram.")))
-    if swap.total and swap.percent > 50 and vm.percent > 70:
+    if swap.total and swap.percent > 50 and pct >= 70:
         f.append(Finding(WARN, by_os("Файл подкачки", "Своп", "Подкачка (swap)") + f" занят на {swap.percent:.0f}%",
                          "Памяти не хватает, и система активно пишет её на диск."))
 
