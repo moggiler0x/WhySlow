@@ -3,64 +3,99 @@
 from __future__ import annotations
 
 import sys
+import threading
 import time
 import traceback
 import webbrowser
+from collections import deque
 
 import psutil
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+    QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from . import __version__, checks, journal, junk, knowledge, lhm, network, startup, sysinfo
 from .processes import ProcessMonitor, kill
-from .util import IS_LINUX, IS_WINDOWS, human_duration, human_size, is_admin
+from .util import IS_LINUX, IS_MAC, IS_WINDOWS, human_duration, human_size, is_admin
 
 # ------------------------------------------------------------------ стиль ---
 
 C = {
-    "bg": "#14161b", "panel": "#1c1f26", "panel2": "#232731", "border": "#2c313c",
-    "text": "#e7e9ee", "muted": "#8f98a8", "accent": "#4f8cff",
-    "ok": "#3fb950", "info": "#58a6ff", "warn": "#d29922", "bad": "#f85149",
+    "bg": "#0a0c16", "bg2": "#120f26", "panel": "#11142a", "panel2": "#181c38", "border": "#272c52",
+    "text": "#eef0ff", "muted": "#8d93b8", "accent": "#7c5cff", "accent2": "#22d3ee",
+    "ok": "#2ee59d", "info": "#4cc9f0", "warn": "#ffb547", "bad": "#ff4d6d",
 }
 VERDICT_COLORS = {"safe": C["ok"], "optional": C["warn"], "keep": C["info"], "bad": C["bad"], "unknown": C["muted"]}
 
+# На macOS пункт шрифта = пиксель, на Windows и Linux — 1,33 пикселя. Чтобы текст везде
+# был одинаково крупным, все размеры задаются в «условных пунктах» и пересчитываются здесь.
+SCALE = 1.5 if IS_MAC else 1.15
+
+
+def pt(size: float) -> str:
+    return f"{size * SCALE:.1f}pt"
+
+
+def px(size: float) -> int:
+    """Отступы и высоты растут вместе со шрифтом, но слабее."""
+    return round(size * (1 + (SCALE - 1) * 0.6) if not IS_MAC else size * 1.15)
+
+
+GRAD = f"qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {C['accent']}, stop:1 {C['accent2']})"
+
 STYLE = f"""
-* {{ color: {C['text']}; font-size: 10pt; }}
-QMainWindow, QWidget#root {{ background: {C['bg']}; }}
-QTabWidget::pane {{ border: 1px solid {C['border']}; border-radius: 8px; background: {C['panel']}; top: -1px; }}
-QTabBar::tab {{ background: transparent; color: {C['muted']}; padding: 8px 16px; border: none;
-               border-bottom: 2px solid transparent; }}
-QTabBar::tab:selected {{ color: {C['text']}; border-bottom: 2px solid {C['accent']}; }}
+* {{ color: {C['text']}; font-size: {pt(10)}; }}
+QMainWindow, QWidget#root {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {C['bg']}, stop:1 {C['bg2']}); }}
+QToolTip {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C['border']}; padding: 4px; }}
+QTabWidget::pane {{ border: 1px solid {C['border']}; border-radius: 12px; background: {C['panel']}; top: -1px; }}
+QTabBar::tab {{ background: transparent; color: {C['muted']}; padding: {px(10)}px {px(20)}px; border: none;
+               border-bottom: 3px solid transparent; font-size: {pt(10.5)}; font-weight: 600; }}
+QTabBar::tab:selected {{ color: {C['text']}; border-bottom: 3px solid {C['accent2']}; }}
 QTabBar::tab:hover {{ color: {C['text']}; }}
-QPushButton {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 6px; padding: 6px 14px; }}
-QPushButton:hover {{ border-color: {C['accent']}; }}
-QPushButton:disabled {{ color: {C['muted']}; background: {C['panel']}; }}
-QPushButton#primary {{ background: {C['accent']}; border: none; color: white; font-weight: 600; padding: 8px 22px; }}
-QPushButton#primary:disabled {{ background: #34507f; }}
+QPushButton {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 8px;
+              padding: {px(7)}px {px(16)}px; }}
+QPushButton:hover {{ border-color: {C['accent']}; background: #20254a; }}
+QPushButton:disabled {{ color: {C['muted']}; background: {C['panel']}; border-color: {C['panel2']}; }}
+QPushButton#primary {{ background: {GRAD}; border: none; color: white; font-weight: 700; padding: {px(9)}px {px(26)}px; }}
+QPushButton#primary:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9378ff, stop:1 #4fe0f5); }}
+QPushButton#primary:disabled {{ background: #3a3470; color: #c9c4f5; }}
 QPushButton#danger:hover {{ border-color: {C['bad']}; color: {C['bad']}; }}
-QGroupBox {{ border: 1px solid {C['border']}; border-radius: 8px; margin-top: 14px; padding: 12px 10px 10px 10px;
-             background: {C['panel2']}; }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {C['accent']}; font-weight: 600; }}
+QPushButton#link {{ background: transparent; border: none; color: {C['accent2']}; padding: 2px 4px; font-weight: 600; }}
+QPushButton#link:hover {{ color: white; }}
+QGroupBox {{ border: 1px solid {C['border']}; border-radius: 12px; margin-top: {px(18)}px;
+             padding: {px(16)}px {px(12)}px {px(12)}px {px(12)}px; background: {C['panel2']}; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 6px; color: {C['accent2']};
+                    font-weight: 700; font-size: {pt(10.5)}; }}
 QLabel#muted {{ color: {C['muted']}; }}
-QLabel#h1 {{ font-size: 17pt; font-weight: 700; }}
-QLabel#field {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 4px; padding: 3px 6px; }}
-QFrame#card {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 8px; }}
+QLabel#h1 {{ font-size: {pt(19)}; font-weight: 800; }}
+QLabel#section {{ color: {C['muted']}; font-size: {pt(9)}; font-weight: 700; letter-spacing: 1px; }}
+QLabel#big {{ font-size: {pt(22)}; font-weight: 800; }}
+QLabel#field {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; padding: {px(4)}px {px(8)}px; }}
+QFrame#card {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 12px; }}
+QFrame#tile {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1c2142, stop:1 {C['panel2']});
+              border: 1px solid {C['border']}; border-radius: 14px; }}
+QFrame#tile:hover {{ border-color: {C['accent']}; }}
 QTableWidget {{ background: {C['panel']}; alternate-background-color: {C['panel2']}; border: none;
-               gridline-color: transparent; selection-background-color: #2b3d5c; }}
-QHeaderView::section {{ background: {C['panel2']}; color: {C['muted']}; border: none;
-                        border-bottom: 1px solid {C['border']}; padding: 6px; }}
-QProgressBar {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 4px; text-align: center;
-               height: 16px; font-size: 8pt; }}
-QProgressBar::chunk {{ background: {C['accent']}; border-radius: 3px; }}
+               gridline-color: transparent; selection-background-color: #2e2a6b; selection-color: white; }}
+QHeaderView::section {{ background: {C['panel2']}; color: {C['muted']}; border: none; font-weight: 700;
+                        border-bottom: 1px solid {C['border']}; padding: {px(8)}px; }}
+QProgressBar {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; text-align: center;
+               font-size: {pt(8.5)}; font-weight: 600; }}
+QProgressBar::chunk {{ background: {GRAD}; border-radius: 5px; }}
 QScrollArea {{ border: none; background: transparent; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: {C['border']}; border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical:hover {{ background: {C['accent']}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QTextEdit {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; }}
-QStatusBar {{ background: {C['bg']}; color: {C['muted']}; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; }}
+QStatusBar {{ background: transparent; color: {C['muted']}; }}
+QStatusBar QPushButton {{ padding: 3px 12px; }}
+QCheckBox::indicator {{ width: {px(18)}px; height: {px(18)}px; }}
+QMessageBox QLabel {{ font-size: {pt(10)}; }}
 """
 
 
@@ -71,6 +106,12 @@ def muted(text: str = "") -> QLabel:
     return lbl
 
 
+def section(text: str) -> QLabel:
+    lbl = QLabel(text.upper())
+    lbl.setObjectName("section")
+    return lbl
+
+
 def field(text: str = "") -> QLabel:
     lbl = QLabel(text)
     lbl.setObjectName("field")
@@ -78,23 +119,140 @@ def field(text: str = "") -> QLabel:
     return lbl
 
 
-class Bar(QProgressBar):
-    """Полоска, которая краснеет при высокой нагрузке."""
+def make_table(cols: list[str]) -> QTableWidget:
+    t = QTableWidget(0, len(cols))
+    t.setHorizontalHeaderLabels(cols)
+    t.setSelectionBehavior(QAbstractItemView.SelectRows)
+    t.setSelectionMode(QAbstractItemView.SingleSelection)
+    t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    t.setAlternatingRowColors(True)
+    t.verticalHeader().hide()
+    t.verticalHeader().setDefaultSectionSize(int(QFontMetrics(QApplication.font()).height() * 2.0))
+    t.setShowGrid(False)
+    t.setFocusPolicy(Qt.NoFocus)
+    t.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    return t
 
-    def __init__(self, warn=70, bad=90):
+
+def rate(n: float) -> str:
+    return human_size(n) + "/с"
+
+
+class Bar(QProgressBar):
+    """Полоска, которая желтеет и краснеет при высокой нагрузке."""
+
+    def __init__(self, warn=70, bad=90, height=22):
         super().__init__()
         self.setRange(0, 100)
         self.warn, self.bad = warn, bad
         self._color = None
-        self.setFixedHeight(16)
+        self.setFixedHeight(px(height))
 
     def set(self, value: float, text: str | None = None):
         self.setValue(int(value))
         self.setFormat(text if text is not None else f"{value:.0f}%")
-        color = C["bad"] if value >= self.bad else C["warn"] if value >= self.warn else C["accent"]
+        color = C["bad"] if value >= self.bad else C["warn"] if value >= self.warn else None
         if color != self._color:
             self._color = color
-            self.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 3px; }}")
+            self.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 5px; }}" if color else "")
+
+
+class Sparkline(QWidget):
+    """График за последнюю минуту, как в Диспетчере задач. Несколько линий — несколько цветов."""
+
+    def __init__(self, colors: list[str], maximum: float | None = 100, height: int = 70):
+        super().__init__()
+        self.colors = [QColor(c) for c in colors]
+        self.maximum = maximum
+        self.series: list[list[float]] = [[] for _ in colors]
+        self.n = 60
+        self.setMinimumHeight(px(height))
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def set_series(self, *series):
+        self.series = [list(s) for s in series]
+        self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(C["border"]), 1))
+        p.setBrush(QColor(C["bg"]))
+        p.drawRoundedRect(r, 8, 8)
+        p.setPen(QPen(QColor(255, 255, 255, 14), 1))
+        for k in (1, 2, 3):
+            y = r.top() + r.height() * k / 4
+            p.drawLine(QPointF(r.left() + 4, y), QPointF(r.right() - 4, y))
+        top = self.maximum or max([max(s) for s in self.series if s] + [1]) * 1.15
+        inner = r.adjusted(2, 6, -2, -2)
+        step = inner.width() / (self.n - 1)
+        for color, values in zip(self.colors, self.series):
+            vals = values[-self.n:]
+            if len(vals) < 2:
+                continue
+            x0 = inner.right() - step * (len(vals) - 1)
+            pts = [QPointF(x0 + i * step, inner.bottom() - inner.height() * min(v / top, 1)) for i, v in enumerate(vals)]
+            line = QPainterPath(pts[0])
+            for q in pts[1:]:
+                line.lineTo(q)
+            area = QPainterPath(line)
+            area.lineTo(pts[-1].x(), inner.bottom())
+            area.lineTo(pts[0].x(), inner.bottom())
+            area.closeSubpath()
+            grad = QLinearGradient(0, inner.top(), 0, inner.bottom())
+            c1, c2 = QColor(color), QColor(color)
+            c1.setAlpha(110)
+            c2.setAlpha(0)
+            grad.setColorAt(0, c1)
+            grad.setColorAt(1, c2)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(grad))
+            p.drawPath(area)
+            p.setPen(QPen(color, 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(line)
+        p.end()
+
+
+class Switch(QAbstractButton):
+    """Переключатель «вкл/выкл». Сам не переключается: решает обработчик clicked."""
+
+    def __init__(self, on: bool):
+        super().__init__()
+        self.setCheckable(True)
+        self.setChecked(on)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(px(44), px(24))
+
+    def nextCheckState(self):
+        pass
+
+    def sizeHint(self):
+        return QSize(px(44), px(24))
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        if not self.isEnabled():
+            p.setOpacity(0.4)
+        if self.isChecked():
+            g = QLinearGradient(r.topLeft(), r.topRight())
+            g.setColorAt(0, QColor(C["accent"]))
+            g.setColorAt(1, QColor(C["accent2"]))
+            p.setBrush(QBrush(g))
+            p.setPen(Qt.NoPen)
+        else:
+            p.setBrush(QColor(C["bg"]))
+            p.setPen(QPen(QColor(C["border"]), 1.5))
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        d = r.height() - 6
+        x = r.right() - d - 3 if self.isChecked() else r.left() + 3
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("white") if self.isChecked() else QColor(C["muted"]))
+        p.drawEllipse(QRectF(x, r.top() + 3, d, d))
+        p.end()
 
 
 class NumItem(QTableWidgetItem):
@@ -162,9 +320,130 @@ def confirm(parent, title: str, text: str, danger: bool = False) -> bool:
     return box.exec() == QMessageBox.Yes
 
 
+class Sampler(QThread):
+    """Раз в секунду снимает показатели системы, раз в две — процессы. Всё в фоне,
+    чтобы окно не подвисало: на Windows обход процессов занимает заметное время."""
+
+    stats = Signal(object)
+    procs = Signal(object)
+
+    def __init__(self, kb_getter):
+        super().__init__()
+        self.kb_getter = kb_getter
+        self._stop = threading.Event()
+
+    def stop(self):
+        self._stop.set()
+
+    def run(self):
+        mon = ProcessMonitor()
+        mon.sample()
+        psutil.cpu_percent(percpu=True)
+        last_t = time.monotonic()
+        disk0, net0 = _io_counters()
+        temps, disks = {}, []
+        tick = 0
+        while not self._stop.wait(1.0):
+            try:
+                now = time.monotonic()
+                dt = max(now - last_t, 0.001)
+                last_t = now
+                per = psutil.cpu_percent(percpu=True)
+                disk1, net1 = _io_counters()
+                if tick % 3 == 0:
+                    temps = sysinfo.temperatures()
+                if tick % 10 == 0:
+                    disks = sysinfo.disks()
+                freq = psutil.cpu_freq()
+                vm, sw = psutil.virtual_memory(), psutil.swap_memory()
+                self.stats.emit({
+                    "cpu": sum(per) / max(len(per), 1), "per": per, "freq": freq.current if freq else None,
+                    "ram": (vm.used, vm.total, vm.percent), "swap": (sw.used, sw.total, sw.percent),
+                    "disk_r": max(disk1[0] - disk0[0], 0) / dt, "disk_w": max(disk1[1] - disk0[1], 0) / dt,
+                    "net_rx": max(net1[0] - net0[0], 0) / dt, "net_tx": max(net1[1] - net0[1], 0) / dt,
+                    "uptime": sysinfo.uptime(), "temps": temps, "disks": disks,
+                })
+                disk0, net0 = disk1, net1
+                if tick % 2 == 1:
+                    self.procs.emit(mon.sample(self.kb_getter()))
+            except Exception:
+                traceback.print_exc()
+            tick += 1
+
+
+def _io_counters() -> tuple[tuple[int, int], tuple[int, int]]:
+    try:
+        d = psutil.disk_io_counters()
+        disk = (d.read_bytes, d.write_bytes) if d else (0, 0)
+    except (OSError, RuntimeError):
+        disk = (0, 0)
+    try:
+        n = psutil.net_io_counters()
+        net = (n.bytes_recv, n.bytes_sent) if n else (0, 0)
+    except OSError:
+        net = (0, 0)
+    return disk, net
+
+
 # ----------------------------------------------------------------- Обзор ---
 
 LEVEL_ICON = {checks.OK: "✓", checks.INFO: "i", checks.WARN: "!", checks.BAD: "✕"}
+
+
+class StatTile(QFrame):
+    """Плитка «ЦП 23%» с графиком — кликом ведёт на вкладку «Система»."""
+
+    def __init__(self, title: str, colors: list[str], maximum: float | None, on_click):
+        super().__init__()
+        self.setObjectName("tile")
+        self.setCursor(Qt.PointingHandCursor)
+        self.on_click = on_click
+        v = QVBoxLayout(self)
+        v.setContentsMargins(px(16), px(12), px(16), px(14))
+        v.setSpacing(px(4))
+        v.addWidget(section(title))
+        self.value = QLabel("—")
+        self.value.setObjectName("big")
+        v.addWidget(self.value)
+        self.sub = muted("")
+        self.sub.setWordWrap(False)
+        v.addWidget(self.sub)
+        self.graph = Sparkline(colors, maximum, 64)
+        v.addWidget(self.graph, 1)
+
+    def mousePressEvent(self, e):
+        self.on_click()
+        super().mousePressEvent(e)
+
+
+class TopList(QWidget):
+    """Пять самых прожорливых программ по одному показателю."""
+
+    N = 5
+
+    def __init__(self, title: str):
+        super().__init__()
+        g = QGridLayout(self)
+        g.setContentsMargins(0, 0, 0, 0)
+        g.setVerticalSpacing(px(6))
+        g.addWidget(section(title), 0, 0, 1, 2)
+        self.rows = []
+        for i in range(self.N):
+            name, val = QLabel(""), QLabel("")
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            val.setStyleSheet("font-weight: 700;")
+            g.addWidget(name, i + 1, 0)
+            g.addWidget(val, i + 1, 1)
+            self.rows.append((name, val))
+        g.setColumnStretch(0, 1)
+
+    def set(self, rows: list[tuple[str, str, str]]):
+        for (name, val), row in zip(self.rows, rows + [("", "", "")] * self.N):
+            text, value, color = row
+            fm = name.fontMetrics()
+            name.setText(f"<span style='color:{color}'>●</span>&nbsp; " + fm.elidedText(text, Qt.ElideRight, px(220))
+                         if text else "")
+            val.setText(value)
 
 
 class OverviewTab(QWidget):
@@ -172,26 +451,90 @@ class OverviewTab(QWidget):
         super().__init__()
         self.main = main
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(14))
         self.headline = QLabel("Нажмите «Проверить», чтобы узнать, почему тормозит компьютер")
         self.headline.setObjectName("h1")
         self.headline.setWordWrap(True)
         self.sub = muted("Проверка ничего не меняет в системе. Любое изменение — только после вашего подтверждения, "
                          "и его можно откатить во вкладке «Журнал».")
-        lay.addWidget(self.headline)
-        lay.addWidget(self.sub)
+        head = QVBoxLayout()
+        head.setSpacing(px(2))
+        head.addWidget(self.headline)
+        head.addWidget(self.sub)
+        lay.addLayout(head)
+
+        tiles = QHBoxLayout()
+        tiles.setSpacing(px(12))
+        go_sys = lambda: self.main.go("system")  # noqa: E731
+        self.t_cpu = StatTile("Процессор", [C["accent2"]], 100, go_sys)
+        self.t_ram = StatTile("Память", [C["accent"]], 100, go_sys)
+        self.t_disk = StatTile("Диск", [C["ok"], C["warn"]], None, go_sys)
+        self.t_net = StatTile("Сеть", [C["info"], "#ff7ad9"], None, go_sys)
+        for t in (self.t_cpu, self.t_ram, self.t_disk, self.t_net):
+            tiles.addWidget(t, 1)
+        lay.addLayout(tiles)
+
+        body = QHBoxLayout()
+        body.setSpacing(px(14))
+        left = QVBoxLayout()
+        left.setSpacing(px(6))
+        left.addWidget(section("Что нашла проверка"))
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.list = QWidget()
         self.list.setStyleSheet("background: transparent;")
         self.list_lay = QVBoxLayout(self.list)
-        self.list_lay.setContentsMargins(0, 8, 0, 0)
+        self.list_lay.setContentsMargins(0, 0, px(6), 0)
+        self.list_lay.setSpacing(px(8))
         self.list_lay.addStretch()
         self.scroll.setWidget(self.list)
-        lay.addWidget(self.scroll, 1)
+        left.addWidget(self.scroll, 1)
+        body.addLayout(left, 3)
+
+        side = QFrame()
+        side.setObjectName("card")
+        sv = QVBoxLayout(side)
+        sv.setContentsMargins(px(16), px(14), px(16), px(12))
+        sv.setSpacing(px(14))
+        self.top_cpu = TopList("Сейчас грузят процессор")
+        self.top_mem = TopList("Больше всех памяти")
+        sv.addWidget(self.top_cpu)
+        sv.addWidget(self.top_mem)
+        sv.addStretch()
+        b = QPushButton("Все процессы →")
+        b.setObjectName("link")
+        b.clicked.connect(lambda: self.main.go("procs"))
+        sv.addWidget(b, 0, Qt.AlignRight)
+        body.addWidget(side, 2)
+        lay.addLayout(body, 1)
+
+    def on_stats(self, s: dict, h: dict):
+        self.t_cpu.value.setText(f"{s['cpu']:.0f}%")
+        self.t_cpu.sub.setText(f"{s['freq'] / 1000:.2f} ГГц" if s["freq"] else f"{len(s['per'])} потоков")
+        self.t_cpu.graph.set_series(h["cpu"])
+        used, total, pct = s["ram"]
+        self.t_ram.value.setText(f"{pct:.0f}%")
+        self.t_ram.sub.setText(f"{human_size(used)} из {human_size(total)}")
+        self.t_ram.graph.set_series(h["ram"])
+        self.t_disk.value.setText(rate(s["disk_r"] + s["disk_w"]))
+        self.t_disk.sub.setText(f"чтение {rate(s['disk_r'])} · запись {rate(s['disk_w'])}")
+        self.t_disk.graph.set_series(h["disk_r"], h["disk_w"])
+        self.t_net.value.setText(rate(s["net_rx"]))
+        self.t_net.sub.setText(f"↓ {rate(s['net_rx'])} · ↑ {rate(s['net_tx'])}")
+        self.t_net.graph.set_series(h["net_rx"], h["net_tx"])
+
+    def on_procs(self, groups):
+        def color(g):
+            return VERDICT_COLORS.get(g.verdict.verdict if g.verdict else "unknown", C["muted"])
+        by_cpu = sorted(groups, key=lambda g: g.cpu, reverse=True)[:TopList.N]
+        by_mem = sorted(groups, key=lambda g: g.mem, reverse=True)[:TopList.N]
+        self.top_cpu.set([(g.name, f"{g.cpu:.1f}%", color(g)) for g in by_cpu])
+        self.top_mem.set([(g.name, human_size(g.mem), color(g)) for g in by_mem])
 
     def show_progress(self, text: str):
         self.headline.setText("Проверяю…")
+        self.headline.setStyleSheet("")
         self.sub.setText(text)
 
     def show_result(self, r: checks.ScanResult):
@@ -206,7 +549,8 @@ class OverviewTab(QWidget):
         else:
             self.headline.setText("Всё в порядке")
             self.headline.setStyleSheet(f"color: {C['ok']};")
-        self.sub.setText(f"Проверка заняла {r.took:.1f} с · {time.strftime('%H:%M')}")
+        self.sub.setText(f"Проверка заняла {r.took:.1f} с · {time.strftime('%H:%M')}. "
+                         "Показатели вверху обновляются каждую секунду.")
         while self.list_lay.count() > 1:
             w = self.list_lay.takeAt(0).widget()
             if w:
@@ -220,17 +564,19 @@ class OverviewTab(QWidget):
         card.setObjectName("card")
         card.setStyleSheet(f"QFrame#card {{ border-left: 4px solid {color}; }}")
         h = QHBoxLayout(card)
-        h.setContentsMargins(14, 10, 12, 10)
+        h.setContentsMargins(px(16), px(12), px(14), px(12))
+        h.setSpacing(px(12))
         icon = QLabel(LEVEL_ICON[f.level])
-        icon.setFixedSize(26, 26)
+        d = px(30)
+        icon.setFixedSize(d, d)
         icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet(f"background: {color}; color: {C['bg']}; border-radius: 13px; font-weight: 800;")
+        icon.setStyleSheet(f"background: {color}; color: {C['bg']}; border-radius: {d // 2}px; font-weight: 800;")
         h.addWidget(icon, 0, Qt.AlignTop)
         v = QVBoxLayout()
-        v.setSpacing(3)
+        v.setSpacing(px(4))
         title = QLabel(f.title)
         title.setWordWrap(True)
-        title.setStyleSheet("font-weight: 600; font-size: 11pt;")
+        title.setStyleSheet(f"font-weight: 700; font-size: {pt(11.5)};")
         v.addWidget(title)
         if f.detail:
             d = QLabel(f.detail)
@@ -254,7 +600,7 @@ class OverviewTab(QWidget):
 # ---------------------------------------------------------------- Система ---
 
 class SystemTab(QWidget):
-    """Сводка о железе в духе CPU-Z: поля + живые полоски загрузки."""
+    """Сводка о железе в духе CPU-Z плюс живые графики, как в Диспетчере задач."""
 
     def __init__(self):
         super().__init__()
@@ -266,36 +612,46 @@ class SystemTab(QWidget):
         body = QWidget()
         body.setStyleSheet("background: transparent;")
         self.grid = QGridLayout(body)
-        self.grid.setContentsMargins(16, 8, 16, 16)
-        self.grid.setHorizontalSpacing(14)
+        self.grid.setContentsMargins(px(20), px(8), px(20), px(20))
+        self.grid.setHorizontalSpacing(px(16))
+        self.grid.setVerticalSpacing(px(6))
         scroll.setWidget(body)
         outer.addWidget(scroll)
         self.f: dict[str, QLabel] = {}
 
         cpu = QGroupBox("Процессор")
         g = QGridLayout(cpu)
+        g.setVerticalSpacing(px(8))
         self._row(g, 0, "Модель", "cpu", span=3)
         self._row(g, 1, "Ядра", "cores")
         self._row(g, 1, "Потоки", "threads", col=2)
         self._row(g, 2, "Частота", "freq")
         self._row(g, 2, "Макс.", "freq_max", col=2)
         g.addWidget(muted("Загрузка"), 3, 0)
-        self.cpu_bar = Bar(60, 85)
+        self.cpu_bar = Bar(60, 85, 26)
         g.addWidget(self.cpu_bar, 3, 1, 1, 3)
+        self.cpu_graph = Sparkline([C["accent2"]], 100, 150)
+        g.addWidget(self.cpu_graph, 4, 0, 1, 4)
         self.core_box = QGridLayout()
-        self.core_box.setSpacing(4)
-        g.addLayout(self.core_box, 4, 0, 1, 4)
+        self.core_box.setSpacing(px(5))
+        g.addLayout(self.core_box, 5, 0, 1, 4)
+        g.setColumnStretch(1, 1)
+        g.setColumnStretch(3, 1)
         self.core_bars: list[Bar] = []
 
         mem = QGroupBox("Память")
         g = QGridLayout(mem)
+        g.setVerticalSpacing(px(8))
         self._row(g, 0, "Всего", "ram_total")
         g.addWidget(muted("ОЗУ"), 1, 0)
-        self.ram_bar = Bar(70, 85)
+        self.ram_bar = Bar(70, 85, 26)
         g.addWidget(self.ram_bar, 1, 1)
         g.addWidget(muted("Подкачка"), 2, 0)
         self.swap_bar = Bar(50, 80)
         g.addWidget(self.swap_bar, 2, 1)
+        self.ram_graph = Sparkline([C["accent"]], 100, 100)
+        g.addWidget(self.ram_graph, 3, 0, 1, 2)
+        g.setColumnStretch(1, 1)
 
         self.sys_box = QGroupBox("Система")
         g = QGridLayout(self.sys_box)
@@ -303,30 +659,43 @@ class SystemTab(QWidget):
         self._row(g, 1, "Компьютер", "host")
         self._row(g, 2, "Плата", "board")
         self._row(g, 3, "Работает", "uptime")
+        g.setColumnStretch(1, 1)
 
         self.gpu_box = QGroupBox("Видеокарта")
         self.gpu_lay = QGridLayout(self.gpu_box)
         self.gpu_lay.addWidget(muted("Загрузка…"), 0, 0)
 
         self.disk_box = QGroupBox("Диски")
-        self.disk_lay = QGridLayout(self.disk_box)
+        dv = QVBoxLayout(self.disk_box)
+        self.disk_lay = QGridLayout()
+        dv.addLayout(self.disk_lay)
+        self.disk_io = muted("")
+        dv.addWidget(self.disk_io)
+        self.disk_graph = Sparkline([C["ok"], C["warn"]], None, 80)
+        dv.addWidget(self.disk_graph)
+        self.disk_bars: dict[str, Bar] = {}
+
+        net = QGroupBox("Сеть")
+        nv = QVBoxLayout(net)
+        self.net_io = muted("")
+        nv.addWidget(self.net_io)
+        self.net_graph = Sparkline([C["info"], "#ff7ad9"], None, 80)
+        nv.addWidget(self.net_graph)
 
         self.temp_box = QGroupBox("Температуры")
         self.temp_lay = QGridLayout(self.temp_box)
+        self.temp_bars: dict[str, Bar] = {}
+        self._temp_names: tuple | None = None
 
-        self.grid.addWidget(cpu, 0, 0)
-        self.grid.addWidget(mem, 1, 0)
-        self.grid.addWidget(self.temp_box, 2, 0)
-        self.grid.addWidget(self.sys_box, 0, 1)
-        self.grid.addWidget(self.gpu_box, 1, 1)
-        self.grid.addWidget(self.disk_box, 2, 1)
-        self.grid.setRowStretch(3, 1)
-        self.grid.setColumnStretch(0, 1)
-        self.grid.setColumnStretch(1, 1)
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.tick)
-        psutil.cpu_percent(percpu=True)
+        # Две независимые колонки: высота блока слева не растягивает соседа справа
+        for col, boxes in enumerate([(cpu, mem, self.temp_box), (self.sys_box, self.gpu_box, self.disk_box, net)]):
+            v = QVBoxLayout()
+            v.setSpacing(px(6))
+            for box in boxes:
+                v.addWidget(box)
+            v.addStretch()
+            self.grid.addLayout(v, 0, col)
+            self.grid.setColumnStretch(col, 1)
 
     def _row(self, g: QGridLayout, row: int, label: str, key: str, col: int = 0, span: int = 1):
         g.addWidget(muted(label), row, col)
@@ -337,11 +706,6 @@ class SystemTab(QWidget):
         if not self.loaded:
             self.loaded = True
             run_async(lambda _p: sysinfo.static_info(), self.fill)
-        self.timer.start(1000)
-        self.tick()
-
-    def deactivate(self):
-        self.timer.stop()
 
     def fill(self, info: dict):
         self.info = info
@@ -360,7 +724,7 @@ class SystemTab(QWidget):
         row = 0
         for gpu in info["gpus"]:
             name = field(gpu["name"])
-            name.setStyleSheet("font-weight: 600;")
+            name.setStyleSheet("font-weight: 700;")
             self.gpu_lay.addWidget(name, row, 0, 1, 4)
             row += 1
             self.gpu_lay.addWidget(muted("Драйвер"), row, 0)
@@ -377,14 +741,21 @@ class SystemTab(QWidget):
                 self.gpu_lay.addWidget(muted("Темп."), row, 2)
                 self.gpu_lay.addWidget(field(f"{gpu['temp']:.0f} °C" if gpu.get("temp") else "—"), row, 3)
                 row += 1
+        self.gpu_lay.setColumnStretch(1, 1)
+        self.gpu_lay.setColumnStretch(3, 1)
+        self._fill_disks(info["disks"])
 
-        self._clear(self.disk_lay)
-        for i, d in enumerate(info["disks"]):
-            self.disk_lay.addWidget(muted(d["mount"]), i, 0)
-            b = Bar(80, 90)
-            b.set(d["percent"], f"свободно {human_size(d['free'])} из {human_size(d['total'])}")
-            self.disk_lay.addWidget(b, i, 1)
-        self.disk_lay.setColumnStretch(1, 1)
+    def _fill_disks(self, disks: list[dict]):
+        if [d["mount"] for d in disks] != list(self.disk_bars):
+            self._clear(self.disk_lay)
+            self.disk_bars = {}
+            for i, d in enumerate(disks):
+                self.disk_lay.addWidget(muted(d["mount"]), i, 0)
+                self.disk_bars[d["mount"]] = b = Bar(80, 90)
+                self.disk_lay.addWidget(b, i, 1)
+            self.disk_lay.setColumnStretch(1, 1)
+        for d in disks:
+            self.disk_bars[d["mount"]].set(d["percent"], f"свободно {human_size(d['free'])} из {human_size(d['total'])}")
 
     @staticmethod
     def _clear(lay: QGridLayout):
@@ -393,83 +764,101 @@ class SystemTab(QWidget):
             if w:
                 w.deleteLater()
 
-    def tick(self):
-        per = psutil.cpu_percent(percpu=True)
+    def on_stats(self, s: dict, h: dict):
+        per = s["per"]
         if len(self.core_bars) != len(per):
             for b in self.core_bars:
                 b.deleteLater()
             self.core_bars = []
             cols = 4 if len(per) > 8 else 2
             for i in range(len(per)):
-                b = Bar(80, 95)
-                b.setFixedHeight(12)
+                b = Bar(80, 95, 18)
                 self.core_bars.append(b)
                 self.core_box.addWidget(b, i // cols, i % cols)
         for i, (b, v) in enumerate(zip(self.core_bars, per)):
             b.set(v, f"{i}: {v:.0f}%")
-        self.cpu_bar.set(sum(per) / max(len(per), 1))
-        freq = psutil.cpu_freq()
-        self.f["freq"].setText(f"{freq.current:.0f} МГц" if freq else "—")
-        vm, sw = psutil.virtual_memory(), psutil.swap_memory()
-        self.ram_bar.set(vm.percent, f"{human_size(vm.used)} / {human_size(vm.total)}  ({vm.percent:.0f}%)")
-        self.swap_bar.set(sw.percent, f"{human_size(sw.used)} / {human_size(sw.total)}" if sw.total else "нет")
-        self.f["uptime"].setText(human_duration(sysinfo.uptime()))
+        self.cpu_bar.set(s["cpu"])
+        self.cpu_graph.set_series(h["cpu"])
+        self.f["freq"].setText(f"{s['freq']:.0f} МГц" if s["freq"] else "—")
+        used, total, pct = s["ram"]
+        self.ram_bar.set(pct, f"{human_size(used)} / {human_size(total)}  ({pct:.0f}%)")
+        self.ram_graph.set_series(h["ram"])
+        su, st, sp = s["swap"]
+        self.swap_bar.set(sp, f"{human_size(su)} / {human_size(st)}" if st else "нет")
+        self.f["uptime"].setText(human_duration(s["uptime"]))
+        if s["disks"]:
+            self._fill_disks(s["disks"])
+        self.disk_io.setText(f"<span style='color:{C['ok']}'>■</span> чтение {rate(s['disk_r'])}   "
+                             f"<span style='color:{C['warn']}'>■</span> запись {rate(s['disk_w'])}")
+        self.disk_graph.set_series(h["disk_r"], h["disk_w"])
+        self.net_io.setText(f"<span style='color:{C['info']}'>■</span> получено {rate(s['net_rx'])}   "
+                            f"<span style='color:#ff7ad9'>■</span> отправлено {rate(s['net_tx'])}")
+        self.net_graph.set_series(h["net_rx"], h["net_tx"])
+        self._fill_temps(s["temps"])
 
-        temps = sysinfo.temperatures()
-        self._clear(self.temp_lay)
+    def _fill_temps(self, temps: dict):
+        names = tuple(sorted(temps))
+        note = ""
         if not temps:
-            if not IS_WINDOWS:
-                text = "Система не отдаёт датчики температуры"
+            if IS_MAC:
+                note = "Система не отдаёт датчики температуры (macOS не даёт их программам без прав администратора)"
+            elif not IS_WINDOWS:
+                note = "Система не отдаёт датчики температуры"
             elif not lhm.ready():
-                text = "Ищу датчики…"
+                note = "Ищу датчики…"
             else:
-                text = f'{lhm.problem()} <a href="{lhm.RELEASES_URL}">Скачать LibreHardwareMonitor</a>'
-            lbl = muted(text)
-            lbl.setOpenExternalLinks(True)
-            self.temp_lay.addWidget(lbl, 0, 0, 1, 2)
-        for i, (name, t) in enumerate(sorted(temps.items())):
-            self.temp_lay.addWidget(muted(name), i, 0)
-            b = Bar(75, 85)
-            b.set(t, f"{t:.0f} °C")
-            self.temp_lay.addWidget(b, i, 1)
-        if temps and lhm.source():
+                note = f'{lhm.problem()} <a href="{lhm.RELEASES_URL}">Скачать LibreHardwareMonitor</a>'
+        elif lhm.source():
             note = f"Источник: {lhm.source()}" + (f". {lhm.problem()}" if lhm.problem() else "")
-            self.temp_lay.addWidget(muted(note), len(temps), 0, 1, 2)
-        self.temp_lay.setColumnStretch(1, 1)
+        if (names, note) != self._temp_names:
+            self._temp_names = (names, note)
+            self._clear(self.temp_lay)
+            self.temp_bars = {}
+            for i, name in enumerate(names):
+                self.temp_lay.addWidget(muted(name), i, 0)
+                self.temp_bars[name] = b = Bar(75, 85)
+                self.temp_lay.addWidget(b, i, 1)
+            if note:
+                lbl = muted(note)
+                lbl.setOpenExternalLinks(True)
+                self.temp_lay.addWidget(lbl, len(names), 0, 1, 2)
+            self.temp_lay.setColumnStretch(1, 1)
+        for name, t in temps.items():
+            self.temp_bars[name].set(t, f"{t:.0f} °C")
 
 
 # ------------------------------------------------------------ Автозагрузка ---
 
 class StartupTab(QWidget):
-    COLS = ["", "Программа", "Вердикт базы", "Откуда", "Команда"]
+    COLS = ["Вкл.", "Программа", "Вердикт базы", "Откуда", "Команда"]
 
     def __init__(self, main: "MainWindow"):
         super().__init__()
         self.main = main
         self.items: list[startup.StartupItem] = []
         self.shown: list[startup.StartupItem] = []
+        self.busy = False
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
 
         top = QHBoxLayout()
-        top.addWidget(muted("Что запускается вместе с системой. Вердикт — из общей базы WhySlow на GitHub."), 1)
+        top.addWidget(muted("Что запускается вместе с системой. Щёлкните переключатель, чтобы отключить программу "
+                            "или включить обратно. Вердикт — из общей базы WhySlow на GitHub."), 1)
         self.show_services = QCheckBox("Показывать системные службы")
         self.show_services.setVisible(IS_LINUX or IS_WINDOWS)
         self.show_services.toggled.connect(self.refill)
         top.addWidget(self.show_services)
         lay.addLayout(top)
+        self.warning = muted("")
+        self.warning.setStyleSheet(f"color: {C['warn']};")
+        self.warning.hide()
+        lay.addWidget(self.warning)
 
-        self.table = QTableWidget(0, len(self.COLS))
-        self.table.setHorizontalHeaderLabels(self.COLS)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().hide()
-        self.table.setShowGrid(False)
+        self.table = make_table(self.COLS)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 28)
+        self.table.setColumnWidth(0, px(70))
         for i in (1, 2, 3):
             hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(4, QHeaderView.Stretch)
@@ -478,21 +867,21 @@ class StartupTab(QWidget):
 
         self.detail = QLabel("Выберите программу, чтобы увидеть пояснение.")
         self.detail.setWordWrap(True)
-        self.detail.setObjectName("card")
         self.detail.setStyleSheet(f"QLabel {{ background: {C['panel2']}; border: 1px solid {C['border']};"
-                                  "border-radius: 8px; padding: 10px; }")
+                                  f"border-radius: 12px; padding: {px(12)}px; }}")
         self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.detail.setMinimumHeight(70)
+        self.detail.setMinimumHeight(px(80))
         lay.addWidget(self.detail)
 
         btns = QHBoxLayout()
         self.b_off = QPushButton("Отключить")
+        self.b_off.setObjectName("primary")
         self.b_on = QPushButton("Включить")
         self.b_del = QPushButton("Удалить из автозагрузки")
         self.b_del.setObjectName("danger")
         self.b_report = QPushButton("Сообщить в базу…")
-        self.b_off.clicked.connect(lambda: self.toggle(False))
-        self.b_on.clicked.connect(lambda: self.toggle(True))
+        self.b_off.clicked.connect(lambda: self.toggle(self.current(), False))
+        self.b_on.clicked.connect(lambda: self.toggle(self.current(), True))
         self.b_del.clicked.connect(self.delete)
         self.b_report.clicked.connect(self.report)
         for b in (self.b_off, self.b_on, self.b_del):
@@ -504,6 +893,8 @@ class StartupTab(QWidget):
 
     def set_items(self, items):
         self.items = items
+        self.warning.setText(startup.last_error)
+        self.warning.setVisible(bool(startup.last_error))
         self.refill()
 
     def visible_items(self):
@@ -511,19 +902,30 @@ class StartupTab(QWidget):
                 or not i.enabled or (i.verdict and i.verdict.verdict in ("bad", "safe"))]
 
     def refill(self):
+        keep = self.current()
         rows = self.visible_items()
         order = {"bad": 0, "safe": 1, "optional": 2, "unknown": 3, "keep": 4}
         rows.sort(key=lambda i: (not i.enabled, order.get(i.verdict.verdict if i.verdict else "unknown", 5), i.name.lower()))
         self.shown = rows
         self.table.setRowCount(len(rows))
         for r, it in enumerate(rows):
-            dot = QTableWidgetItem("●" if it.enabled else "○")
-            dot.setForeground(QColor(C["ok"] if it.enabled else C["muted"]))
-            dot.setTextAlignment(Qt.AlignCenter)
-            dot.setToolTip("Включено" if it.enabled else "Отключено")
+            sw = Switch(it.enabled)
+            sw.setToolTip("Включено — щёлкните, чтобы отключить" if it.enabled else "Отключено — щёлкните, чтобы включить")
+            sw.clicked.connect(lambda _=False, it=it: self.toggle(it, not it.enabled))
+            if not it.can_toggle:
+                sw.setEnabled(False)
+                sw.setToolTip("Запустится один раз при следующем входе; такую запись можно только удалить")
+            cell = QWidget()
+            cl = QHBoxLayout(cell)
+            cl.setContentsMargins(0, 0, 0, 0)
+            cl.addWidget(sw, 0, Qt.AlignCenter)
+            self.table.setCellWidget(r, 0, cell)
             title = it.verdict.title if it.verdict else ""
             same = not title or title.lower() in it.name.lower() or it.name.lower() in title.lower()
             name = QTableWidgetItem(it.name if same else f"{it.name}  ·  {title}")
+            f = QFont()
+            f.setBold(it.enabled)
+            name.setFont(f)
             if not it.enabled:
                 name.setForeground(QColor(C["muted"]))
             v = it.verdict
@@ -532,54 +934,73 @@ class StartupTab(QWidget):
             f = QFont()
             f.setBold(True)
             verdict.setFont(f)
-            for c, item in enumerate([dot, name, verdict, QTableWidgetItem(it.source), QTableWidgetItem(it.command)]):
+            cmd = QTableWidgetItem(it.command)
+            cmd.setForeground(QColor(C["muted"]))
+            for c, item in enumerate([QTableWidgetItem(""), name, verdict, QTableWidgetItem(it.source), cmd]):
                 self.table.setItem(r, c, item)
+        if keep:
+            for r, it in enumerate(rows):
+                if (it.kind, it.name, it.source) == (keep.kind, keep.name, keep.source):
+                    self.table.selectRow(r)
+                    break
         self.on_select()
 
     def current(self) -> startup.StartupItem | None:
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
-        return self.shown[rows[0].row()] if rows else None
+        return self.shown[rows[0].row()] if rows and rows[0].row() < len(self.shown) else None
 
     def on_select(self):
         it = self.current()
         for b in (self.b_off, self.b_on, self.b_del, self.b_report):
-            b.setEnabled(it is not None)
+            b.setEnabled(it is not None and not self.busy)
         if not it:
             self.detail.setText("Выберите программу, чтобы увидеть пояснение.")
             return
-        self.b_off.setEnabled(it.enabled and it.can_toggle)
-        self.b_on.setEnabled(not it.enabled and it.can_toggle)
-        self.b_del.setEnabled(it.can_delete)
+        self.b_off.setEnabled(it.enabled and it.can_toggle and not self.busy)
+        self.b_on.setEnabled(not it.enabled and it.can_toggle and not self.busy)
+        self.b_del.setEnabled(it.can_delete and not self.busy)
         v = it.verdict
         color = VERDICT_COLORS.get(v.verdict, C["muted"])
         cat = f" · {v.category}" if v.category else ""
-        admin = "<br><span style='color:#8f98a8'>Для изменения нужны права администратора.</span>" if it.needs_admin else ""
+        admin = (f"<br><span style='color:{C['muted']}'>Для изменения нужны права администратора"
+                 + (" — macOS спросит пароль." if IS_MAC else ".") + "</span>") if it.needs_admin else ""
         if not it.can_toggle:
-            admin += ("<br><span style='color:#8f98a8'>Запустится один раз при следующем входе. "
+            admin += (f"<br><span style='color:{C['muted']}'>Запустится один раз при следующем входе. "
                       "Отключить такую запись нельзя, только удалить.</span>")
         self.detail.setText(f"<b>{it.name}</b>{cat} — <b style='color:{color}'>{v.label}</b><br>{v.note}"
-                            f"<br><span style='color:#8f98a8'>{it.command}</span>{admin}")
+                            f"<br><span style='color:{C['muted']}'>{it.command}</span>{admin}")
 
-    def _apply(self, fn, it, ok_text):
-        try:
-            fn()
-        except startup.ActionError as e:
-            QMessageBox.warning(self, "Не получилось", str(e))
-            return
-        self.main.status(ok_text)
-        self.reload()
+    def _apply(self, fn, ok_text):
+        """Изменение — в фоне: macOS может спросить пароль, Windows — подумать над службой."""
+        self.busy = True
+        self.table.setEnabled(False)
+        self.on_select()
+        self.main.status("Применяю…")
+
+        def done(_r):
+            self.busy = False
+            self.table.setEnabled(True)
+            self.main.status(ok_text)
+            self.reload()
+
+        def failed(msg):
+            self.busy = False
+            self.table.setEnabled(True)
+            self.refill()
+            QMessageBox.warning(self, "Не получилось", msg)
+
+        run_async(lambda _p: fn(), done, failed)
 
     def reload(self):
         run_async(lambda _p: startup.list_items(self.main.kb), self.set_items)
         self.main.journal_tab.reload()
 
-    def toggle(self, enable: bool):
-        it = self.current()
-        if not it:
+    def toggle(self, it: startup.StartupItem | None, enable: bool):
+        if not it or self.busy:
             return
         if not enable:
             v = it.verdict
-            if v.verdict == "keep":
+            if v and v.verdict == "keep":
                 if not confirm(self, "Точно отключить?",
                                f"База WhySlow советует НЕ трогать «{it.name}».\n\n{v.note}\n\n"
                                "Отключить всё равно? (включить обратно можно в любой момент)", danger=True):
@@ -595,8 +1016,9 @@ class StartupTab(QWidget):
                              "Сама программа останется установленной, её можно открыть вручную.\n\n"
                              "Включить обратно можно здесь же или во вкладке «Журнал»."):
                 return
-        self._apply(lambda: startup.set_enabled(it, enable), it,
-                    f"«{it.name}» {'включено' if enable else 'отключено'}")
+        elif not confirm(self, "Включить автозапуск?", f"«{it.name}» снова будет запускаться вместе с системой."):
+            return
+        self._apply(lambda: startup.set_enabled(it, enable), f"«{it.name}» {'включено' if enable else 'отключено'}")
 
     def delete(self):
         it = self.current()
@@ -605,7 +1027,7 @@ class StartupTab(QWidget):
                                  "Программа останется установленной. Резервная копия записи сохранится — "
                                  "её можно вернуть во вкладке «Журнал».", danger=it.verdict.verdict != "bad"):
             return
-        self._apply(lambda: startup.delete(it), it, f"«{it.name}» удалено из автозагрузки")
+        self._apply(lambda: startup.delete(it), f"«{it.name}» удалено из автозагрузки")
 
     def report(self):
         it = self.current()
@@ -621,20 +1043,14 @@ class ProcessesTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
         self.main = main
-        self.mon = ProcessMonitor()
         self.groups = {}
+        self.latest = []
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
         lay.addWidget(muted("Программы, сгруппированные по имени (браузер = десятки процессов). "
                             "Обновляется каждые 2 секунды. Нажмите на заголовок, чтобы отсортировать."))
-        self.table = QTableWidget(0, len(self.COLS))
-        self.table.setHorizontalHeaderLabels(self.COLS)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().hide()
-        self.table.setShowGrid(False)
+        self.table = make_table(self.COLS)
         self.table.setSortingEnabled(True)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -653,16 +1069,11 @@ class ProcessesTab(QWidget):
         row.addWidget(self.b_kill)
         row.addStretch()
         lay.addLayout(row)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh)
-        self.mon.sample()
 
-    def activate(self):
-        self.timer.start(2000)
-        QTimer.singleShot(300, self.refresh)
-
-    def deactivate(self):
-        self.timer.stop()
+    def on_procs(self, groups):
+        self.latest = groups
+        if self.isVisible():
+            self.refresh()
 
     def selected_name(self):
         rows = self.table.selectionModel().selectedRows()
@@ -670,8 +1081,8 @@ class ProcessesTab(QWidget):
 
     def refresh(self):
         keep = self.selected_name()
-        self.groups = {g.name: g for g in self.mon.sample(self.main.kb)}
-        top = sorted((g for g in self.groups.values() if g.mem), key=lambda g: g.mem, reverse=True)[:60]
+        self.groups = {g.name: g for g in self.latest}
+        top = sorted((g for g in self.groups.values() if g.mem), key=lambda g: g.mem, reverse=True)[:80]
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(top))
         for r, g in enumerate(top):
@@ -715,13 +1126,17 @@ class ProcessesTab(QWidget):
                        f"Закрыть «{g.name}» ({len(g.pids)} проц.)?\nНесохранённые данные в ней будут потеряны.{warn}",
                        danger=bool(warn)):
             return
-        closed, failed = kill(g)
-        msg = f"«{g.name}»: закрыто процессов — {closed}"
-        if failed:
-            msg += f", не удалось — {failed} (нужны права администратора)"
-        self.main.status(msg)
-        self.main.journal_tab.reload()
-        self.refresh()
+        self.b_kill.setEnabled(False)
+
+        def done(r):
+            closed, failed = r
+            msg = f"«{g.name}»: закрыто процессов — {closed}"
+            if failed:
+                msg += f", не удалось — {failed} (нужны права администратора)"
+            self.main.status(msg)
+            self.main.journal_tab.reload()
+
+        run_async(lambda _p: kill(g), done)
 
 
 # ---------------------------------------------------------------- Очистка ---
@@ -733,7 +1148,8 @@ class JunkTab(QWidget):
         self.cats: list[junk.JunkCategory] = []
         self.boxes: list[QCheckBox] = []
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
         self.total = QLabel("Нажмите «Проверить» вверху, чтобы найти мусор")
         self.total.setObjectName("h1")
         lay.addWidget(self.total)
@@ -741,6 +1157,8 @@ class JunkTab(QWidget):
                             "Файлы, которые сейчас заняты программами, пропускаются."))
         self.box = QGroupBox("Что можно удалить")
         self.box_lay = QGridLayout(self.box)
+        self.box_lay.setVerticalSpacing(px(10))
+        self.box_lay.setHorizontalSpacing(px(14))
         lay.addWidget(self.box)
         lay.addStretch()
         row = QHBoxLayout()
@@ -810,17 +1228,11 @@ class JournalTab(QWidget):
         super().__init__()
         self.main = main
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
         lay.addWidget(muted("Всё, что WhySlow поменял в системе. Отключение автозагрузки, удаление записей и "
                             "выключение прокси можно откатить."))
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Когда", "Что сделано", "Статус"])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.verticalHeader().hide()
-        self.table.setShowGrid(False)
-        self.table.setAlternatingRowColors(True)
+        self.table = make_table(["Когда", "Что сделано", "Статус"])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -878,21 +1290,26 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"WhySlow {__version__} — почему тормозит компьютер")
-        self.resize(1100, 740)
+        avail = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(1360, int(avail.width() * 0.92)), min(900, int(avail.height() * 0.92)))
         self.kb = knowledge.load()
         self.scan_result: checks.ScanResult | None = None
+        self.hist = {k: deque(maxlen=60) for k in ("cpu", "ram", "disk_r", "disk_w", "net_rx", "net_tx")}
 
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(16, 12, 16, 8)
+        lay.setContentsMargins(px(20), px(14), px(20), px(8))
+        lay.setSpacing(px(12))
 
         header = QHBoxLayout()
-        logo = QLabel("WhySlow")
-        logo.setStyleSheet(f"font-size: 20pt; font-weight: 800; color: {C['accent']};")
+        logo = QLabel(f"Why<span style='color:{C['accent2']}'>Slow</span>")
+        logo.setStyleSheet(f"font-size: {pt(24)}; font-weight: 900; color: {C['accent']};")
         header.addWidget(logo)
-        header.addWidget(muted("  объясняет, почему тормозит, и помогает это исправить"), 1)
+        tagline = muted("объясняет, почему тормозит, и помогает это исправить")
+        tagline.setContentsMargins(px(12), px(6), 0, 0)
+        header.addWidget(tagline, 1)
         self.b_scan = QPushButton("Проверить")
         self.b_scan.setObjectName("primary")
         self.b_scan.clicked.connect(self.scan)
@@ -918,17 +1335,36 @@ class MainWindow(QMainWindow):
         self.db_label = QLabel()
         sb.addPermanentWidget(self.db_label)
         b_db = QPushButton("Обновить базу")
-        b_db.setStyleSheet("padding: 2px 10px;")
         b_db.clicked.connect(lambda: self.update_db(manual=True))
         sb.addPermanentWidget(b_db)
         if IS_WINDOWS and not is_admin():
             b_admin = QPushButton("Перезапустить от администратора")
-            b_admin.setStyleSheet("padding: 2px 10px;")
             b_admin.clicked.connect(self.restart_as_admin)
             sb.addPermanentWidget(b_admin)
         self.show_db()
+        self.sampler = Sampler(lambda: self.kb)
+        self.sampler.stats.connect(self.on_stats)
+        self.sampler.procs.connect(self.on_procs)
+        self.sampler.start()
         QTimer.singleShot(200, self.update_db)
         QTimer.singleShot(400, self.scan)
+
+    def on_stats(self, s: dict):
+        for k in ("disk_r", "disk_w", "net_rx", "net_tx"):
+            self.hist[k].append(s[k])
+        self.hist["cpu"].append(s["cpu"])
+        self.hist["ram"].append(s["ram"][2])
+        self.overview.on_stats(s, self.hist)
+        self.system_tab.on_stats(s, self.hist)
+
+    def on_procs(self, groups):
+        self.overview.on_procs(groups)
+        self.procs_tab.on_procs(groups)
+
+    def closeEvent(self, e):
+        self.sampler.stop()
+        self.sampler.wait(3000)
+        super().closeEvent(e)
 
     def status(self, text: str):
         self.statusBar().showMessage(text, 8000)
@@ -949,8 +1385,10 @@ class MainWindow(QMainWindow):
 
     def on_tab(self, _i):
         cur = self.tabs.currentWidget()
-        for t in (self.system_tab, self.procs_tab):
-            t.activate() if t is cur else t.deactivate()
+        if cur is self.system_tab:
+            self.system_tab.activate()
+        elif cur is self.procs_tab:
+            self.procs_tab.refresh()
 
     def scan(self):
         self.b_scan.setEnabled(False)
@@ -999,6 +1437,9 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("WhySlow")
     app.setStyle("Fusion")
+    f = app.font()
+    f.setPointSizeF(10 * SCALE)
+    app.setFont(f)
     app.setStyleSheet(STYLE)
     w = MainWindow()
     w.show()
