@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import journal
+from .i18n import tr
 from .util import IS_MAC, IS_WINDOWS, by_os, human_size
 
 
@@ -32,44 +33,46 @@ def categories() -> list[JunkCategory]:
         local = Path(os.environ.get("LOCALAPPDATA", home / "AppData/Local"))
         windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
         cats += [
-            JunkCategory("temp", "Временные файлы", "Остатки установщиков и программ",
+            JunkCategory("temp", tr("Временные файлы", "Temporary files"), tr("Остатки установщиков и программ", "Leftovers from installers and apps"),
                          [Path(os.environ.get("TEMP", local / "Temp")), windir / "Temp"]),
-            JunkCategory("browser", "Кеш браузеров", "Браузер скачает заново то, что нужно",
+            JunkCategory("browser", tr("Кеш браузеров", "Browser cache"), tr("Браузер скачает заново то, что нужно", "The browser re-downloads what it needs"),
                          [local / r"Google\Chrome\User Data\Default\Cache",
                           local / r"Microsoft\Edge\User Data\Default\Cache",
                           local / r"Yandex\YandexBrowser\User Data\Default\Cache",
                           local / r"BraveSoftware\Brave-Browser\User Data\Default\Cache"]),
-            JunkCategory("crash", "Дампы падений", "Отчёты об ошибках программ",
+            JunkCategory("crash", tr("Дампы падений", "Crash dumps"), tr("Отчёты об ошибках программ", "App error reports"),
                          [local / "CrashDumps", windir / "Minidump", local / r"Microsoft\Windows\WER"]),
-            JunkCategory("wu", "Загрузки обновлений Windows", "Уже установленные обновления (нужны права админа)",
+            JunkCategory("wu", tr("Загрузки обновлений Windows", "Windows Update downloads"), tr("Уже установленные обновления (нужны права админа)", "Already installed updates (admin rights needed)"),
                          [windir / r"SoftwareDistribution\Download"]),
-            JunkCategory("recycle", "Корзина", "Удалённые файлы", [], min_age_hours=0),
+            JunkCategory("recycle", tr("Корзина", "Recycle Bin" if IS_WINDOWS else "Trash"), tr("Удалённые файлы", "Deleted files"), [], min_age_hours=0),
         ]
     elif IS_MAC:
         cats += [
-            JunkCategory("cache", "Кеш программ", "Программы пересоздадут его при необходимости",
+            JunkCategory("cache", tr("Кеш программ", "App cache"), tr("Программы пересоздадут его при необходимости", "Apps recreate it when needed"),
                          [home / "Library/Caches"]),
-            JunkCategory("temp", "Временные файлы", "Ваши временные файлы",
+            JunkCategory("temp", tr("Временные файлы", "Temporary files"), tr("Ваши временные файлы", "Your temporary files"),
                          [Path(os.environ.get("TMPDIR", "/tmp"))]),
-            JunkCategory("logs", "Логи", "Старые журналы программ", [home / "Library/Logs"]),
-            JunkCategory("trash", "Корзина", "Удалённые файлы", [home / ".Trash"], min_age_hours=0),
+            JunkCategory("logs", tr("Логи", "Logs"), tr("Старые журналы программ", "Old app logs"), [home / "Library/Logs"]),
+            JunkCategory("trash", tr("Корзина", "Recycle Bin" if IS_WINDOWS else "Trash"), tr("Удалённые файлы", "Deleted files"), [home / ".Trash"], min_age_hours=0),
         ]
     else:
         cache = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
         cats += [
-            JunkCategory("cache", "Кеш программ", "Программы пересоздадут его при необходимости", [cache],
+            JunkCategory("cache", tr("Кеш программ", "App cache"), tr("Программы пересоздадут его при необходимости", "Apps recreate it when needed"), [cache],
                          exclude=[cache / "thumbnails"]),
-            JunkCategory("thumbs", "Миниатюры", "Превью картинок в файловом менеджере",
+            JunkCategory("thumbs", tr("Миниатюры", "Thumbnails"), tr("Превью картинок в файловом менеджере", "Image previews in the file manager"),
                          [cache / "thumbnails", home / ".thumbnails"], min_age_hours=0),
-            JunkCategory("temp", "Временные файлы", "Ваши файлы в /tmp и /var/tmp",
+            JunkCategory("temp", tr("Временные файлы", "Temporary files"), tr("Ваши файлы в /tmp и /var/tmp", "Your files in /tmp and /var/tmp"),
                          [Path("/tmp"), Path("/var/tmp")]),
-            JunkCategory("trash", "Корзина", "Удалённые файлы", [home / ".local/share/Trash"], min_age_hours=0),
+            JunkCategory("trash", tr("Корзина", "Recycle Bin" if IS_WINDOWS else "Trash"), tr("Удалённые файлы", "Deleted files"), [home / ".local/share/Trash"], min_age_hours=0),
         ]
     return cats
 
 
 # что удаляется целиком, без ограничения по возрасту
-WHOLE = by_os("корзина — целиком", "корзина — целиком", "корзина и миниатюры — целиком")
+WHOLE = by_os(tr("корзина — целиком", "the Recycle Bin is emptied entirely"),
+              tr("корзина — целиком", "the Trash is emptied entirely"),
+              tr("корзина и миниатюры — целиком", "the Trash and thumbnails are removed entirely"))
 
 
 def _walk(paths: list[Path], min_age_hours: float, exclude: list[Path] = ()):
@@ -136,7 +139,7 @@ def clean(cat: JunkCategory) -> tuple[int, int]:
                             os.rmdir(dirpath)
                     except OSError:
                         pass
-    journal.add("junk_clean", f"Очистка «{cat.title}»: освобождено {human_size(freed)}",
+    journal.add("junk_clean", tr(f"Очистка «{cat.title}»: освобождено {human_size(freed)}", f"Cleaned “{cat.title}”: freed {human_size(freed)}"),
                 {"key": cat.key, "freed": freed}, undoable=False)
     return freed, failed
 

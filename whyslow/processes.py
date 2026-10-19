@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import psutil
 
 from . import journal
+from .i18n import tr
 from .knowledge import KnowledgeBase, Verdict
 
 _SYSTEM_USERS = {"root", "system", "nt authority\\system", "local service", "network service",
@@ -103,6 +104,6 @@ def kill(group: ProcGroup) -> tuple[int, int]:
             pass
     gone2, alive2 = psutil.wait_procs(alive, timeout=2)
     closed = len(gone) + len(gone2)
-    journal.add("process_kill", f"Закрыта программа {group.name} ({closed} проц.)",
+    journal.add("process_kill", tr(f"Закрыта программа {group.name} ({closed} проц.)", f"Closed {group.name} ({closed} proc.)"),
                 {"name": group.name}, undoable=False)
     return closed, len(alive2)

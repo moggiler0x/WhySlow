@@ -16,11 +16,12 @@ from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThre
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
-    QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QComboBox, QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
     QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from . import __version__, checks, journal, junk, knowledge, lhm, network, online, settings, startup, sysinfo, updater
+from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
 
@@ -99,6 +100,12 @@ QStatusBar QPushButton {{ padding: 3px 12px; }}
 QStatusBar QPushButton#update {{ background: {GRAD}; border: none; color: white; font-weight: 700; }}
 QCheckBox::indicator {{ width: {px(18)}px; height: {px(18)}px; }}
 QMessageBox QLabel {{ font-size: {pt(10)}; }}
+QComboBox {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 8px; color: {C['text']};
+            padding: {px(6)}px {px(10)}px; }}
+QComboBox:hover {{ border-color: {C['accent']}; }}
+QComboBox::drop-down {{ border: none; width: {px(20)}px; }}
+QComboBox QAbstractItemView {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C['border']};
+                             selection-background-color: #2e2a6b; selection-color: white; outline: none; }}
 """
 
 
@@ -138,7 +145,7 @@ def make_table(cols: list[str]) -> QTableWidget:
 
 
 def rate(n: float) -> str:
-    return human_size(n) + "/с"
+    return human_size(n) + tr("/с", "/s")
 
 
 class Bar(QProgressBar):
@@ -256,7 +263,7 @@ class Sparkline(QWidget):
                 x = inner.left() + inner.width() * k / 4
                 p.setPen(grid)
                 p.drawLine(QPointF(x, inner.top()), QPointF(x, inner.bottom()))
-                label = "сейчас" if k == 4 else f"{60 - k * 15} с"
+                label = tr("сейчас", "now") if k == 4 else tr(f"{60 - k * 15} с", f"{60 - k * 15}s")
                 w = fm.horizontalAdvance(label)
                 p.setPen(QColor(C["muted"]))
                 p.drawText(QPointF(min(max(x - w / 2, inner.left()), inner.right() - w),
@@ -308,7 +315,7 @@ class Sparkline(QWidget):
         x = inner.left() + self.hover * step
         p.setPen(QPen(QColor(255, 255, 255, 90), 1, Qt.DashLine))
         p.drawLine(QPointF(x, inner.top()), QPointF(x, inner.bottom()))
-        title = "сейчас" if back == 0 else f"{back} с назад"
+        title = tr("сейчас", "now") if back == 0 else tr(f"{back} с назад", f"{back}s ago")
         w = max(fm.horizontalAdvance(t) for t in [title] + [t for _, t in lines]) + px(22)
         h = fm.height() * (len(lines) + 1) + px(8)
         bx = x + px(8) if x + px(8) + w < inner.right() else x - px(8) - w
@@ -331,7 +338,7 @@ class Sparkline(QWidget):
 class CoreGrid(QWidget):
     """Загрузка каждого ядра: плитка с номером, типом ядра, процентом и графиком за минуту."""
 
-    KIND = {"P": "производительное", "E": "энергоэффективное"}
+    KIND = {"P": tr("производительное", "performance"), "E": tr("энергоэффективное", "efficiency")}
 
     def __init__(self):
         super().__init__()
@@ -387,7 +394,7 @@ class CoreGrid(QWidget):
             p.setFont(self.font())
             p.setPen(QColor(C["muted"]))
             p.drawText(QPointF(cell.left() + px(8), cell.top() + px(4) + fm.ascent()),
-                       f"Ядро {i + 1}" + (f" · {kind}" if kind else ""))
+                       tr(f"Ядро {i + 1}", f"Core {i + 1}") + (f" · {kind}" if kind else ""))
             p.setFont(bold)
             p.setPen(color)
             txt = f"{v:.0f}%"
@@ -505,7 +512,7 @@ def run_async(fn, on_done, on_error=None, on_progress=None):
 
 
 def _show_error(msg: str):
-    QMessageBox.critical(QApplication.activeWindow(), "Ошибка", msg)
+    QMessageBox.critical(QApplication.activeWindow(), tr("Ошибка", "Error"), msg)
 
 
 def confirm(parent, title: str, text: str, danger: bool = False) -> bool:
@@ -514,8 +521,8 @@ def confirm(parent, title: str, text: str, danger: bool = False) -> bool:
     box.setWindowTitle(title)
     box.setText(text)
     box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
-    box.button(QMessageBox.Yes).setText("Да, сделать")
-    box.button(QMessageBox.Cancel).setText("Отмена")
+    box.button(QMessageBox.Yes).setText(tr("Да, сделать", "Yes, do it"))
+    box.button(QMessageBox.Cancel).setText(tr("Отмена", "Cancel"))
     box.setDefaultButton(QMessageBox.Cancel if danger else QMessageBox.Yes)
     return box.exec() == QMessageBox.Yes
 
@@ -534,7 +541,7 @@ def online_note(name: str, path: str, refresh) -> str:
         run_async(lambda _p: online.describe(name, path),
                   lambda _r: (_asking.discard(name), refresh()),
                   lambda _e: _asking.discard(name))
-    return f"<span style='color:{C['muted']}'>Ищу описание в интернете…</span>"
+    return f"<span style='color:{C['muted']}'>" + tr("Ищу описание в интернете…", "Looking up a description online…") + "</span>"
 
 
 def report_online(name: str, command: str):
@@ -679,11 +686,14 @@ class OverviewTab(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(14))
-        self.headline = QLabel("Нажмите «Проверить», чтобы узнать, почему тормозит компьютер")
+        self.headline = QLabel(tr("Нажмите «Проверить», чтобы узнать, почему тормозит компьютер",
+                              "Press “Scan” to find out why your computer is slow"))
         self.headline.setObjectName("h1")
         self.headline.setWordWrap(True)
-        self.sub = muted("Проверка ничего не меняет в системе. Любое изменение — только после вашего подтверждения, "
-                         "и его можно откатить во вкладке «Журнал».")
+        self.sub = muted(tr("Проверка ничего не меняет в системе. Любое изменение — только после вашего подтверждения, "
+                            "и его можно откатить во вкладке «Журнал».",
+                            "Scanning changes nothing on your system. Any change happens only after you confirm it, "
+                            "and it can be undone in the Journal tab."))
         head = QVBoxLayout()
         head.setSpacing(px(2))
         head.addWidget(self.headline)
@@ -693,10 +703,10 @@ class OverviewTab(QWidget):
         tiles = QHBoxLayout()
         tiles.setSpacing(px(12))
         go_sys = lambda: self.main.go("system")  # noqa: E731
-        self.t_cpu = StatTile("Процессор", [C["accent2"]], 100, go_sys)
-        self.t_ram = StatTile("Память", [C["accent"]], 100, go_sys)
-        self.t_disk = StatTile("Диск", [C["ok"], C["warn"]], None, go_sys)
-        self.t_net = StatTile("Сеть", [C["info"], "#ff7ad9"], None, go_sys)
+        self.t_cpu = StatTile(tr("Процессор", "CPU"), [C["accent2"]], 100, go_sys)
+        self.t_ram = StatTile(tr("Память", "Memory"), [C["accent"]], 100, go_sys)
+        self.t_disk = StatTile(tr("Диск", "Disk"), [C["ok"], C["warn"]], None, go_sys)
+        self.t_net = StatTile(tr("Сеть", "Network"), [C["info"], "#ff7ad9"], None, go_sys)
         for t in (self.t_cpu, self.t_ram, self.t_disk, self.t_net):
             tiles.addWidget(t, 1)
         lay.addLayout(tiles)
@@ -705,7 +715,7 @@ class OverviewTab(QWidget):
         body.setSpacing(px(14))
         left = QVBoxLayout()
         left.setSpacing(px(6))
-        left.addWidget(section("Что нашла проверка"))
+        left.addWidget(section(tr("Что нашла проверка", "Scan findings")))
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.list = QWidget()
@@ -723,12 +733,12 @@ class OverviewTab(QWidget):
         sv = QVBoxLayout(side)
         sv.setContentsMargins(px(16), px(14), px(16), px(12))
         sv.setSpacing(px(14))
-        self.top_cpu = TopList("Сейчас грузят процессор")
-        self.top_mem = TopList("Больше всех памяти")
+        self.top_cpu = TopList(tr("Сейчас грузят процессор", "Top CPU right now"))
+        self.top_mem = TopList(tr("Больше всех памяти", "Top memory"))
         sv.addWidget(self.top_cpu)
         sv.addWidget(self.top_mem)
         sv.addStretch()
-        b = QPushButton("Все процессы →")
+        b = QPushButton(tr("Все процессы →", "All processes →"))
         b.setObjectName("link")
         b.clicked.connect(lambda: self.main.go("procs"))
         sv.addWidget(b, 0, Qt.AlignRight)
@@ -737,14 +747,16 @@ class OverviewTab(QWidget):
 
     def on_stats(self, s: dict, h: dict):
         self.t_cpu.value.setText(f"{s['cpu']:.0f}%")
-        self.t_cpu.sub.setText(f"{s['freq'] / 1000:.2f} ГГц" if s["freq"] else f"{len(s['per'])} потоков")
+        self.t_cpu.sub.setText(f"{s['freq'] / 1000:.2f} " + tr("ГГц", "GHz") if s["freq"]
+                              else tr(f"{len(s['per'])} потоков", f"{len(s['per'])} threads"))
         self.t_cpu.graph.set_series(h["cpu"])
         used, total, pct = s["ram"]
         self.t_ram.value.setText(f"{pct:.0f}%")
-        self.t_ram.sub.setText(f"{human_size(used)} из {human_size(total)}")
+        self.t_ram.sub.setText(tr(f"{human_size(used)} из {human_size(total)}", f"{human_size(used)} of {human_size(total)}"))
         self.t_ram.graph.set_series(h["ram"])
         self.t_disk.value.setText(rate(s["disk_r"] + s["disk_w"]))
-        self.t_disk.sub.setText(f"чтение {rate(s['disk_r'])} · запись {rate(s['disk_w'])}")
+        self.t_disk.sub.setText(tr(f"чтение {rate(s['disk_r'])} · запись {rate(s['disk_w'])}",
+                                   f"read {rate(s['disk_r'])} · write {rate(s['disk_w'])}"))
         self.t_disk.graph.set_series(h["disk_r"], h["disk_w"])
         self.t_net.value.setText(rate(s["net_rx"]))
         self.t_net.sub.setText(f"↓ {rate(s['net_rx'])} · ↑ {rate(s['net_tx'])}")
@@ -759,7 +771,7 @@ class OverviewTab(QWidget):
         self.top_mem.set([(g.name, human_size(g.mem), color(g)) for g in by_mem])
 
     def show_progress(self, text: str):
-        self.headline.setText("Проверяю…")
+        self.headline.setText(tr("Проверяю…", "Scanning…"))
         self.headline.setStyleSheet("")
         self.sub.setText(text)
 
@@ -767,16 +779,19 @@ class OverviewTab(QWidget):
         bad = sum(f.level == checks.BAD for f in r.findings)
         warn = sum(f.level == checks.WARN for f in r.findings)
         if bad:
-            self.headline.setText(f"Найдено серьёзных проблем: {bad}" + (f", замечаний: {warn}" if warn else ""))
+            self.headline.setText(tr(f"Найдено серьёзных проблем: {bad}", f"Serious problems found: {bad}")
+                                  + (tr(f", замечаний: {warn}", f", warnings: {warn}") if warn else ""))
             self.headline.setStyleSheet(f"color: {C['bad']};")
         elif warn:
-            self.headline.setText(f"Есть что улучшить: {warn}")
+            self.headline.setText(tr(f"Есть что улучшить: {warn}", f"Things to improve: {warn}"))
             self.headline.setStyleSheet(f"color: {C['warn']};")
         else:
-            self.headline.setText("Всё в порядке")
+            self.headline.setText(tr("Всё в порядке", "All good"))
             self.headline.setStyleSheet(f"color: {C['ok']};")
-        self.sub.setText(f"Проверка заняла {r.took:.1f} с · {time.strftime('%H:%M')}. "
-                         "Показатели вверху обновляются каждую секунду.")
+        self.sub.setText(tr(f"Проверка заняла {r.took:.1f} с · {time.strftime('%H:%M')}. "
+                            "Показатели вверху обновляются каждую секунду.",
+                            f"Scan took {r.took:.1f}s · {time.strftime('%H:%M')}. "
+                            "The gauges above update every second."))
         while self.list_lay.count() > 1:
             w = self.list_lay.takeAt(0).widget()
             if w:
@@ -812,12 +827,12 @@ class OverviewTab(QWidget):
             v.addWidget(muted("→ " + f.advice))
         h.addLayout(v, 1)
         if f.action == "proxy_off":
-            btn = QPushButton("Выключить прокси")
+            btn = QPushButton(tr("Выключить прокси", "Turn off proxy"))
             btn.setObjectName("primary")
             btn.clicked.connect(self.main.fix_proxy)
             h.addWidget(btn, 0, Qt.AlignVCenter)
         elif f.tab:
-            btn = QPushButton("Перейти →")
+            btn = QPushButton(tr("Перейти →", "Open →"))
             btn.clicked.connect(lambda _=False, t=f.tab: self.main.go(t))
             h.addWidget(btn, 0, Qt.AlignVCenter)
         return card
@@ -845,18 +860,18 @@ class SystemTab(QWidget):
         outer.addWidget(scroll)
         self.f: dict[str, QLabel] = {}
 
-        cpu = QGroupBox("Процессор")
+        cpu = QGroupBox(tr("Процессор", "CPU"))
         g = QGridLayout(cpu)
         g.setVerticalSpacing(px(8))
-        self._row(g, 0, "Модель", "cpu", span=3)
-        self._row(g, 1, "Ядра", "cores")
-        self._row(g, 1, "Потоки", "threads", col=2)
-        self._row(g, 2, "Частота", "freq")
-        self._row(g, 2, "Макс.", "freq_max", col=2)
-        g.addWidget(muted("Загрузка"), 3, 0)
+        self._row(g, 0, tr("Модель", "Model"), "cpu", span=3)
+        self._row(g, 1, tr("Ядра", "Cores"), "cores")
+        self._row(g, 1, tr("Потоки", "Threads"), "threads", col=2)
+        self._row(g, 2, tr("Частота", "Clock"), "freq")
+        self._row(g, 2, tr("Макс.", "Max"), "freq_max", col=2)
+        g.addWidget(muted(tr("Загрузка", "Load")), 3, 0)
         self.cpu_bar = Bar(60, 85, 26)
         g.addWidget(self.cpu_bar, 3, 1, 1, 3)
-        self.cpu_graph = Sparkline([C["accent2"]], 100, 170, axis=True, names=["загрузка"])
+        self.cpu_graph = Sparkline([C["accent2"]], 100, 170, axis=True, names=[tr("загрузка", "load")])
         g.addWidget(self.cpu_graph, 4, 0, 1, 4)
         self.core_title = muted("")
         g.addWidget(self.core_title, 5, 0, 1, 4)
@@ -865,67 +880,67 @@ class SystemTab(QWidget):
         g.setColumnStretch(1, 1)
         g.setColumnStretch(3, 1)
 
-        mem = QGroupBox("Память")
+        mem = QGroupBox(tr("Память", "Memory"))
         g = QGridLayout(mem)
         g.setVerticalSpacing(px(8))
-        self._row(g, 0, "Всего", "ram_total")
-        g.addWidget(muted("ОЗУ"), 1, 0)
+        self._row(g, 0, tr("Всего", "Total"), "ram_total")
+        g.addWidget(muted(tr("ОЗУ", "RAM")), 1, 0)
         self.ram_bar = Bar(70, 90, 26)
         g.addWidget(self.ram_bar, 1, 1)
-        g.addWidget(muted("Подкачка"), 2, 0)
+        g.addWidget(muted(tr("Подкачка", "Swap")), 2, 0)
         self.swap_bar = Bar(50, 80)
         g.addWidget(self.swap_bar, 2, 1)
-        self.ram_graph = Sparkline([C["accent"]], 100, 130, axis=True, names=["занято"])
+        self.ram_graph = Sparkline([C["accent"]], 100, 130, axis=True, names=[tr("занято", "used")])
         g.addWidget(self.ram_graph, 3, 0, 1, 2)
         g.setColumnStretch(1, 1)
 
-        self.sys_box = QGroupBox("Система")
+        self.sys_box = QGroupBox(tr("Система", "System"))
         g = QGridLayout(self.sys_box)
-        self._row(g, 0, "ОС", "os")
-        self._row(g, 1, "Компьютер", "host")
-        self._row(g, 2, "Плата", "board")
-        self._row(g, 3, "Работает", "uptime")
+        self._row(g, 0, tr("ОС", "OS"), "os")
+        self._row(g, 1, tr("Компьютер", "Computer"), "host")
+        self._row(g, 2, tr("Плата", "Motherboard"), "board")
+        self._row(g, 3, tr("Работает", "Uptime"), "uptime")
         g.setColumnStretch(1, 1)
 
-        self.gpu_box = QGroupBox("Видеокарта")
+        self.gpu_box = QGroupBox(tr("Видеокарта", "Graphics"))
         gv = QVBoxLayout(self.gpu_box)
         self.gpu_lay = QGridLayout()
-        self.gpu_lay.addWidget(muted("Загрузка…"), 0, 0)
+        self.gpu_lay.addWidget(muted(tr("Загрузка…", "Loading…")), 0, 0)
         gv.addLayout(self.gpu_lay)
         gl = QHBoxLayout()
-        self.gpu_label = muted("Загрузка видеоядра")
+        self.gpu_label = muted(tr("Загрузка видеоядра", "GPU load"))
         self.gpu_label.setWordWrap(False)
         gl.addWidget(self.gpu_label)
         self.gpu_bar = Bar(80, 95)
         gl.addWidget(self.gpu_bar, 1)
         gv.addLayout(gl)
-        self.gpu_graph = Sparkline(["#a78bfa"], 100, 110, axis=True, names=["видеоядро"])
+        self.gpu_graph = Sparkline(["#a78bfa"], 100, 110, axis=True, names=["GPU"])
         gv.addWidget(self.gpu_graph)
         self.gpu_note = muted("")
         gv.addWidget(self.gpu_note)
         self.gpu_hist: deque = deque(maxlen=60)
         self._gpu_seen = False
 
-        self.disk_box = QGroupBox("Диски")
+        self.disk_box = QGroupBox(tr("Диски", "Disks"))
         dv = QVBoxLayout(self.disk_box)
         self.disk_lay = QGridLayout()
         dv.addLayout(self.disk_lay)
         self.disk_io = muted("")
         dv.addWidget(self.disk_io)
         self.disk_graph = Sparkline([C["ok"], C["warn"]], None, 130, axis=True, fmt=rate_short,
-                                    names=["чтение", "запись"])
+                                    names=[tr("чтение", "read"), tr("запись", "write")])
         dv.addWidget(self.disk_graph)
         self.disk_bars: dict[str, Bar] = {}
 
-        net = QGroupBox("Сеть")
+        net = QGroupBox(tr("Сеть", "Network"))
         nv = QVBoxLayout(net)
         self.net_io = muted("")
         nv.addWidget(self.net_io)
         self.net_graph = Sparkline([C["info"], "#ff7ad9"], None, 130, axis=True, fmt=rate_short,
-                                   names=["получено", "отправлено"])
+                                   names=[tr("получено", "received"), tr("отправлено", "sent")])
         nv.addWidget(self.net_graph)
 
-        self.temp_box = QGroupBox("Температуры")
+        self.temp_box = QGroupBox(tr("Температуры", "Temperatures"))
         self.temp_lay = QGridLayout(self.temp_box)
         self.temp_bars: dict[str, Bar] = {}
         self._temp_names: tuple | None = None
@@ -960,7 +975,7 @@ class SystemTab(QWidget):
         self.f["cpu"].setText(info["cpu"])
         self.f["cores"].setText(str(info["cores"]))
         self.f["threads"].setText(str(info["threads"]))
-        self.f["freq_max"].setText(f"{info['freq_max']:.0f} МГц" if info["freq_max"] else "—")
+        self.f["freq_max"].setText(f"{info['freq_max']:.0f} " + tr("МГц", "MHz") if info["freq_max"] else "—")
         self.f["ram_total"].setText(human_size(info["ram_total"]))
         self.f["os"].setText(info["os"])
         self.f["host"].setText(info["host"])
@@ -968,21 +983,21 @@ class SystemTab(QWidget):
 
         self._clear(self.gpu_lay)
         if not info["gpus"]:
-            self.gpu_lay.addWidget(muted("Не удалось определить"), 0, 0)
+            self.gpu_lay.addWidget(muted(tr("Не удалось определить", "Could not detect")), 0, 0)
         row = 0
         for gpu in info["gpus"]:
             name = field(gpu["name"])
             name.setStyleSheet("font-weight: 700;")
             self.gpu_lay.addWidget(name, row, 0, 1, 4)
             row += 1
-            self.gpu_lay.addWidget(muted("Драйвер"), row, 0)
+            self.gpu_lay.addWidget(muted(tr("Драйвер", "Driver")), row, 0)
             self.gpu_lay.addWidget(field(gpu.get("driver") or "—"), row, 1)
-            self.gpu_lay.addWidget(muted("Память"), row, 2)
+            self.gpu_lay.addWidget(muted(tr("Память", "Memory")), row, 2)
             vram = gpu.get("vram_mb")
-            self.gpu_lay.addWidget(field(f"{vram / 1024:.1f} ГБ" if vram else "—"), row, 3)
+            self.gpu_lay.addWidget(field(f"{vram / 1024:.1f} " + tr("ГБ", "GB") if vram else "—"), row, 3)
             row += 1
             if gpu.get("temp"):
-                self.gpu_lay.addWidget(muted("Темп."), row, 0)
+                self.gpu_lay.addWidget(muted(tr("Темп.", "Temp")), row, 0)
                 self.gpu_lay.addWidget(field(f"{gpu['temp']:.0f} °C"), row, 1)
                 row += 1
         self.gpu_lay.setColumnStretch(1, 1)
@@ -999,7 +1014,8 @@ class SystemTab(QWidget):
                 self.disk_lay.addWidget(b, i, 1)
             self.disk_lay.setColumnStretch(1, 1)
         for d in disks:
-            self.disk_bars[d["mount"]].set(d["percent"], f"свободно {human_size(d['free'])} из {human_size(d['total'])}")
+            self.disk_bars[d["mount"]].set(d["percent"], tr(f"свободно {human_size(d['free'])} из {human_size(d['total'])}",
+                                                     f"{human_size(d['free'])} free of {human_size(d['total'])}"))
 
     @staticmethod
     def _clear(lay: QGridLayout):
@@ -1014,26 +1030,29 @@ class SystemTab(QWidget):
         if per:
             busiest = max(range(len(per)), key=per.__getitem__)
             kinds = getattr(self, "_kinds", [])
-            legend = (" P — производительные ядра (тяжёлые задачи), E — энергоэффективные (фоновые)."
+            legend = (tr(" P — производительные ядра (тяжёлые задачи), E — энергоэффективные (фоновые).",
+                         " P = performance cores (heavy work), E = efficiency cores (background).")
                       if kinds else "")
-            self.core_title.setText(f"Каждое ядро отдельно, график за минуту. Сейчас загруженнее всех "
-                                    f"ядро {busiest + 1} — {per[busiest]:.0f}%." + legend)
+            self.core_title.setText(tr(f"Каждое ядро отдельно, график за минуту. Сейчас загруженнее всех "
+                                       f"ядро {busiest + 1} — {per[busiest]:.0f}%.",
+                                       f"Each core separately, last minute. Busiest right now: "
+                                       f"core {busiest + 1} at {per[busiest]:.0f}%.") + legend)
         self.cpu_bar.set(s["cpu"])
         self.cpu_graph.set_series(h["cpu"])
-        self.f["freq"].setText(f"{s['freq']:.0f} МГц" if s["freq"] else "—")
+        self.f["freq"].setText(f"{s['freq']:.0f} " + tr("МГц", "MHz") if s["freq"] else "—")
         used, total, pct = s["ram"]
         self.ram_bar.set(pct, f"{human_size(used)} / {human_size(total)}  ({pct:.0f}%)")
         self.ram_graph.set_series(h["ram"])
         su, st, sp = s["swap"]
-        self.swap_bar.set(sp, f"{human_size(su)} / {human_size(st)}" if st else "нет")
+        self.swap_bar.set(sp, f"{human_size(su)} / {human_size(st)}" if st else tr("нет", "none"))
         self.f["uptime"].setText(human_duration(s["uptime"]))
         if s["disks"]:
             self._fill_disks(s["disks"])
-        self.disk_io.setText(f"<span style='color:{C['ok']}'>■</span> чтение {rate(s['disk_r'])}   "
-                             f"<span style='color:{C['warn']}'>■</span> запись {rate(s['disk_w'])}")
+        self.disk_io.setText(f"<span style='color:{C['ok']}'>■</span> {tr('чтение', 'read')} {rate(s['disk_r'])}   "
+                             f"<span style='color:{C['warn']}'>■</span> {tr('запись', 'write')} {rate(s['disk_w'])}")
         self.disk_graph.set_series(h["disk_r"], h["disk_w"])
-        self.net_io.setText(f"<span style='color:{C['info']}'>■</span> получено {rate(s['net_rx'])}   "
-                            f"<span style='color:#ff7ad9'>■</span> отправлено {rate(s['net_tx'])}")
+        self.net_io.setText(f"<span style='color:{C['info']}'>■</span> {tr('получено', 'received')} {rate(s['net_rx'])}   "
+                            f"<span style='color:#ff7ad9'>■</span> {tr('отправлено', 'sent')} {rate(s['net_tx'])}")
         self.net_graph.set_series(h["net_rx"], h["net_tx"])
         self._fill_gpu(s.get("gpu"), s.get("gpu_ready"))
         self._fill_temps(s["temps"])
@@ -1045,9 +1064,12 @@ class SystemTab(QWidget):
             self.gpu_bar.set(load)
             self.gpu_graph.set_series(self.gpu_hist)
         elif ready and not self._gpu_seen:
-            self.gpu_note.setText(by_os("Windows не отдаёт загрузку видеокарты (нужна Windows 10 1709 или новее).",
-                                        "macOS не отдаёт загрузку видеоядра на этом Mac.",
-                                        "Драйвер видеокарты не отдаёт загрузку (умеют NVIDIA и AMD)."))
+            self.gpu_note.setText(by_os(tr("Windows не отдаёт загрузку видеокарты (нужна Windows 10 1709 или новее).",
+                                           "Windows doesn't report GPU load (requires Windows 10 1709 or newer)."),
+                                        tr("macOS не отдаёт загрузку видеоядра на этом Mac.",
+                                           "macOS doesn't report GPU load on this Mac."),
+                                        tr("Драйвер видеокарты не отдаёт загрузку (умеют NVIDIA и AMD).",
+                                           "The graphics driver doesn't report load (NVIDIA and AMD do).")))
         for w in (self.gpu_label, self.gpu_bar, self.gpu_graph):
             w.setVisible(self._gpu_seen)
         self.gpu_note.setVisible(not self._gpu_seen)
@@ -1057,16 +1079,18 @@ class SystemTab(QWidget):
         note = ""
         if not temps:
             if IS_MAC:
-                note = ("Датчики температуры не найдены. На Mac с процессором Intel macOS не отдаёт их "
-                        "программам без прав администратора.")
+                note = tr("Датчики температуры не найдены. На Mac с процессором Intel macOS не отдаёт их "
+                           "программам без прав администратора.",
+                           "No temperature sensors found. On Intel Macs, macOS only exposes them "
+                           "to apps with administrator rights.")
             elif not IS_WINDOWS:
-                note = "Система не отдаёт датчики температуры"
+                note = tr("Система не отдаёт датчики температуры", "The system doesn't expose temperature sensors")
             elif not lhm.ready():
-                note = "Ищу датчики…"
+                note = tr("Ищу датчики…", "Looking for sensors…")
             else:
-                note = f'{lhm.problem()} <a href="{lhm.RELEASES_URL}">Скачать LibreHardwareMonitor</a>'
+                note = f'{lhm.problem()} <a href="{lhm.RELEASES_URL}">' + tr("Скачать LibreHardwareMonitor", "Download LibreHardwareMonitor") + "</a>"
         elif lhm.source():
-            note = f"Источник: {lhm.source()}" + (f". {lhm.problem()}" if lhm.problem() else "")
+            note = tr(f"Источник: {lhm.source()}", f"Source: {lhm.source()}") + (f". {lhm.problem()}" if lhm.problem() else "")
         if (names, note) != self._temp_names:
             self._temp_names = (names, note)
             self._clear(self.temp_lay)
@@ -1087,7 +1111,8 @@ class SystemTab(QWidget):
 # ------------------------------------------------------------ Автозагрузка ---
 
 class StartupTab(QWidget):
-    COLS = ["Вкл.", "Программа", "Вердикт базы", "Откуда", "Команда"]
+    COLS = [tr("Вкл.", "On"), tr("Программа", "Program"), tr("Вердикт базы", "Verdict"), tr("Откуда", "Source"),
+            tr("Команда", "Command")]
 
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -1100,9 +1125,11 @@ class StartupTab(QWidget):
         lay.setSpacing(px(10))
 
         top = QHBoxLayout()
-        top.addWidget(muted("Что запускается вместе с системой. Щёлкните переключатель, чтобы отключить программу "
-                            "или включить обратно. Вердикт — из общей базы WhySlow на GitHub."), 1)
-        self.show_services = QCheckBox("Показывать системные службы")
+        top.addWidget(muted(tr("Что запускается вместе с системой. Щёлкните переключатель, чтобы отключить программу "
+                               "или включить обратно. Вердикт — из общей базы WhySlow на GitHub.",
+                               "What starts with your system. Click a switch to disable a program "
+                               "or turn it back on. Verdicts come from the shared WhySlow database on GitHub.")), 1)
+        self.show_services = QCheckBox(tr("Показывать системные службы", "Show system services"))
         self.show_services.setVisible(IS_LINUX or IS_WINDOWS)
         self.show_services.toggled.connect(self.refill)
         top.addWidget(self.show_services)
@@ -1122,7 +1149,7 @@ class StartupTab(QWidget):
         self.table.itemSelectionChanged.connect(self.on_select)
         lay.addWidget(self.table, 1)
 
-        self.detail = QLabel("Выберите программу, чтобы увидеть пояснение.")
+        self.detail = QLabel(tr("Выберите программу, чтобы увидеть пояснение.", "Select a program to see what it is."))
         self.detail.setWordWrap(True)
         self.detail.setStyleSheet(f"QLabel {{ background: {C['panel2']}; border: 1px solid {C['border']};"
                                   f"border-radius: 12px; padding: {px(12)}px; }}")
@@ -1132,12 +1159,12 @@ class StartupTab(QWidget):
         lay.addWidget(self.detail)
 
         btns = QHBoxLayout()
-        self.b_off = QPushButton("Отключить")
+        self.b_off = QPushButton(tr("Отключить", "Disable"))
         self.b_off.setObjectName("primary")
-        self.b_on = QPushButton("Включить")
-        self.b_del = QPushButton("Удалить из автозагрузки")
+        self.b_on = QPushButton(tr("Включить", "Enable"))
+        self.b_del = QPushButton(tr("Удалить из автозагрузки", "Remove from startup"))
         self.b_del.setObjectName("danger")
-        self.b_report = QPushButton("Предложить в базу…")
+        self.b_report = QPushButton(tr("Предложить в базу…", "Suggest to the base…"))
         self.b_off.clicked.connect(lambda: self.toggle(self.current(), False))
         self.b_on.clicked.connect(lambda: self.toggle(self.current(), True))
         self.b_del.clicked.connect(self.delete)
@@ -1168,11 +1195,13 @@ class StartupTab(QWidget):
         self.table.setRowCount(len(rows))
         for r, it in enumerate(rows):
             sw = Switch(it.enabled)
-            sw.setToolTip("Включено — щёлкните, чтобы отключить" if it.enabled else "Отключено — щёлкните, чтобы включить")
+            sw.setToolTip(tr("Включено — щёлкните, чтобы отключить", "Enabled — click to disable") if it.enabled
+                          else tr("Отключено — щёлкните, чтобы включить", "Disabled — click to enable"))
             sw.clicked.connect(lambda _=False, it=it: self.toggle(it, not it.enabled))
             if not it.can_toggle:
                 sw.setEnabled(False)
-                sw.setToolTip("Запустится один раз при следующем входе; такую запись можно только удалить")
+                sw.setToolTip(tr("Запустится один раз при следующем входе; такую запись можно только удалить",
+                                  "Runs once at next sign-in; this entry can only be removed"))
             cell = QWidget()
             cl = QHBoxLayout(cell)
             cl.setContentsMargins(0, 0, 0, 0)
@@ -1212,7 +1241,7 @@ class StartupTab(QWidget):
         for b in (self.b_off, self.b_on, self.b_del, self.b_report):
             b.setEnabled(it is not None and not self.busy)
         if not it:
-            self.detail.setText("Выберите программу, чтобы увидеть пояснение.")
+            self.detail.setText(tr("Выберите программу, чтобы увидеть пояснение.", "Select a program to see what it is."))
             return
         self.b_off.setEnabled(it.enabled and it.can_toggle and not self.busy)
         self.b_on.setEnabled(not it.enabled and it.can_toggle and not self.busy)
@@ -1220,14 +1249,18 @@ class StartupTab(QWidget):
         v = it.verdict
         color = VERDICT_COLORS.get(v.verdict, C["muted"])
         cat = f" · {v.category}" if v.category else ""
-        admin = (f"<br><span style='color:{C['muted']}'>Для изменения нужны права администратора"
-                 + (" — macOS спросит пароль." if IS_MAC else ".") + "</span>") if it.needs_admin else ""
+        admin = (f"<br><span style='color:{C['muted']}'>" + tr("Для изменения нужны права администратора",
+                                                               "Changing this requires administrator rights")
+                 + (tr(" — macOS спросит пароль.", " — macOS will ask for your password.") if IS_MAC else ".")
+                 + "</span>") if it.needs_admin else ""
         if not it.can_toggle:
-            admin += (f"<br><span style='color:{C['muted']}'>Запустится один раз при следующем входе. "
-                      "Отключить такую запись нельзя, только удалить.</span>")
+            admin += (f"<br><span style='color:{C['muted']}'>"
+                      + tr("Запустится один раз при следующем входе. Отключить такую запись нельзя, только удалить.",
+                           "Runs once at next sign-in. This entry can't be disabled, only removed.")
+                      + "</span>")
         note = v.note
         if v.verdict == "unknown":
-            note = "Нет в базе. " + online_note(it.name, it.command, lambda it=it: self.current() is it and self.on_select())
+            note = tr("Нет в базе. ", "Not in the database. ") + online_note(it.name, it.command, lambda it=it: self.current() is it and self.on_select())
         self.detail.setText(f"<b>{it.name}</b>{cat} — <b style='color:{color}'>{v.label}</b><br>{note}"
                             f"<br><span style='color:{C['muted']}'>{it.command}</span>{admin}")
 
@@ -1236,7 +1269,7 @@ class StartupTab(QWidget):
         self.busy = True
         self.table.setEnabled(False)
         self.on_select()
-        self.main.status("Применяю…")
+        self.main.status(tr("Применяю…", "Applying…"))
 
         def done(_r):
             self.busy = False
@@ -1248,7 +1281,7 @@ class StartupTab(QWidget):
             self.busy = False
             self.table.setEnabled(True)
             self.refill()
-            QMessageBox.warning(self, "Не получилось", msg)
+            QMessageBox.warning(self, tr("Не получилось", "Failed"), msg)
 
         run_async(lambda _p: fn(), done, failed)
 
@@ -1262,33 +1295,48 @@ class StartupTab(QWidget):
         if not enable:
             v = it.verdict
             if v and v.verdict == "keep":
-                if not confirm(self, "Точно отключить?",
-                               f"База WhySlow советует НЕ трогать «{it.name}».\n\n{v.note}\n\n"
-                               "Отключить всё равно? (включить обратно можно в любой момент)", danger=True):
+                if not confirm(self, tr("Точно отключить?", "Disable anyway?"),
+                               tr(f"База WhySlow советует НЕ трогать «{it.name}».\n\n{v.note}\n\n"
+                                  "Отключить всё равно? (включить обратно можно в любой момент)",
+                                  f"The WhySlow database recommends leaving “{it.name}” alone.\n\n{v.note}\n\n"
+                                  "Disable it anyway? (You can turn it back on at any time.)"), danger=True):
                     return
             elif it.kind == "win_service":
-                if not confirm(self, "Перевести службу в режим «Вручную»?",
-                               f"Служба «{it.name}» перестанет запускаться сама при включении компьютера.\n"
-                               "Если она понадобится какой-то программе, Windows запустит её сама.\n\n"
-                               "Вернуть прежний режим можно здесь же или во вкладке «Журнал»."):
+                if not confirm(self, tr("Перевести службу в режим «Вручную»?", "Set the service to Manual?"),
+                               tr(f"Служба «{it.name}» перестанет запускаться сама при включении компьютера.\n"
+                                  "Если она понадобится какой-то программе, Windows запустит её сама.\n\n"
+                                  "Вернуть прежний режим можно здесь же или во вкладке «Журнал».",
+                                  f"The “{it.name}” service will no longer start automatically at boot.\n"
+                                  "If a program needs it, Windows will start it on demand.\n\n"
+                                  "You can restore the previous mode here or in the Journal tab.")):
                     return
-            elif not confirm(self, "Отключить из автозагрузки?",
-                             f"«{it.name}» перестанет запускаться при включении компьютера.\n"
-                             "Сама программа останется установленной, её можно открыть вручную.\n\n"
-                             "Включить обратно можно здесь же или во вкладке «Журнал»."):
+            elif not confirm(self, tr("Отключить из автозагрузки?", "Disable at startup?"),
+                             tr(f"«{it.name}» перестанет запускаться при включении компьютера.\n"
+                                "Сама программа останется установленной, её можно открыть вручную.\n\n"
+                                "Включить обратно можно здесь же или во вкладке «Журнал».",
+                                f"“{it.name}” will no longer start when your computer starts.\n"
+                                "The program stays installed and you can still open it manually.\n\n"
+                                "You can turn it back on here or in the Journal tab.")):
                 return
-        elif not confirm(self, "Включить автозапуск?", f"«{it.name}» снова будет запускаться вместе с системой."):
+        elif not confirm(self, tr("Включить автозапуск?", "Enable at startup?"),
+                             tr(f"«{it.name}» снова будет запускаться вместе с системой.",
+                                f"“{it.name}” will start with your system again.")):
             return
-        self._apply(lambda: startup.set_enabled(it, enable), f"«{it.name}» {'включено' if enable else 'отключено'}")
+        self._apply(lambda: startup.set_enabled(it, enable), (tr(f"«{it.name}» включено", f"“{it.name}” enabled") if enable
+                                                              else tr(f"«{it.name}» отключено", f"“{it.name}” disabled")))
 
     def delete(self):
         it = self.current()
-        if not it or not confirm(self, "Удалить из автозагрузки?",
-                                 f"Запись «{it.name}» будет удалена из автозагрузки.\n"
-                                 "Программа останется установленной. Резервная копия записи сохранится — "
-                                 "её можно вернуть во вкладке «Журнал».", danger=it.verdict.verdict != "bad"):
+        if not it or not confirm(self, tr("Удалить из автозагрузки?", "Remove from startup?"),
+                                 tr(f"Запись «{it.name}» будет удалена из автозагрузки.\n"
+                                    "Программа останется установленной. Резервная копия записи сохранится — "
+                                    "её можно вернуть во вкладке «Журнал».",
+                                    f"The “{it.name}” entry will be removed from startup.\n"
+                                    "The program stays installed. A backup of the entry is kept — "
+                                    "you can restore it in the Journal tab."), danger=it.verdict.verdict != "bad"):
             return
-        self._apply(lambda: startup.delete(it), f"«{it.name}» удалено из автозагрузки")
+        self._apply(lambda: startup.delete(it), tr(f"«{it.name}» удалено из автозагрузки",
+                                                           f"“{it.name}” removed from startup"))
 
     def report(self):
         it = self.current()
@@ -1299,7 +1347,8 @@ class StartupTab(QWidget):
 # --------------------------------------------------------------- Процессы ---
 
 class ProcessesTab(QWidget):
-    COLS = ["Программа", "Процессов", "ЦП", "Память", "Вердикт базы"]
+    COLS = [tr("Программа", "Program"), tr("Процессов", "Processes"), tr("ЦП", "CPU"), tr("Память", "Memory"),
+            tr("Вердикт базы", "Verdict")]
 
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -1309,8 +1358,10 @@ class ProcessesTab(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(10))
-        lay.addWidget(muted("Программы, сгруппированные по имени (браузер = десятки процессов). "
-                            "Обновляется каждые 2 секунды. Нажмите на заголовок, чтобы отсортировать."))
+        lay.addWidget(muted(tr("Программы, сгруппированные по имени (браузер = десятки процессов). "
+                               "Обновляется каждые 2 секунды. Нажмите на заголовок, чтобы отсортировать.",
+                               "Programs grouped by name (a browser = dozens of processes). "
+                               "Updates every 2 seconds. Click a column header to sort.")))
         self.table = make_table(self.COLS)
         self.table.setSortingEnabled(True)
         hh = self.table.horizontalHeader()
@@ -1326,13 +1377,13 @@ class ProcessesTab(QWidget):
         self.detail.setOpenExternalLinks(True)
         lay.addWidget(self.detail)
         row = QHBoxLayout()
-        self.b_kill = QPushButton("Закрыть программу")
+        self.b_kill = QPushButton(tr("Закрыть программу", "Close program"))
         self.b_kill.setObjectName("danger")
         self.b_kill.clicked.connect(self.kill)
         self.b_kill.setEnabled(False)
         row.addWidget(self.b_kill)
         row.addStretch()
-        self.b_report = QPushButton("Предложить в базу…")
+        self.b_report = QPushButton(tr("Предложить в базу…", "Suggest to the base…"))
         self.b_report.clicked.connect(self.report)
         self.b_report.setEnabled(False)
         row.addWidget(self.b_report)
@@ -1354,7 +1405,7 @@ class ProcessesTab(QWidget):
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(top))
         for r, g in enumerate(top):
-            name = QTableWidgetItem(g.name + ("  (система)" if g.system else ""))
+            name = QTableWidgetItem(g.name + (tr("  (система)", "  (system)") if g.system else ""))
             name.setData(Qt.UserRole, g.name)
             v = g.verdict
             verdict = QTableWidgetItem(v.label if v and v.verdict != "unknown" else "")
@@ -1398,18 +1449,20 @@ class ProcessesTab(QWidget):
             return
         warn = ""
         if g.system or (g.verdict and g.verdict.verdict == "keep"):
-            warn = "\n\n⚠ Это системный процесс или важный компонент. Закрытие может привести к сбою или перезагрузке."
-        if not confirm(self, "Закрыть программу?",
-                       f"Закрыть «{g.name}» ({len(g.pids)} проц.)?\nНесохранённые данные в ней будут потеряны.{warn}",
+            warn = tr("\n\n⚠ Это системный процесс или важный компонент. Закрытие может привести к сбою или перезагрузке.",
+                      "\n\n⚠ This is a system process or an important component. Closing it may cause a crash or reboot.")
+        if not confirm(self, tr("Закрыть программу?", "Close program?"),
+                       tr(f"Закрыть «{g.name}» ({len(g.pids)} проц.)?\nНесохранённые данные в ней будут потеряны.{warn}",
+                          f"Close “{g.name}” ({len(g.pids)} proc.)?\nAny unsaved data in it will be lost.{warn}"),
                        danger=bool(warn)):
             return
         self.b_kill.setEnabled(False)
 
         def done(r):
             closed, failed = r
-            msg = f"«{g.name}»: закрыто процессов — {closed}"
+            msg = tr(f"«{g.name}»: закрыто процессов — {closed}", f"“{g.name}”: processes closed — {closed}")
             if failed:
-                msg += f", не удалось — {failed} ({ADMIN_HINT})"
+                msg += tr(f", не удалось — {failed} ({ADMIN_HINT})", f", failed — {failed} ({ADMIN_HINT})")
             self.main.status(msg)
             self.main.journal_tab.reload()
 
@@ -1427,19 +1480,21 @@ class JunkTab(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(10))
-        self.total = QLabel("Нажмите «Проверить» вверху, чтобы найти мусор")
+        self.total = QLabel(tr("Нажмите «Проверить» вверху, чтобы найти мусор", "Press “Scan” above to find junk files"))
         self.total.setObjectName("h1")
         lay.addWidget(self.total)
-        lay.addWidget(muted(f"Удаляются только ваши файлы старше суток ({junk.WHOLE}). "
-                            "Файлы, которые сейчас заняты программами, пропускаются."))
-        self.box = QGroupBox("Что можно удалить")
+        lay.addWidget(muted(tr(f"Удаляются только ваши файлы старше суток ({junk.WHOLE}). "
+                               "Файлы, которые сейчас заняты программами, пропускаются.",
+                               f"Only your own files older than a day are deleted ({junk.WHOLE}). "
+                               "Files currently in use by programs are skipped.")))
+        self.box = QGroupBox(tr("Что можно удалить", "What can be removed"))
         self.box_lay = QGridLayout(self.box)
         self.box_lay.setVerticalSpacing(px(10))
         self.box_lay.setHorizontalSpacing(px(14))
         lay.addWidget(self.box)
         lay.addStretch()
         row = QHBoxLayout()
-        self.b_clean = QPushButton("Очистить выбранное")
+        self.b_clean = QPushButton(tr("Очистить выбранное", "Clean selected"))
         self.b_clean.setObjectName("primary")
         self.b_clean.setEnabled(False)
         self.b_clean.clicked.connect(self.clean)
@@ -1459,7 +1514,7 @@ class JunkTab(QWidget):
             self.boxes.append(cb)
             self.box_lay.addWidget(cb, i, 0)
             self.box_lay.addWidget(muted(c.note), i, 1)
-            size = QLabel(human_size(c.size) + (f"  ·  {c.files} файлов" if c.files else ""))
+            size = QLabel(human_size(c.size) + (tr(f"  ·  {c.files} файлов", f"  ·  {c.files} files") if c.files else ""))
             size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.box_lay.addWidget(size, i, 2)
         self.box_lay.setColumnStretch(1, 1)
@@ -1468,17 +1523,20 @@ class JunkTab(QWidget):
     def update_total(self):
         sel = sum(c.size for c, b in zip(self.cats, self.boxes) if b.isChecked())
         total = sum(c.size for c in self.cats)
-        self.total.setText(f"Можно освободить {human_size(total)}" if total else "Мусора не найдено")
-        self.b_clean.setText(f"Очистить выбранное ({human_size(sel)})")
+        self.total.setText(tr(f"Можно освободить {human_size(total)}", f"{human_size(total)} can be freed") if total
+                           else tr("Мусора не найдено", "No junk found"))
+        self.b_clean.setText(tr(f"Очистить выбранное ({human_size(sel)})", f"Clean selected ({human_size(sel)})"))
         self.b_clean.setEnabled(sel > 0)
 
     def clean(self):
         chosen = [c for c, b in zip(self.cats, self.boxes) if b.isChecked()]
         names = "\n".join(f"• {c.title} — {human_size(c.size)}" for c in chosen)
-        if not confirm(self, "Удалить мусор?", f"Будут удалены:\n{names}\n\nЭто действие нельзя отменить.", danger=True):
+        if not confirm(self, tr("Удалить мусор?", "Delete junk?"),
+                       tr(f"Будут удалены:\n{names}\n\nЭто действие нельзя отменить.",
+                          f"The following will be deleted:\n{names}\n\nThis can't be undone."), danger=True):
             return
         self.b_clean.setEnabled(False)
-        self.b_clean.setText("Удаляю…")
+        self.b_clean.setText(tr("Удаляю…", "Deleting…"))
 
         def work(_p):
             res = [(c, *junk.clean(c)) for c in chosen]
@@ -1490,10 +1548,11 @@ class JunkTab(QWidget):
             failed = sum(x[2] for x in res)
             self.set_cats(cats)
             self.main.journal_tab.reload()
-            msg = f"Освобождено {human_size(freed)}."
+            msg = tr(f"Освобождено {human_size(freed)}.", f"Freed {human_size(freed)}.")
             if failed:
-                msg += f"\nПропущено файлов: {failed} (заняты программами или нет прав)."
-            QMessageBox.information(self, "Готово", msg)
+                msg += tr(f"\nПропущено файлов: {failed} (заняты программами или нет прав).",
+                          f"\nFiles skipped: {failed} (in use or no permission).")
+            QMessageBox.information(self, tr("Готово", "Done"), msg)
 
         run_async(work, done)
 
@@ -1507,9 +1566,11 @@ class JournalTab(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(10))
-        lay.addWidget(muted("Всё, что WhySlow поменял в системе. Отключение автозагрузки, удаление записей и "
-                            "выключение прокси можно откатить."))
-        self.table = make_table(["Когда", "Что сделано", "Статус"])
+        lay.addWidget(muted(tr("Всё, что WhySlow поменял в системе. Отключение автозагрузки, удаление записей и "
+                               "выключение прокси можно откатить.",
+                               "Everything WhySlow has changed on your system. Disabled startup items, removed entries "
+                               "and proxy changes can be undone.")))
+        self.table = make_table([tr("Когда", "When"), tr("Что сделано", "What was done"), tr("Статус", "Status")])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -1517,7 +1578,7 @@ class JournalTab(QWidget):
         self.table.itemSelectionChanged.connect(self.on_select)
         lay.addWidget(self.table, 1)
         row = QHBoxLayout()
-        self.b_undo = QPushButton("Откатить")
+        self.b_undo = QPushButton(tr("Откатить", "Undo"))
         self.b_undo.clicked.connect(self.undo)
         row.addWidget(self.b_undo)
         row.addStretch()
@@ -1528,7 +1589,8 @@ class JournalTab(QWidget):
         self.entries = list(reversed(journal.load()))
         self.table.setRowCount(len(self.entries))
         for r, e in enumerate(self.entries):
-            status = "откачено" if e["undone"] else ("можно откатить" if e["undoable"] else "необратимо")
+            status = (tr("откачено", "undone") if e["undone"]
+                      else tr("можно откатить", "can be undone") if e["undoable"] else tr("необратимо", "permanent"))
             st = QTableWidgetItem(status)
             st.setForeground(QColor(C["muted"] if e["undone"] or not e["undoable"] else C["ok"]))
             for c, it in enumerate([QTableWidgetItem(e["time"]), QTableWidgetItem(e["title"]), st]):
@@ -1545,7 +1607,7 @@ class JournalTab(QWidget):
         if not rows:
             return
         e = self.entries[rows[0].row()]
-        if not confirm(self, "Откатить?", f"Вернуть как было:\n{e['title']}"):
+        if not confirm(self, tr("Откатить?", "Undo?"), tr(f"Вернуть как было:\n{e['title']}", f"Restore the previous state:\n{e['title']}")):
             return
         try:
             if e["kind"].startswith("startup_"):
@@ -1555,14 +1617,15 @@ class JournalTab(QWidget):
             elif e["kind"] == "update":
                 updater.undo(e)
         except Exception as ex:
-            QMessageBox.warning(self, "Не получилось", str(ex))
+            QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
             return
         journal.mark_undone(e["id"])
-        self.main.status("Откачено: " + e["title"])
+        self.main.status(tr("Откачено: ", "Undone: ") + e["title"])
         self.reload()
         self.main.startup_tab.reload()
         if e["kind"] == "update":
-            self.main.offer_restart(f"Вернул версию {e['data']['old_version']}.")
+            self.main.offer_restart(tr(f"Вернул версию {e['data']['old_version']}.",
+                                       f"Restored version {e['data']['old_version']}."))
 
 
 class UpdateDialog(QDialog):
@@ -1572,13 +1635,13 @@ class UpdateDialog(QDialog):
         super().__init__(main)
         self.main = main
         self.rel: updater.Release | None = main.new_release
-        self.setWindowTitle("Обновления WhySlow")
+        self.setWindowTitle(tr("Обновления WhySlow", "WhySlow updates"))
         self.setMinimumWidth(px(560))
         self.setStyleSheet(f"QDialog {{ background: {C['panel']}; }}")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(10))
-        head = QLabel(f"Установлена версия {__version__}")
+        head = QLabel(tr(f"Установлена версия {__version__}", f"Installed version: {__version__}"))
         head.setStyleSheet(f"font-size: {pt(13)}; font-weight: 700;")
         lay.addWidget(head)
         lay.addWidget(muted(updater.mode_hint()))
@@ -1590,27 +1653,28 @@ class UpdateDialog(QDialog):
         self.notes.setMinimumHeight(px(140))
         lay.addWidget(self.notes)
 
-        self.c_check = QCheckBox("Проверять новые версии при запуске")
+        self.c_check = QCheckBox(tr("Проверять новые версии при запуске", "Check for new versions at startup"))
         self.c_check.setChecked(settings.get("check_updates"))
         self.c_check.toggled.connect(lambda v: settings.set("check_updates", v))
-        self.c_auto = QCheckBox("Устанавливать обновления автоматически")
+        self.c_auto = QCheckBox(tr("Устанавливать обновления автоматически", "Install updates automatically"))
         self.c_auto.setChecked(settings.get("auto_update"))
         self.c_auto.toggled.connect(lambda v: settings.set("auto_update", v))
         self.c_auto.setEnabled(updater.mode() != "manual")
         lay.addWidget(self.c_check)
         lay.addWidget(self.c_auto)
-        lay.addWidget(muted("Неудачное обновление откатывается само. Удачное можно откатить во вкладке «Журнал»."))
+        lay.addWidget(muted(tr("Неудачное обновление откатывается само. Удачное можно откатить во вкладке «Журнал».",
+                             "A failed update rolls back on its own. A successful one can be undone in the Journal tab.")))
 
         row = QHBoxLayout()
-        self.b_check = QPushButton("Проверить сейчас")
+        self.b_check = QPushButton(tr("Проверить сейчас", "Check now"))
         self.b_check.clicked.connect(self.check)
         row.addWidget(self.b_check)
-        self.b_page = QPushButton("Страница релизов")
+        self.b_page = QPushButton(tr("Страница релизов", "Releases page"))
         self.b_page.setObjectName("link")
         self.b_page.clicked.connect(lambda: webbrowser.open(f"https://github.com/{updater.REPO}/releases"))
         row.addWidget(self.b_page)
         row.addStretch()
-        self.b_install = QPushButton("Установить")
+        self.b_install = QPushButton(tr("Установить", "Install"))
         self.b_install.setObjectName("primary")
         self.b_install.clicked.connect(self.install)
         row.addWidget(self.b_install)
@@ -1623,8 +1687,8 @@ class UpdateDialog(QDialog):
         rel = self.rel
         self.b_install.setVisible(bool(rel) and updater.mode() != "manual")
         if rel:
-            self.b_install.setText(f"Установить {rel.version}")
-            self.state.setText(msg or f"Доступна новая версия {rel.version}.")
+            self.b_install.setText(tr(f"Установить {rel.version}", f"Install {rel.version}"))
+            self.state.setText(msg or tr(f"Доступна новая версия {rel.version}.", f"New version {rel.version} is available."))
             self.state.setStyleSheet(f"color: {C['ok']}; font-weight: 600;")
         else:
             self.state.setText(msg)
@@ -1634,7 +1698,7 @@ class UpdateDialog(QDialog):
 
     def check(self):
         self.b_check.setEnabled(False)
-        self.state.setText("Проверяю…")
+        self.state.setText(tr("Проверяю…", "Checking…"))
 
         def done(r):
             self.b_check.setEnabled(True)
@@ -1650,9 +1714,11 @@ class UpdateDialog(QDialog):
 
     def install(self):
         rel = self.rel
-        if not rel or not confirm(self, "Обновить WhySlow?",
-                                  f"Установить версию {rel.version} вместо {__version__}?\n"
-                                  "Если новая версия не запустится, старая вернётся сама."):
+        if not rel or not confirm(self, tr("Обновить WhySlow?", "Update WhySlow?"),
+                                  tr(f"Установить версию {rel.version} вместо {__version__}?\n"
+                                     "Если новая версия не запустится, старая вернётся сама.",
+                                     f"Install version {rel.version} in place of {__version__}?\n"
+                                     "If the new version fails to start, the old one comes back automatically.")):
             return
         self.b_install.setEnabled(False)
         self.b_check.setEnabled(False)
@@ -1677,7 +1743,8 @@ class UpdateDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"WhySlow {__version__} — почему тормозит компьютер")
+        self.setWindowTitle(tr(f"WhySlow {__version__} — почему тормозит компьютер",
+                               f"WhySlow {__version__} — why is my computer slow"))
         avail = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1360, int(avail.width() * 0.92)), min(900, int(avail.height() * 0.92)))
         self.kb = knowledge.load()
@@ -1695,10 +1762,18 @@ class MainWindow(QMainWindow):
         logo = QLabel(f"Why<span style='color:{C['accent2']}'>Slow</span>")
         logo.setStyleSheet(f"font-size: {pt(24)}; font-weight: 900; color: {C['accent']};")
         header.addWidget(logo)
-        tagline = muted("объясняет, почему тормозит, и помогает это исправить")
+        tagline = muted(tr("объясняет, почему тормозит, и помогает это исправить",
+                            "explains why your computer is slow and helps fix it"))
         tagline.setContentsMargins(px(12), px(6), 0, 0)
         header.addWidget(tagline, 1)
-        self.b_scan = QPushButton("Проверить")
+        self.lang_box = QComboBox()
+        for code, name in LANGS.items():
+            self.lang_box.addItem(name, code)
+        self.lang_box.setCurrentIndex(max(self.lang_box.findData(lang()), 0))
+        self.lang_box.setToolTip(tr("Язык интерфейса", "Interface language"))
+        self.lang_box.currentIndexChanged.connect(self.change_lang)
+        header.addWidget(self.lang_box)
+        self.b_scan = QPushButton(tr("Проверить", "Scan"))
         self.b_scan.setObjectName("primary")
         self.b_scan.clicked.connect(self.scan)
         header.addWidget(self.b_scan)
@@ -1713,8 +1788,9 @@ class MainWindow(QMainWindow):
         self.journal_tab = JournalTab(self)
         self.tab_keys = {"overview": self.overview, "system": self.system_tab, "startup": self.startup_tab,
                          "procs": self.procs_tab, "junk": self.junk_tab, "journal": self.journal_tab}
-        for w, title in [(self.overview, "Обзор"), (self.system_tab, "Система"), (self.startup_tab, "Автозагрузка"),
-                         (self.procs_tab, "Процессы"), (self.junk_tab, "Очистка"), (self.journal_tab, "Журнал")]:
+        for w, title in [(self.overview, tr("Обзор", "Overview")), (self.system_tab, tr("Система", "System")),
+                         (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
+                         (self.junk_tab, tr("Очистка", "Cleanup")), (self.journal_tab, tr("Журнал", "Journal"))]:
             self.tabs.addTab(w, title)
         self.tabs.currentChanged.connect(self.on_tab)
         lay.addWidget(self.tabs, 1)
@@ -1722,15 +1798,15 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.db_label = QLabel()
         sb.addPermanentWidget(self.db_label)
-        b_db = QPushButton("Обновить базу")
+        b_db = QPushButton(tr("Обновить базу", "Update database"))
         b_db.clicked.connect(lambda: self.update_db(manual=True))
         sb.addPermanentWidget(b_db)
         self.new_release: updater.Release | None = None
-        self.b_update = QPushButton("Обновления")
+        self.b_update = QPushButton(tr("Обновления", "Updates"))
         self.b_update.clicked.connect(lambda: UpdateDialog(self).exec())
         sb.addPermanentWidget(self.b_update)
         if IS_WINDOWS and not is_admin():
-            b_admin = QPushButton("Перезапустить от администратора")
+            b_admin = QPushButton(tr("Перезапустить от администратора", "Restart as administrator"))
             b_admin.clicked.connect(self.restart_as_admin)
             sb.addPermanentWidget(b_admin)
         self.show_db()
@@ -1763,7 +1839,8 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(text, 8000)
 
     def show_db(self):
-        self.db_label.setText(f"База: v{self.kb.version} ({self.kb.source}), {len(self.kb.entries)} записей")
+        self.db_label.setText(tr(f"База: v{self.kb.version} ({self.kb.source}), {len(self.kb.entries)} записей",
+                                 f"Database: v{self.kb.version} ({self.kb.source}), {len(self.kb.entries)} entries"))
 
     def update_db(self, manual=False):
         def done(r):
@@ -1783,13 +1860,13 @@ class MainWindow(QMainWindow):
             rel, _ = r
             self.set_release(rel)
             if rel and cfg["auto_update"] and updater.mode() != "manual":
-                self.status(f"Устанавливаю обновление {rel.version}…")
+                self.status(tr(f"Устанавливаю обновление {rel.version}…", f"Installing update {rel.version}…"))
                 run_async(lambda _p: updater.install(rel), installed, lambda e: self.status(e.splitlines()[0]))
 
         def installed(msg):
             self.set_release(None)
             self.journal_tab.reload()
-            self.b_update.setText("Перезапустить")
+            self.b_update.setText(tr("Перезапустить", "Restart"))
             self.b_update.setObjectName("update")
             self._repolish(self.b_update)
             self.b_update.clicked.disconnect()
@@ -1800,7 +1877,7 @@ class MainWindow(QMainWindow):
 
     def set_release(self, rel):
         self.new_release = rel
-        self.b_update.setText(f"Обновить до {rel.version}" if rel else "Обновления")
+        self.b_update.setText(tr(f"Обновить до {rel.version}", f"Update to {rel.version}") if rel else tr("Обновления", "Updates"))
         self.b_update.setObjectName("update" if rel else "")
         self._repolish(self.b_update)
 
@@ -1814,11 +1891,11 @@ class MainWindow(QMainWindow):
 
     def offer_restart(self, msg: str):
         box = QMessageBox(self)
-        box.setWindowTitle("Готово")
-        box.setText(msg + "\nПерезапустить WhySlow сейчас?")
+        box.setWindowTitle(tr("Готово", "Done"))
+        box.setText(msg + tr("\nПерезапустить WhySlow сейчас?", "\nRestart WhySlow now?"))
         box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        box.button(QMessageBox.Yes).setText("Перезапустить")
-        box.button(QMessageBox.No).setText("Позже")
+        box.button(QMessageBox.Yes).setText(tr("Перезапустить", "Restart"))
+        box.button(QMessageBox.No).setText(tr("Позже", "Later"))
         if box.exec() == QMessageBox.Yes:
             self.restart()
 
@@ -1829,10 +1906,17 @@ class MainWindow(QMainWindow):
             subprocess.Popen(updater.restart_command(), cwd=updater.ROOT, creationflags=flags,
                              start_new_session=not IS_WINDOWS)
         except OSError as e:
-            _show_error(f"Не удалось перезапустить: {e}. Запустите WhySlow заново вручную.")
+            _show_error(tr(f"Не удалось перезапустить: {e}. Запустите WhySlow заново вручную.",
+                           f"Couldn't restart: {e}. Please start WhySlow again manually."))
             return
         self.close()
         QApplication.quit()
+
+    def change_lang(self, _i):
+        code = self.lang_box.currentData()
+        if code and code != lang():
+            set_lang(code)
+            self.restart()
 
     def go(self, key: str):
         self.tabs.setCurrentWidget(self.tab_keys[key])
@@ -1846,8 +1930,8 @@ class MainWindow(QMainWindow):
 
     def scan(self):
         self.b_scan.setEnabled(False)
-        self.b_scan.setText("Проверяю…")
-        self.overview.show_progress("Начинаю…")
+        self.b_scan.setText(tr("Проверяю…", "Scanning…"))
+        self.overview.show_progress(tr("Начинаю…", "Starting…"))
 
         def done(r: checks.ScanResult):
             self.scan_result = r
@@ -1855,21 +1939,24 @@ class MainWindow(QMainWindow):
             self.startup_tab.set_items(r.startup)
             self.junk_tab.set_cats(r.junk)
             self.b_scan.setEnabled(True)
-            self.b_scan.setText("Проверить снова")
+            self.b_scan.setText(tr("Проверить снова", "Scan again"))
 
         def failed(e):
             self.b_scan.setEnabled(True)
-            self.b_scan.setText("Проверить")
-            _show_error(f"Проверка упала: {e}")
+            self.b_scan.setText(tr("Проверить", "Scan"))
+            _show_error(tr(f"Проверка упала: {e}", f"Scan failed: {e}"))
 
         run_async(lambda progress: checks.scan(self.kb, progress), done, failed, self.overview.show_progress)
 
     def fix_proxy(self):
         st = self.scan_result.proxy if self.scan_result else None
-        if not st or not confirm(self, "Выключить прокси?",
-                                 f"Системный прокси {st.server} будет выключен.\n"
-                                 "Если интернет пропал из-за VPN — это вернёт его.\n"
-                                 "Откатить можно во вкладке «Журнал»."):
+        if not st or not confirm(self, tr("Выключить прокси?", "Turn off proxy?"),
+                                 tr(f"Системный прокси {st.server} будет выключен.\n"
+                                    "Если интернет пропал из-за VPN — это вернёт его.\n"
+                                    "Откатить можно во вкладке «Журнал».",
+                                    f"The system proxy {st.server} will be turned off.\n"
+                                    "If your internet stopped working because of a VPN, this will bring it back.\n"
+                                    "You can undo this in the Journal tab.")):
             return
         try:
             network.disable_proxy(st)
@@ -1877,7 +1964,7 @@ class MainWindow(QMainWindow):
             _show_error(str(e))
             return
         self.journal_tab.reload()
-        self.status("Прокси выключен")
+        self.status(tr("Прокси выключен", "Proxy turned off"))
         self.scan()
 
     def restart_as_admin(self):

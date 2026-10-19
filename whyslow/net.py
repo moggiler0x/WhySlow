@@ -14,6 +14,7 @@ import ssl
 import urllib.error
 import urllib.request
 
+from .i18n import tr
 from .util import IS_MAC, run
 
 _MAC_KEYCHAINS = ["/System/Library/Keychains/SystemRootCertificates.keychain", "/Library/Keychains/System.keychain"]
@@ -56,24 +57,30 @@ def urlopen(url: str | urllib.request.Request, timeout: float, headers: dict | N
     return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
 
 
-def explain(e: Exception, what: str = "файл") -> str:
+def explain(e: Exception, what: str = "") -> str:
     """Понятное человеку описание сетевой ошибки, с настоящей причиной в конце."""
+    what = what or tr("файл", "file")
     if isinstance(e, urllib.error.HTTPError):
         if e.code == 404:
-            return f"{what} не найден на GitHub"
+            return tr(f"{what} не найден на GitHub", f"{what} not found on GitHub")
         if e.code == 403:
-            return "GitHub временно ограничил запросы (403), попробуйте позже"
-        return f"сервер GitHub ответил ошибкой {e.code}"
+            return tr("GitHub временно ограничил запросы (403), попробуйте позже",
+                      "GitHub is temporarily rate-limiting requests (403), try again later")
+        return tr(f"сервер GitHub ответил ошибкой {e.code}", f"GitHub server returned error {e.code}")
     reason = e.reason if isinstance(e, urllib.error.URLError) else e
     if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
-        return ("не удалось проверить сертификат GitHub. Обычно помогает «pip install certifi» "
-                f"или «Install Certificates.command» в папке Python ({reason})")
+        return tr("не удалось проверить сертификат GitHub. Обычно помогает «pip install certifi» "
+                  f"или «Install Certificates.command» в папке Python ({reason})",
+                  "could not verify GitHub's certificate. Usually \"pip install certifi\" or "
+                  f"\"Install Certificates.command\" in the Python folder helps ({reason})")
     if isinstance(reason, (socket.timeout, TimeoutError)):
-        return "GitHub не ответил вовремя"
+        return tr("GitHub не ответил вовремя", "GitHub did not respond in time")
     if isinstance(reason, socket.gaierror):
-        return "нет подключения к интернету (не удаётся найти github.com)"
+        return tr("нет подключения к интернету (не удаётся найти github.com)",
+                  "no internet connection (cannot resolve github.com)")
     if isinstance(e, urllib.error.URLError):
-        return f"нет подключения к интернету или GitHub недоступен ({reason})"
+        return tr(f"нет подключения к интернету или GitHub недоступен ({reason})",
+                  f"no internet connection or GitHub is unavailable ({reason})")
     if isinstance(e, ValueError):
-        return f"{what} на GitHub повреждён"
+        return tr(f"{what} на GitHub повреждён", f"{what} on GitHub is corrupted")
     return str(e)

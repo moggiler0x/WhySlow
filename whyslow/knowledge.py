@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import net
+from .i18n import pick, tr
 from .util import IS_WINDOWS, app_dir
 
 DB_URL = os.environ.get(
@@ -23,11 +24,11 @@ DB_URL = os.environ.get(
 BUNDLED = Path(__file__).resolve().parent / "data" / "known.json"
 
 VERDICTS = {
-    "safe": "Можно отключить",
-    "optional": "По желанию",
-    "keep": "Не трогать",
-    "bad": "Лучше удалить",
-    "unknown": "Неизвестно",
+    "safe": tr("Можно отключить", "Safe to disable"),
+    "optional": tr("По желанию", "Optional"),
+    "keep": tr("Не трогать", "Keep"),
+    "bad": tr("Лучше удалить", "Better remove"),
+    "unknown": tr("Неизвестно", "Unknown"),
 }
 
 # Системные имена, которые вирусы любят использовать вне System32
@@ -85,10 +86,10 @@ class KnowledgeBase:
                 continue
             self.entries.append(Entry(
                 id=raw.get("id", raw.get("title", "?")),
-                title=raw.get("title", ""),
+                title=pick(raw, "title"),
                 verdict=raw.get("verdict", "unknown"),
-                note=raw.get("note", ""),
-                category=raw.get("category", ""),
+                note=pick(raw, "note"),
+                category=pick(raw, "category"),
                 patterns=pats,
             ))
 
@@ -100,8 +101,14 @@ class KnowledgeBase:
         for e in self.entries:
             if any(p.search(text) for p in e.patterns):
                 return Verdict(e.verdict, e.note, e.title, e.category, e.id)
-        return Verdict("unknown", "Нет в базе. WhySlow поищет описание в интернете; если знаете точно — "
-                                  "предложите запись в базу, она пополнится для всех.")
+        return Verdict("unknown", tr("Нет в базе. WhySlow поищет описание в интернете; если знаете точно — "
+                                     "предложите запись в базу, она пополнится для всех.",
+                                     "Not in the database. WhySlow will look for a description online; if you know "
+                                     "for sure, suggest an entry and the database will grow for everyone."))
+
+
+def _threat() -> str:
+    return tr("Угроза", "Threat")
 
 
 def _heuristic(text: str) -> Verdict | None:
@@ -109,11 +116,15 @@ def _heuristic(text: str) -> Verdict | None:
         return None
     low = text.lower().replace("/", "\\")
     if re.search(_SYSTEM_NAMES, low) and "\\windows\\" not in low and "\\appdata\\" in low:
-        return Verdict("bad", "Системное имя Windows, но файл лежит в AppData — так маскируются вирусы. "
-                              "Проверьте антивирусом.", "Подозрительный файл", "Угроза")
+        return Verdict("bad", tr("Системное имя Windows, но файл лежит в AppData — так маскируются вирусы. "
+                                 "Проверьте антивирусом.",
+                                 "A Windows system name, but the file lives in AppData — that's how malware hides. "
+                                 "Scan it with an antivirus."),
+                       tr("Подозрительный файл", "Suspicious file"), _threat())
     if "\\appdata\\local\\temp\\" in low and low.rstrip('"').endswith(".exe"):
-        return Verdict("bad", "Программа стартует из папки временных файлов — нормальные программы так не делают.",
-                       "Подозрительный запуск", "Угроза")
+        return Verdict("bad", tr("Программа стартует из папки временных файлов — нормальные программы так не делают.",
+                                 "The program starts from the temp folder — normal programs don't do that."),
+                       tr("Подозрительный запуск", "Suspicious launch"), _threat())
     return None
 
 
@@ -134,8 +145,8 @@ def load() -> KnowledgeBase:
     bundled = _read(BUNDLED) or {"entries": []}
     cached = _read(_cache_path())
     if cached and _version(cached) > _version(bundled):
-        return KnowledgeBase(cached, "кеш с GitHub")
-    return KnowledgeBase(bundled, "встроенная")
+        return KnowledgeBase(cached, tr("кеш с GitHub", "GitHub cache"))
+    return KnowledgeBase(bundled, tr("встроенная", "built-in"))
 
 
 def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
@@ -145,17 +156,23 @@ def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
         with net.urlopen(DB_URL, timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:  # сеть, DNS, кривой JSON — всё одно
-        return current, f"Не удалось обновить базу: {net.explain(e, 'файл базы')}. Продолжаю с имеющейся копией."
+        why = net.explain(e, tr("файл базы", "database file"))
+        return current, tr(f"Не удалось обновить базу: {why}. Продолжаю с имеющейся копией.",
+                           f"Couldn't update the database: {why}. Using the existing copy.")
     if not _valid(data):
-        return current, "Не удалось обновить базу: файл на GitHub повреждён. Продолжаю с имеющейся копией."
+        return current, tr("Не удалось обновить базу: файл на GitHub повреждён. Продолжаю с имеющейся копией.",
+                           "Couldn't update the database: the file on GitHub is corrupted. Using the existing copy.")
     if _version(data) <= current.version:
-        return current, f"База актуальна (версия {current.version})"
+        return current, tr(f"База актуальна (версия {current.version})",
+                           f"Database is up to date (version {current.version})")
     kb = KnowledgeBase(data, "GitHub")
     try:
         _cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     except OSError:
-        return kb, f"База обновлена до версии {kb.version}, но сохранить её на диск не удалось"
-    return kb, f"База обновлена до версии {kb.version}: {len(kb.entries)} записей"
+        return kb, tr(f"База обновлена до версии {kb.version}, но сохранить её на диск не удалось",
+                      f"Database updated to version {kb.version}, but saving it to disk failed")
+    return kb, tr(f"База обновлена до версии {kb.version}: {len(kb.entries)} записей",
+                  f"Database updated to version {kb.version}: {len(kb.entries)} entries")
 
 
 def report_url(name: str, command: str, found: str = "", source: str = "") -> str:
@@ -163,9 +180,12 @@ def report_url(name: str, command: str, found: str = "", source: str = "") -> st
     found — описание, которое программа нашла в интернете (подставляется как черновик)."""
     from urllib.parse import quote
     repo = "https://github.com/moggiler0x/WhySlow"
-    title = f"Добавить в базу: {name}"
-    body = f"**Имя:** `{name}`\n**Команда/путь:** `{command}`\n\n"
+    title = tr(f"Добавить в базу: {name}", f"Add to database: {name}")
+    body = tr(f"**Имя:** `{name}`\n**Команда/путь:** `{command}`\n\n",
+              f"**Name:** `{name}`\n**Command/path:** `{command}`\n\n")
     if found:
-        body += f"Найдено автоматически ({source or 'интернет'}), стоит проверить:\n> {found}\n\n"
-    body += "Что это за программа и можно ли её отключать:\n"
+        src = source or tr("интернет", "internet")
+        body += tr(f"Найдено автоматически ({src}), стоит проверить:\n> {found}\n\n",
+                   f"Found automatically ({src}), worth checking:\n> {found}\n\n")
+    body += tr("Что это за программа и можно ли её отключать:\n", "What this program is and whether it can be disabled:\n")
     return f"{repo}/issues/new?title={quote(title)}&body={quote(body)}&labels=database"

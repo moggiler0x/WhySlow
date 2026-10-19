@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .i18n import tr
+
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
 IS_MAC = platform.system() == "Darwin"
@@ -18,11 +20,6 @@ def by_os(win: str, mac: str, linux: str) -> str:
     if IS_WINDOWS:
         return win
     return mac if IS_MAC else linux
-
-
-ADMIN_HINT = by_os("нужны права администратора",
-                   "нужен пароль администратора или это системный процесс",
-                   "нужны права root (sudo)")
 
 
 def app_dir() -> Path:
@@ -44,7 +41,7 @@ def backup_dir() -> Path:
 def run(cmd: list[str], timeout: float = 10, cwd=None) -> tuple[int, str]:
     """Запускает команду без окна консоли. Возвращает (код, stdout+stderr)."""
     if not shutil.which(cmd[0]):
-        return 127, f"{cmd[0]}: не найдено"
+        return 127, tr(f"{cmd[0]}: не найдено", f"{cmd[0]}: not found")
     kwargs = {}
     if IS_WINDOWS:
         kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
@@ -67,11 +64,12 @@ def is_admin() -> bool:
 
 
 def human_size(n: float) -> str:
-    for unit in ("Б", "КБ", "МБ", "ГБ", "ТБ"):
-        if abs(n) < 1024 or unit == "ТБ":
-            return f"{n:.0f} {unit}" if unit == "Б" else f"{n:.1f} {unit}"
+    units = tr("Б КБ МБ ГБ ТБ", "B KB MB GB TB").split()
+    for unit in units:
+        if abs(n) < 1024 or unit == units[-1]:
+            return f"{n:.0f} {unit}" if unit == units[0] else f"{n:.1f} {unit}"
         n /= 1024
-    return f"{n:.1f} ТБ"
+    return f"{n:.1f} {units[-1]}"
 
 
 def human_duration(seconds: float) -> str:
@@ -79,7 +77,14 @@ def human_duration(seconds: float) -> str:
     h, rem = divmod(rem, 3600)
     m = rem // 60
     if d:
-        return f"{d} д {h} ч"
+        return tr(f"{d} д {h} ч", f"{d} d {h} h")
     if h:
-        return f"{h} ч {m} мин"
-    return f"{m} мин"
+        return tr(f"{h} ч {m} мин", f"{h} h {m} min")
+    return tr(f"{m} мин", f"{m} min")
+
+
+# Внизу модуля: язык читается из настроек, а им нужен app_dir выше
+ADMIN_HINT = by_os(tr("нужны права администратора", "administrator rights required"),
+                   tr("нужен пароль администратора или это системный процесс",
+                      "needs an administrator password, or this is a system process"),
+                   tr("нужны права root (sudo)", "root rights required (sudo)"))

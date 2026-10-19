@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import __version__, journal, net
+from .i18n import tr
 from .util import app_dir, run
 
 REPO = os.environ.get("WHYSLOW_UPDATE_REPO", "moggiler0x/WhySlow")
@@ -75,7 +76,8 @@ def latest(timeout: float = 6) -> Release | None:
                 raise
         tags = [t["name"] for t in _get(API + "/tags?per_page=100", timeout) if parse(t.get("name", ""))]
     except Exception as e:
-        raise UpdateError(f"Не удалось проверить обновления: {net.explain(e)}") from e
+        raise UpdateError(tr(f"Не удалось проверить обновления: {net.explain(e)}",
+                             f"Could not check for updates: {net.explain(e)}")) from e
     if not tags:
         return None
     tag = max(tags, key=parse)
@@ -86,8 +88,9 @@ def check(timeout: float = 6) -> tuple[Release | None, str]:
     """(новая версия или None, сообщение для пользователя)."""
     rel = latest(timeout)
     if rel and is_newer(rel.version):
-        return rel, f"Доступна новая версия {rel.version} (у вас {__version__})"
-    return None, f"У вас последняя версия ({__version__})"
+        return rel, tr(f"Доступна новая версия {rel.version} (у вас {__version__})",
+                       f"New version {rel.version} is available (you have {__version__})")
+    return None, tr(f"У вас последняя версия ({__version__})", f"You have the latest version ({__version__})")
 
 
 # ------------------------------------------------------------ как ставить ---
@@ -107,9 +110,13 @@ def mode() -> str:
 
 def mode_hint() -> str:
     return {
-        "git": "Программа запущена из git-клона: обновление подтянет новую версию через git.",
-        "files": "Обновление скачает архив новой версии и заменит файлы программы. Старые сохранятся для отката.",
-        "manual": "Эту копию нельзя обновить изнутри. Скачайте новую версию со страницы релизов.",
+        "git": tr("Программа запущена из git-клона: обновление подтянет новую версию через git.",
+                  "Running from a git clone: the update will pull the new version via git."),
+        "files": tr("Обновление скачает архив новой версии и заменит файлы программы. Старые сохранятся для отката.",
+                    "The update will download the new version's archive and replace the program files. "
+                    "The old ones are kept for rollback."),
+        "manual": tr("Эту копию нельзя обновить изнутри. Скачайте новую версию со страницы релизов.",
+                     "This copy can't update itself. Download the new version from the releases page."),
     }[mode()]
 
 
@@ -120,54 +127,62 @@ def install(rel: Release, progress=lambda _t: None) -> str:
         raise UpdateError(mode_hint())
     old = __version__
     data = _install_git(rel, progress) if m == "git" else _install_files(rel, progress)
-    journal.add("update", f"Обновление WhySlow {old} → {rel.version}", data)
-    return f"WhySlow обновлён до версии {rel.version}. Перезапустите программу."
+    journal.add("update", tr(f"Обновление WhySlow {old} → {rel.version}", f"WhySlow update {old} → {rel.version}"), data)
+    return tr(f"WhySlow обновлён до версии {rel.version}. Перезапустите программу.",
+              f"WhySlow updated to version {rel.version}. Restart the program.")
 
 
 def _verify(rel: Release, progress, rollback) -> None:
     """Ставит зависимости новой версии и проверяет, что она запускается."""
-    progress("Ставлю зависимости…")
+    progress(tr("Ставлю зависимости…", "Installing dependencies…"))
     code, out = run([sys.executable, "-m", "pip", "install", "-q", "-r", str(ROOT / "requirements.txt")],
                     timeout=600, cwd=ROOT)
     pip_failed = code != 0
-    progress("Проверяю новую версию…")
+    progress(tr("Проверяю новую версию…", "Checking the new version…"))
     code, out = run([sys.executable, "-m", "whyslow", "--selfcheck"], timeout=120, cwd=ROOT)
     lines = out.strip().splitlines()
     if code != 0 or not lines or lines[-1].strip() != rel.version:
-        progress("Новая версия не запустилась, возвращаю старую…")
+        progress(tr("Новая версия не запустилась, возвращаю старую…", "New version failed to start, restoring the old one…"))
         rollback()
         tail = "\n".join(lines[-5:])
-        hint = " Не удалось поставить зависимости (pip)." if pip_failed else ""
-        raise UpdateError(f"Новая версия не запустилась, вернул {__version__}.{hint}\n{tail}".strip())
+        hint = tr(" Не удалось поставить зависимости (pip).", " Failed to install dependencies (pip).") if pip_failed else ""
+        raise UpdateError(tr(f"Новая версия не запустилась, вернул {__version__}.{hint}\n{tail}",
+                             f"New version failed to start, restored {__version__}.{hint}\n{tail}").strip())
 
 
 # ---------------------------------------------------------------- git ---
 
 def _install_git(rel: Release, progress) -> dict:
-    progress("Проверяю git-клон…")
+    progress(tr("Проверяю git-клон…", "Checking the git clone…"))
     code, out = _git("status", "--porcelain", "--untracked-files=no")
     if code != 0:
-        raise UpdateError(f"git не смог прочитать папку программы:\n{out.strip()}")
+        raise UpdateError(tr(f"git не смог прочитать папку программы:\n{out.strip()}",
+                             f"git could not read the program folder:\n{out.strip()}"))
     if out.strip():
-        raise UpdateError("В папке программы есть ваши изменения файлов. Чтобы их не потерять, обновление "
-                          "отменено. Сохраните их (git stash или commit) и попробуйте снова.")
+        raise UpdateError(tr("В папке программы есть ваши изменения файлов. Чтобы их не потерять, обновление "
+                             "отменено. Сохраните их (git stash или commit) и попробуйте снова.",
+                             "The program folder has your local file changes. The update was cancelled so "
+                             "they aren't lost. Save them (git stash or commit) and try again."))
     _, old = _git("rev-parse", "HEAD")
     old = old.strip()
     code, branch = _git("symbolic-ref", "-q", "--short", "HEAD")
     branch = branch.strip() if code == 0 else ""
 
-    progress(f"Скачиваю {rel.tag}…")
+    progress(tr(f"Скачиваю {rel.tag}…", f"Downloading {rel.tag}…"))
     code, out = _git("fetch", "--quiet", "--no-tags", GIT_URL, f"+refs/tags/{rel.tag}:refs/tags/{rel.tag}",
                      timeout=300)
     if code != 0:
-        raise UpdateError(f"Не удалось скачать обновление через git:\n{out.strip()}")
+        raise UpdateError(tr(f"Не удалось скачать обновление через git:\n{out.strip()}",
+                             f"Could not download the update via git:\n{out.strip()}"))
     if branch:
         code, out = _git("merge", "--ff-only", "--quiet", rel.tag)
     else:
         code, out = _git("checkout", "--quiet", "--detach", rel.tag)
     if code != 0:
-        raise UpdateError("Не удалось перейти на новую версию: ветка клона ушла в сторону от "
-                          f"основной. Обновите её вручную (git pull).\n{out.strip()}")
+        raise UpdateError(tr("Не удалось перейти на новую версию: ветка клона ушла в сторону от "
+                             f"основной. Обновите её вручную (git pull).\n{out.strip()}",
+                             "Could not switch to the new version: the clone's branch has diverged from "
+                             f"the main one. Update it manually (git pull).\n{out.strip()}"))
 
     def rollback():
         _git_restore(old, branch)
@@ -183,18 +198,21 @@ def _git_restore(sha: str, branch: str) -> None:
     else:
         code, out = _git("checkout", "--quiet", "--detach", sha)
     if code != 0:
-        raise UpdateError(f"git не смог вернуть прошлую версию:\n{out.strip()}")
+        raise UpdateError(tr(f"git не смог вернуть прошлую версию:\n{out.strip()}",
+                             f"git could not restore the previous version:\n{out.strip()}"))
 
 
 # -------------------------------------------------------------- files ---
 
 def _install_files(rel: Release, progress) -> dict:
     if not os.access(ROOT, os.W_OK):
-        raise UpdateError(f"Нет прав на запись в папку программы {ROOT}. Запустите от администратора "
-                          "или скачайте новую версию вручную.")
+        raise UpdateError(tr(f"Нет прав на запись в папку программы {ROOT}. Запустите от администратора "
+                             "или скачайте новую версию вручную.",
+                             f"No write access to the program folder {ROOT}. Run as administrator "
+                             "or download the new version manually."))
     tmp = Path(tempfile.mkdtemp(prefix="whyslow-update-"))
     try:
-        progress(f"Скачиваю {rel.tag}…")
+        progress(tr(f"Скачиваю {rel.tag}…", f"Downloading {rel.tag}…"))
         url = f"https://github.com/{REPO}/archive/refs/tags/{rel.tag}.zip"
         archive = tmp / "update.zip"
         try:
@@ -202,13 +220,15 @@ def _install_files(rel: Release, progress) -> dict:
             with zipfile.ZipFile(archive) as z:
                 z.extractall(tmp / "x")
         except Exception as e:
-            raise UpdateError(f"Не удалось скачать обновление: {net.explain(e)}") from e
+            raise UpdateError(tr(f"Не удалось скачать обновление: {net.explain(e)}",
+                                 f"Could not download the update: {net.explain(e)}")) from e
         tops = [p for p in (tmp / "x").iterdir() if p.is_dir()]
         src = tops[0] if len(tops) == 1 else tmp / "x"
         if not (src / "whyslow" / "__init__.py").exists():
-            raise UpdateError("Архив обновления не похож на WhySlow — ничего не меняю.")
+            raise UpdateError(tr("Архив обновления не похож на WhySlow — ничего не меняю.",
+                                 "The update archive doesn't look like WhySlow — nothing changed."))
 
-        progress("Сохраняю текущую версию…")
+        progress(tr("Сохраняю текущую версию…", "Backing up the current version…"))
         backup = app_dir() / "updates" / f"{__version__}-{time.strftime('%Y%m%d-%H%M%S')}"
         backup.mkdir(parents=True)
         names = sorted(p.name for p in src.iterdir() if not p.name.startswith("."))
@@ -223,14 +243,15 @@ def _install_files(rel: Release, progress) -> dict:
             _files_restore(backup)
             shutil.rmtree(backup, ignore_errors=True)
 
-        progress("Заменяю файлы…")
+        progress(tr("Заменяю файлы…", "Replacing files…"))
         try:
             for n in names:
                 _remove(ROOT / n)
                 _copy(src / n, ROOT / n)
         except OSError as e:
             rollback()
-            raise UpdateError(f"Не удалось заменить файлы ({e}), вернул старую версию.") from e
+            raise UpdateError(tr(f"Не удалось заменить файлы ({e}), вернул старую версию.",
+                                 f"Could not replace files ({e}), restored the old version.")) from e
         _verify(rel, progress, rollback)
         return {"mode": "files", "backup": str(backup), "old_version": __version__}
     finally:
@@ -272,16 +293,20 @@ def undo(entry: dict) -> None:
     if d["mode"] == "git":
         code, out = _git("status", "--porcelain", "--untracked-files=no")
         if code != 0 or out.strip():
-            raise UpdateError("В папке программы есть изменения файлов — откат отменён, чтобы их не потерять.")
+            raise UpdateError(tr("В папке программы есть изменения файлов — откат отменён, чтобы их не потерять.",
+                                 "The program folder has local file changes — rollback cancelled so they aren't lost."))
         _, head = _git("rev-parse", "HEAD")
         if head.strip() != d["new"]:
-            raise UpdateError("После этого обновления код уже менялся, откатывать опасно. "
-                              f"Вернитесь вручную: git checkout {d['old'][:10]}")
+            raise UpdateError(tr("После этого обновления код уже менялся, откатывать опасно. "
+                                 f"Вернитесь вручную: git checkout {d['old'][:10]}",
+                                 "The code has changed since this update, rolling back is unsafe. "
+                                 f"Go back manually: git checkout {d['old'][:10]}"))
         _git_restore(d["old"], d["branch"])
     else:
         backup = Path(d["backup"])
         if not (backup / "manifest.json").exists():
-            raise UpdateError("Копия прошлой версии не найдена — откатить нельзя.")
+            raise UpdateError(tr("Копия прошлой версии не найдена — откатить нельзя.",
+                                 "Backup of the previous version not found — can't roll back."))
         _files_restore(backup)
 
 

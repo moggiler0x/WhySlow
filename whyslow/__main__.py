@@ -19,6 +19,12 @@ def selfcheck() -> int:
 
 
 def main() -> int:
+    if "--lang" in sys.argv:  # --lang en / --lang ru: язык только на этот запуск
+        from . import i18n
+        i = sys.argv.index("--lang")
+        code = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        if code in i18n.LANGS:
+            i18n.set_lang(code, save=False)
     if "--version" in sys.argv:
         from . import __version__
         print(__version__)

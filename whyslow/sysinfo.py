@@ -13,6 +13,7 @@ from pathlib import Path
 import psutil
 
 from . import lhm, macsensors
+from .i18n import tr
 from .util import IS_LINUX, IS_MAC, IS_WINDOWS, run
 
 
@@ -35,7 +36,7 @@ def cpu_name() -> str:
         code, out = run(["sysctl", "-n", "machdep.cpu.brand_string"])
         if code == 0:
             return out.strip()
-    return platform.processor() or "Неизвестно"
+    return platform.processor() or tr("Неизвестно", "Unknown")
 
 
 def os_name() -> str:
@@ -50,7 +51,7 @@ def os_name() -> str:
         rel, build = platform.release(), platform.version().split(".")[-1]
         if rel == "10" and build.isdigit() and int(build) >= 22000:
             rel = "11"  # Windows 11 честно представляется десяткой
-        return f"Windows {rel} (сборка {build})"
+        return tr(f"Windows {rel} (сборка {build})", f"Windows {rel} (build {build})")
     if IS_MAC and platform.mac_ver()[0]:
         return f"macOS {platform.mac_ver()[0]}"
     return f"{platform.system()} {platform.release()}"
@@ -65,7 +66,7 @@ def board() -> str:
                 parts.append((base / f).read_text().strip())
             except OSError:
                 pass
-        return " ".join(parts) or "Неизвестно"
+        return " ".join(parts) or tr("Неизвестно", "Unknown")
     if IS_WINDOWS:
         code, out = run(["powershell", "-NoProfile", "-Command",
                          "Get-CimInstance Win32_BaseBoard | Select Manufacturer,Product | ConvertTo-Json"])
@@ -74,7 +75,7 @@ def board() -> str:
             return f"{d.get('Manufacturer', '')} {d.get('Product', '')}".strip()
         except ValueError:
             pass
-    return "Неизвестно"
+    return tr("Неизвестно", "Unknown")
 
 
 def gpus() -> list[dict]:
