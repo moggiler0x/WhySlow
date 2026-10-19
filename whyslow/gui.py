@@ -14,7 +14,7 @@ from html import escape as _esc
 import psutil
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QConicalGradient, QFont, QFontMetrics, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QPen,
+    QBrush, QColor, QConicalGradient, QFont, QFontMetrics, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QPen,
     QPixmap, QRadialGradient,
 )
 from PySide6.QtWidgets import (
@@ -160,6 +160,39 @@ QComboBox::drop-down {{ border: none; width: {px(22)}px; }}
 QComboBox QAbstractItemView {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C['border']};
                              selection-background-color: rgba(139, 92, 246, 90); selection-color: white; outline: none; }}
 """
+
+
+def flag_icon(code: str) -> QIcon:
+    """Флажок языка, нарисованный кодом: эмодзи-флаги Windows не показывает."""
+    w, h, k = 30, 20, 3  # рисуем крупнее и сжимаем — края получаются ровными
+    pm = QPixmap(w * k, h * k)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.scale(k, k)
+    clip = QPainterPath()
+    clip.addRoundedRect(QRectF(0, 0, w, h), 3, 3)
+    p.setClipPath(clip)
+    if code == "ru":
+        for i, color in enumerate(("#ffffff", "#0039a6", "#d52b1e")):
+            p.fillRect(QRectF(0, i * h / 3, w, h / 3 + 0.5), QColor(color))
+    else:  # британский флаг
+        p.fillRect(QRectF(0, 0, w, h), QColor("#012169"))
+        for color, width in (("#ffffff", 4.0), ("#c8102e", 1.6)):
+            p.setPen(QPen(QColor(color), width))
+            p.drawLine(QPointF(0, 0), QPointF(w, h))
+            p.drawLine(QPointF(0, h), QPointF(w, 0))
+        p.setPen(Qt.NoPen)
+        p.fillRect(QRectF(w / 2 - 3.3, 0, 6.6, h), QColor("#ffffff"))
+        p.fillRect(QRectF(0, h / 2 - 3.3, w, 6.6), QColor("#ffffff"))
+        p.fillRect(QRectF(w / 2 - 2, 0, 4, h), QColor("#c8102e"))
+        p.fillRect(QRectF(0, h / 2 - 2, w, 4), QColor("#c8102e"))
+    p.setClipping(False)
+    p.setPen(QPen(QColor(0, 0, 0, 60), 0.6))
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(QRectF(0.3, 0.3, w - 0.6, h - 0.6), 3, 3)
+    p.end()
+    return QIcon(pm)
 
 
 def muted(text: str = "") -> QLabel:
@@ -2194,7 +2227,8 @@ class MainWindow(QMainWindow):
         header.addStretch(1)
         self.lang_box = QComboBox()
         for code, name in LANGS.items():
-            self.lang_box.addItem(name, code)
+            self.lang_box.addItem(flag_icon(code), name, code)
+        self.lang_box.setIconSize(QSize(px(21), px(14)))
         self.lang_box.setCurrentIndex(max(self.lang_box.findData(lang()), 0))
         self.lang_box.setToolTip(tr("Язык интерфейса", "Interface language"))
         self.lang_box.currentIndexChanged.connect(self.change_lang)
