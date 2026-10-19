@@ -16,10 +16,10 @@ import re
 import threading
 import time
 import urllib.parse
-import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import net
 from .util import IS_MAC, IS_WINDOWS, app_dir
 
 TTL_FOUND = 30 * 86400    # найденное описание перепроверяем раз в месяц
@@ -148,8 +148,7 @@ def query_for(name: str, info: dict | None = None) -> str:
 
 
 def _get_json(url: str, timeout: float) -> dict:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with net.urlopen(url, timeout, {"User-Agent": _UA}) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

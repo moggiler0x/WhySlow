@@ -23,13 +23,11 @@ import sys
 import tempfile
 import time
 import urllib.error
-import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import __version__, journal
-from .knowledge import _explain
+from . import __version__, journal, net
 from .util import app_dir, run
 
 REPO = os.environ.get("WHYSLOW_UPDATE_REPO", "moggiler0x/WhySlow")
@@ -61,8 +59,7 @@ def is_newer(v: str, than: str = __version__) -> bool:
 
 
 def _get(url: str, timeout: float):
-    req = urllib.request.Request(url, headers={"User-Agent": "WhySlow", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with net.urlopen(url, timeout, {"Accept": "application/vnd.github+json"}) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -78,7 +75,7 @@ def latest(timeout: float = 6) -> Release | None:
                 raise
         tags = [t["name"] for t in _get(API + "/tags?per_page=100", timeout) if parse(t.get("name", ""))]
     except Exception as e:
-        raise UpdateError(f"Не удалось проверить обновления: {_explain(e)}") from e
+        raise UpdateError(f"Не удалось проверить обновления: {net.explain(e)}") from e
     if not tags:
         return None
     tag = max(tags, key=parse)
@@ -205,7 +202,7 @@ def _install_files(rel: Release, progress) -> dict:
             with zipfile.ZipFile(archive) as z:
                 z.extractall(tmp / "x")
         except Exception as e:
-            raise UpdateError(f"Не удалось скачать обновление: {_explain(e)}") from e
+            raise UpdateError(f"Не удалось скачать обновление: {net.explain(e)}") from e
         tops = [p for p in (tmp / "x").iterdir() if p.is_dir()]
         src = tops[0] if len(tops) == 1 else tmp / "x"
         if not (src / "whyslow" / "__init__.py").exists():
@@ -241,8 +238,7 @@ def _install_files(rel: Release, progress) -> dict:
 
 
 def _download(url: str, dest: Path) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "WhySlow"})
-    with urllib.request.urlopen(req, timeout=60) as resp, dest.open("wb") as f:
+    with net.urlopen(url, 60) as resp, dest.open("wb") as f:
         shutil.copyfileobj(resp, f)
 
 
