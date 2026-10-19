@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,16 +59,31 @@ class Verdict:
         return VERDICTS.get(self.verdict, self.verdict)
 
 
+def _version(data: dict) -> int:
+    try:
+        return int(data.get("version", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _valid(data) -> bool:
+    """Похоже ли это на файл базы: словарь со списком записей."""
+    return isinstance(data, dict) and isinstance(data.get("entries"), list)
+
+
 class KnowledgeBase:
     def __init__(self, data: dict, source: str):
-        self.version = int(data.get("version", 0))
+        self.version = _version(data)
         self.updated = str(data.get("updated", ""))
         self.source = source
         self.entries: list[Entry] = []
         for raw in data.get("entries", []):
+            # Битую запись пропускаем, остальная база должна работать
+            if not isinstance(raw, dict) or not isinstance(raw.get("match"), list):
+                continue
             try:
                 pats = [re.compile(p, re.IGNORECASE) for p in raw["match"]]
-            except (KeyError, re.error):
+            except (TypeError, re.error):
                 continue
             self.entries.append(Entry(
                 id=raw.get("id", raw.get("title", "?")),
@@ -108,7 +125,7 @@ def _cache_path() -> Path:
 def _read(path: Path) -> dict | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) and "entries" in data else None
+        return data if _valid(data) else None
     except (OSError, ValueError):
         return None
 
@@ -117,7 +134,7 @@ def load() -> KnowledgeBase:
     """Берёт самую свежую из встроенной и закешированной копий."""
     bundled = _read(BUNDLED) or {"entries": []}
     cached = _read(_cache_path())
-    if cached and int(cached.get("version", 0)) > int(bundled.get("version", 0)):
+    if cached and _version(cached) > _version(bundled):
         return KnowledgeBase(cached, "кеш с GitHub")
     return KnowledgeBase(bundled, "встроенная")
 
@@ -130,14 +147,32 @@ def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:  # сеть, DNS, кривой JSON — всё одно
-        return current, f"Не удалось обновить базу: {e}"
-    if not isinstance(data, dict) or "entries" not in data:
-        return current, "Не удалось обновить базу: неверный формат"
-    if int(data.get("version", 0)) <= current.version:
+        return current, f"Не удалось обновить базу: {_explain(e)}. Продолжаю с имеющейся копией."
+    if not _valid(data):
+        return current, "Не удалось обновить базу: файл на GitHub повреждён. Продолжаю с имеющейся копией."
+    if _version(data) <= current.version:
         return current, f"База актуальна (версия {current.version})"
-    _cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     kb = KnowledgeBase(data, "GitHub")
+    try:
+        _cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        return kb, f"База обновлена до версии {kb.version}, но сохранить её на диск не удалось"
     return kb, f"База обновлена до версии {kb.version}: {len(kb.entries)} записей"
+
+
+def _explain(e: Exception) -> str:
+    """Понятное человеку описание сетевой ошибки."""
+    if isinstance(e, urllib.error.HTTPError):
+        if e.code == 404:
+            return "файл базы не найден на GitHub"
+        return f"сервер GitHub ответил ошибкой {e.code}"
+    if isinstance(e, (socket.timeout, TimeoutError)):
+        return "GitHub не ответил вовремя"
+    if isinstance(e, urllib.error.URLError):
+        return "нет подключения к интернету или GitHub недоступен"
+    if isinstance(e, ValueError):
+        return "файл на GitHub повреждён"
+    return str(e)
 
 
 def report_url(name: str, command: str) -> str:
