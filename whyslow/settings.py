@@ -8,6 +8,9 @@ DEFAULTS = {
     "check_updates": True,   # искать новые версии при запуске
     "auto_update": False,    # ставить их без вопроса
     "language": "",          # "ru" или "en"; пусто — как в системе
+    "mac_autoclean": False,  # macOS: сама чистить безопасные «Системные данные»
+    "mac_autoclean_days": 7, # раз во сколько дней
+    "mac_autoclean_last": 0, # когда чистила в последний раз (time.time())
 }
 
 

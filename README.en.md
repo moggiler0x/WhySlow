@@ -19,6 +19,7 @@ process against it and tells you whether it is safe to disable, better left alon
 * [What it does](#what-it-does)
   * [Tabs](#tabs)
   * [One-click optimization](#one-click-optimization)
+  * [macOS System Data](#macos-system-data)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -51,6 +52,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Startup** | Everything that starts with the system, plus the knowledge base verdict. Toggle items on or off right in the list, or remove them |
 | **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict |
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day |
+| **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
 ### One-click optimization
@@ -67,6 +69,34 @@ administrator rights, the recycle bin, closing programs) you check yourself; any
 is never offered. Nothing changes until you press **Apply** and confirm. Startup and proxy changes can be rolled back
 in the Journal; cleanup and closing programs are permanent, and the list says so. Things the program can't fix on its own
 (no reboot for a long time, overheating) are shown below as advice.
+
+### macOS System Data
+
+In Mac storage settings, “System Data” is a single grey bar you can't open. The **Storage** tab splits it into
+categories, sorted by size:
+
+| Category | Label |
+|---|---|
+| App caches (`~/Library/Caches`), app logs, simulator caches, Xcode DerivedData | safe to delete |
+| “Install macOS…” installers, Xcode device support, Mail attachments, Trash | safe to delete |
+| iPhone and iPad backups, Xcode archives, simulators, Docker, app data | important, keep |
+| Local Time Machine snapshots, system caches and logs, downloaded macOS updates, swap | removed automatically |
+
+Each category explains what it is and what deleting it means, and lists its folders with size and date
+(iPhone backups show the device name and backup date). Checked items are only deleted after you confirm:
+
+* files are **moved to the Trash**, and every deletion goes to the Journal, where it can be put back;
+* for important categories the confirmation lists exactly what will go and asks you to double-check;
+* Time Machine snapshots are deleted with `tmutil`; macOS asks for an administrator password;
+* WhySlow doesn't delete Docker data or simulators itself; it tells you where to do it properly.
+
+**Auto-clean** is a switch at the bottom of the tab, off by default. When on, WhySlow deletes files older than 7 days
+from the safe categories (app caches and logs, Xcode DerivedData, simulator caches) every day, week or month, your choice.
+It runs while WhySlow is open; every run shows on the tab and in the Journal.
+
+**Full Disk Access.** Without it macOS hides iPhone backups, Mail, the Trash and some app data. WhySlow notices and
+shows how to grant it: System Settings → Privacy & Security → Full Disk Access → turn on WhySlow (or Terminal if you
+run from source) and restart the app. The **Open Settings** button opens that page directly.
 
 ### Problems it finds
 
@@ -106,6 +136,7 @@ Each check answers its own question and offers a fix where possible:
 | Startup | Run and RunOnce registry keys, Startup folder, Task Scheduler, services | XDG autostart + systemd | Login Items, LaunchAgents, LaunchDaemons |
 | Stale proxy | ✅ + fix | ✅ GNOME + fix, environment variables | — |
 | Cleanup | Temp, browser cache, dumps, updates, recycle bin | cache, thumbnails, /tmp, trash | cache, logs, trash |
+| “System Data” by category, auto-clean | — | — | ✅ |
 
 ## Install and run
 
@@ -187,6 +218,7 @@ No window, right in the terminal (from source; on macOS and Linux the app works 
 ```bash
 python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
+python3 -m whyslow --storage   # macOS: what “System Data” is made of (changes nothing)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
 python3 -m whyslow --cli --lang en   # language for this run: en or ru
@@ -316,13 +348,14 @@ whyslow/
   startup.py     startup items on Windows / Linux / macOS
   processes.py   processes grouped by program
   junk.py        finding and removing junk
+  macstorage.py  macOS “System Data”: categories, deleting to the Trash, auto-clean
   network.py     system proxy check
   sysinfo.py     hardware info, integrated GPU load
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
   journal.py     change journal for rollback
   updater.py     updating the program from GitHub
-  settings.py    settings (language, update checks and auto-install)
+  settings.py    settings (language, updates, auto-clean on Mac)
   i18n.py        interface language: Russian and English
   data/known.json
   data/icon.png  window icon

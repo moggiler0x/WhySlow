@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
     QSizePolicy, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from . import __version__, checks, journal, junk, knowledge, lhm, network, online, optimize, settings, startup, sysinfo, updater
+from . import (
+    __version__, checks, journal, junk, knowledge, lhm, macstorage, network, online, optimize, settings, startup, sysinfo, updater,
+)
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
@@ -95,7 +97,7 @@ QToolTip {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C[
 QTabWidget::pane {{ border: 1px solid {LINE}; border-radius: 20px; background: rgba(9, 8, 18, 215); }}
 QFrame#nav {{ background: {GLASS}; border: 1px solid {LINE}; border-radius: {nav}px; }}
 QTabBar {{ background: transparent; }}
-QTabBar::tab {{ background: transparent; color: rgba(255, 255, 255, 190); padding: {px(7)}px {px(16)}px;
+QTabBar::tab {{ background: transparent; color: rgba(255, 255, 255, 190); padding: {px(7)}px {px(13)}px;
                margin: {px(3)}px 1px; border: none; border-radius: {tab}px; font-size: {pt(10)}; }}
 QTabBar::tab:selected {{ color: white; background: rgba(255, 255, 255, 28); }}
 QTabBar::tab:hover:!selected {{ color: white; background: rgba(255, 255, 255, 14); }}
@@ -153,6 +155,9 @@ QCheckBox::indicator {{ width: {px(18)}px; height: {px(18)}px; border: 1px solid
                        background: {GLASS}; }}
 QCheckBox::indicator:hover {{ border-color: {C['accent2']}; }}
 QCheckBox::indicator:checked {{ background: {GRAD}; border-color: {C['accent']}; }}
+QTableView::indicator {{ width: {px(16)}px; height: {px(16)}px; border: 1px solid {LINE2}; border-radius: 4px;
+                        background: {GLASS}; }}
+QTableView::indicator:checked {{ background: {GRAD}; border-color: {C['accent']}; }}
 QMessageBox, QDialog {{ background: {C['panel']}; }}
 QMessageBox QLabel {{ font-size: {pt(10)}; }}
 QComboBox {{ background: {GLASS}; border: 1px solid {LINE}; border-radius: {combo}px; color: {C['text']};
@@ -2006,6 +2011,371 @@ class JunkTab(QWidget):
         run_async(work, done)
 
 
+# ------------------------------------------------- Хранилище (только Mac) ---
+
+class StorageTab(QWidget):
+    """Из чего состоят «Системные данные» macOS. Считается при первом открытии вкладки:
+    обход Library занимает время, поэтому отдельно от общей проверки."""
+
+    LEVEL_COLORS = {macstorage.KEEP: C["info"], macstorage.SAFE: C["ok"], macstorage.AUTO: C["muted"]}
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.cats: list[macstorage.Category] = []
+        self.checked: dict[tuple[str, str], bool] = {}
+        self.busy = False
+        self.started = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+
+        head = QHBoxLayout()
+        head.setSpacing(px(14))
+        text = QVBoxLayout()
+        text.setSpacing(px(4))
+        self.title = QLabel(accent(tr("Системные данные", "System Data")))
+        self.title.setObjectName("h1")
+        text.addWidget(self.title)
+        text.addWidget(muted(tr("В настройках хранилища macOS это одна серая полоса. Здесь она разложена по категориям "
+                                "с пометками: что важно, что можно удалить и что macOS удалит сама. Удалённое уходит "
+                                "в Корзину, и его можно вернуть из «Журнала».",
+                                "In macOS storage settings this is one grey bar. Here it is split into categories "
+                                "marked as important, safe to delete, or removed by macOS on its own. Deleted items "
+                                "go to the Trash and can be restored from the Journal.")))
+        head.addLayout(text, 1)
+        self.b_scan = QPushButton(tr("Посчитать", "Measure"))
+        self.b_scan.setObjectName("primary")
+        self.b_scan.setCursor(Qt.PointingHandCursor)
+        self.b_scan.clicked.connect(self.scan)
+        head.addWidget(self.b_scan, 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+
+        self.fda = QFrame()
+        self.fda.setObjectName("card")
+        fl = QHBoxLayout(self.fda)
+        fl.setContentsMargins(px(14), px(10), px(14), px(10))
+        fda_text = QLabel(f"<b style='color:{C['warn']}'>" + tr("Нет полного доступа к диску. ", "No Full Disk Access. ")
+                          + "</b>" + _esc(macstorage.fda_hint()))
+        fda_text.setWordWrap(True)
+        fl.addWidget(fda_text, 1)
+        b_fda = QPushButton(tr("Открыть настройки", "Open Settings"))
+        b_fda.clicked.connect(macstorage.open_fda_settings)
+        fl.addWidget(b_fda, 0, Qt.AlignVCenter)
+        self.fda.setVisible(not macstorage.has_full_disk_access())
+        lay.addWidget(self.fda)
+
+        body = QHBoxLayout()
+        body.setSpacing(px(14))
+        self.table = make_table([tr("Категория", "Category"), tr("Размер", "Size"), tr("Пометка", "Label")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.setSortingEnabled(True)
+        self.table.itemSelectionChanged.connect(self.on_select)
+        body.addWidget(self.table, 5)
+
+        side = QVBoxLayout()
+        side.setSpacing(px(6))
+        self.cat_title = QLabel()
+        self.cat_title.setStyleSheet(f"font-size: {pt(12)}; font-weight: 600;")
+        self.cat_title.setWordWrap(True)
+        side.addWidget(self.cat_title)
+        self.cat_note = muted()
+        self.cat_note.setTextFormat(Qt.RichText)
+        side.addWidget(self.cat_note)
+        self.items = make_table([tr("Что", "What"), tr("Размер", "Size"), tr("Изменено", "Modified")])
+        ih = self.items.horizontalHeader()
+        ih.setSectionResizeMode(0, QHeaderView.Stretch)
+        ih.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.items.itemChanged.connect(self.on_check)
+        side.addWidget(self.items, 1)
+        pick = QHBoxLayout()
+        self.b_all = QPushButton(tr("Отметить всё", "Check all"))
+        self.b_all.setObjectName("link")
+        self.b_all.clicked.connect(lambda: self.check_all(True))
+        self.b_none = QPushButton(tr("Снять отметки", "Uncheck all"))
+        self.b_none.setObjectName("link")
+        self.b_none.clicked.connect(lambda: self.check_all(False))
+        pick.addWidget(self.b_all)
+        pick.addWidget(self.b_none)
+        pick.addStretch()
+        side.addLayout(pick)
+        body.addLayout(side, 6)
+        lay.addLayout(body, 1)
+
+        auto = QFrame()
+        auto.setObjectName("card")
+        al = QHBoxLayout(auto)
+        al.setContentsMargins(px(14), px(10), px(14), px(10))
+        al.setSpacing(px(12))
+        self.sw_auto = Switch(settings.get("mac_autoclean"))
+        self.sw_auto.clicked.connect(self.toggle_auto)
+        al.addWidget(self.sw_auto, 0, Qt.AlignTop)
+        av = QVBoxLayout()
+        av.setSpacing(px(2))
+        t = QLabel(tr("Автоочистка", "Auto-clean"))
+        t.setStyleSheet("font-weight: 700;")
+        av.addWidget(t)
+        self.auto_state = muted()
+        av.addWidget(self.auto_state)
+        al.addLayout(av, 1)
+        self.every = QComboBox()
+        for d in macstorage.INTERVALS:
+            self.every.addItem({1: tr("каждый день", "every day"), 7: tr("раз в неделю", "every week"),
+                                30: tr("раз в месяц", "every month")}[d], d)
+        self.every.setCurrentIndex(max(self.every.findData(settings.get("mac_autoclean_days")), 0))
+        self.every.currentIndexChanged.connect(lambda _i: (settings.set("mac_autoclean_days", self.every.currentData()),
+                                                           self.show_auto()))
+        al.addWidget(self.every, 0, Qt.AlignVCenter)
+        lay.addWidget(auto)
+
+        row = QHBoxLayout()
+        self.state = muted()
+        row.addWidget(self.state, 1)
+        self.b_del = QPushButton(tr("Удалить выбранное", "Delete selected"))
+        self.b_del.setObjectName("primary")
+        self.b_del.setCursor(Qt.PointingHandCursor)
+        self.b_del.clicked.connect(self.delete)
+        row.addWidget(self.b_del)
+        lay.addLayout(row)
+        self.show_auto()
+        self.on_select()
+        self.update_count()
+
+    # --- подсчёт ---
+
+    def activate(self):
+        if not self.started:
+            self.scan()
+
+    def scan(self):
+        if self.busy:
+            return
+        self.started = self.busy = True
+        self.b_scan.setEnabled(False)
+        self.b_scan.setText(tr("Считаю…", "Measuring…"))
+        self.update_count()
+
+        def done(cats):
+            self.busy = False
+            self.b_scan.setEnabled(True)
+            self.b_scan.setText(tr("Посчитать заново", "Measure again"))
+            self.fda.setVisible(not macstorage.has_full_disk_access())
+            self.set_cats(cats)
+
+        def failed(e):
+            self.busy = False
+            self.b_scan.setEnabled(True)
+            self.b_scan.setText(tr("Посчитать", "Measure"))
+            self.update_count()
+            _show_error(e)
+
+        run_async(macstorage.scan_all, done, failed, self.state.setText)
+
+    def set_cats(self, cats: list[macstorage.Category]):
+        keep = self.current()
+        self.cats = cats
+        paths = {(c.key, it.path) for c in cats for it in c.items}
+        self.checked = {k: v for k, v in self.checked.items() if k in paths}
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(cats))
+        for r, c in enumerate(cats):
+            name = QTableWidgetItem(c.title)
+            name.setData(Qt.UserRole, c.key)
+            if c.denied and c.fda:
+                name.setToolTip(tr("Посчитано не всё: нет полного доступа к диску", "Partly measured: no Full Disk Access"))
+                name.setForeground(QColor(C["warn"]))
+            size = NumItem(human_size(c.size) if c.size_known else tr(f"{len(c.items)} шт.", f"{len(c.items)}"),
+                           c.size if c.size_known else -1)
+            tag = QTableWidgetItem(macstorage.level_label(c.level))
+            tag.setForeground(QColor(self.LEVEL_COLORS[c.level]))
+            if c.size_known and not c.size:
+                for it in (name, size):
+                    it.setForeground(QColor(C["muted"]))
+            for col, it in enumerate([name, size, tag]):
+                self.table.setItem(r, col, it)
+        self.table.setSortingEnabled(True)
+        self.table.sortItems(1, Qt.DescendingOrder)
+        total = sum(c.size for c in cats)
+        free = sum(c.size for c in cats if c.level == macstorage.SAFE)
+        self.title.setText(accent(tr(f"Системные данные: найдено {human_size(total)}", f"System Data: {human_size(total)} found")))
+        self.state.setText(tr(f"Можно удалить до {human_size(free)}", f"Up to {human_size(free)} can be deleted"))
+        row = next((r for r in range(self.table.rowCount())
+                    if keep and self.table.item(r, 0).data(Qt.UserRole) == keep.key), 0)
+        self.table.selectRow(row)
+        self.update_count()
+
+    def current(self) -> macstorage.Category | None:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        key = self.table.item(rows[0].row(), 0).data(Qt.UserRole)
+        return next((c for c in self.cats if c.key == key), None)
+
+    def on_select(self):
+        c = self.current()
+        self.items.blockSignals(True)
+        self.items.setRowCount(0)
+        if not c:
+            self.cat_title.setText(tr("Выберите категорию", "Select a category") if self.cats else "")
+            self.cat_note.setText("" if self.cats else tr("Нажмите «Посчитать».", "Press “Measure”."))
+            for b in (self.b_all, self.b_none):
+                b.setVisible(False)
+            self.items.blockSignals(False)
+            return
+        color = self.LEVEL_COLORS[c.level]
+        self.cat_title.setText(f"{_esc(c.title)}  <span style='color:{color}; font-size:{pt(9.5)}; font-weight:400'>"
+                               f"· {_esc(macstorage.level_label(c.level))}</span>")
+        note = _esc(c.note)
+        if c.advice:
+            note += "<br>→ " + _esc(c.advice)
+        elif not c.deletable:
+            note += "<br>" + _esc(tr("WhySlow это не удаляет.", "WhySlow doesn't delete this."))
+        if c.denied and c.fda:
+            note += f"<br><span style='color:{C['warn']}'>" + _esc(tr("Посчитано не всё: нет полного доступа к диску.",
+                                                                      "Partly measured: no Full Disk Access.")) + "</span>"
+        elif c.denied:
+            note += "<br>" + _esc(tr("Часть файлов принадлежит системе, их размер не учтён.",
+                                     "Some files belong to the system and are not counted."))
+        self.cat_note.setText(note)
+        self.items.setRowCount(len(c.items))
+        for r, it in enumerate(c.items):
+            name = QTableWidgetItem(it.name + (f"  ·  {it.note}" if it.note and it.note != it.name else ""))
+            name.setToolTip(it.path)
+            if c.deletable:
+                name.setFlags(name.flags() | Qt.ItemIsUserCheckable)
+                name.setCheckState(Qt.Checked if self.checked.get((c.key, it.path)) else Qt.Unchecked)
+            size = NumItem(human_size(it.size) if c.size_known else "—", it.size)
+            when = QTableWidgetItem(time.strftime("%d.%m.%Y", time.localtime(it.mtime)) if it.mtime else "")
+            for col, cell in enumerate([name, size, when]):
+                self.items.setItem(r, col, cell)
+        if not c.items:
+            self.items.setRowCount(1)
+            empty = QTableWidgetItem(tr("Пусто", "Empty"))
+            empty.setForeground(QColor(C["muted"]))
+            self.items.setItem(0, 0, empty)
+        for b in (self.b_all, self.b_none):
+            b.setVisible(c.deletable and bool(c.items))
+        self.items.blockSignals(False)
+
+    def on_check(self, cell: QTableWidgetItem):
+        c = self.current()
+        if not c or cell.column() != 0 or cell.row() >= len(c.items):
+            return
+        self.checked[(c.key, c.items[cell.row()].path)] = cell.checkState() == Qt.Checked
+        self.update_count()
+
+    def check_all(self, on: bool):
+        c = self.current()
+        if not c:
+            return
+        for it in c.items:
+            self.checked[(c.key, it.path)] = on
+        self.on_select()
+        self.update_count()
+
+    def chosen(self) -> list[tuple[macstorage.Category, macstorage.Item]]:
+        return [(c, it) for c in self.cats if c.deletable for it in c.items if self.checked.get((c.key, it.path))]
+
+    def update_count(self):
+        chosen = self.chosen()
+        size = sum(it.size for _c, it in chosen)
+        self.b_del.setText(tr(f"Удалить выбранное ({len(chosen)}, {human_size(size)})",
+                              f"Delete selected ({len(chosen)}, {human_size(size)})") if chosen
+                           else tr("Удалить выбранное", "Delete selected"))
+        self.b_del.setEnabled(bool(chosen) and not self.busy)
+        MainWindow._repolish(self.b_del)
+
+    # --- удаление ---
+
+    def delete(self):
+        chosen = self.chosen()
+        if not chosen or self.busy:
+            return
+        lines, important = [], []
+        for c in self.cats:
+            mine = [it for cc, it in chosen if cc is c]
+            if not mine:
+                continue
+            size = human_size(sum(it.size for it in mine)) if c.size_known else tr(f"{len(mine)} шт.", f"{len(mine)}")
+            lines.append(f"• {c.title} ({macstorage.level_label(c.level).lower()}): {size}")
+            if c.level == macstorage.KEEP:
+                important.append(f"• {c.title}: " + ", ".join((it.note or it.name) for it in mine[:5]))
+        text = tr("Будет удалено:\n", "To be deleted:\n") + "\n".join(lines)
+        if important:
+            text += tr("\n\nЭто важные данные, проверьте ещё раз:\n", "\n\nThis is important data, double-check:\n") + "\n".join(important)
+        methods = {c.method for c, _it in chosen}
+        if "trash" in methods:
+            text += tr("\n\nФайлы переместятся в Корзину. Вернуть их можно из Корзины или во вкладке «Журнал». "
+                       "Место освободится, когда вы очистите Корзину. Закройте программы, чьи кеши удаляете.",
+                       "\n\nFiles will be moved to the Trash. You can restore them from the Trash or the Journal tab. "
+                       "The space is freed once you empty the Trash. Quit the apps whose caches you delete.")
+        if "empty" in methods:
+            text += tr("\n\nВыбранное из Корзины удалится навсегда.", "\n\nThe selected Trash items will be deleted forever.")
+        if "snapshots" in methods:
+            text += tr("\n\nСнимки Time Machine удалятся навсегда, macOS спросит пароль администратора. "
+                       "Резервные копии на внешнем диске не пострадают.",
+                       "\n\nTime Machine snapshots will be deleted forever; macOS will ask for an administrator password. "
+                       "Backups on the external drive are not affected.")
+        if not confirm(self, tr("Удалить выбранное?", "Delete the selected items?"), text,
+                       danger=bool(important) or bool(methods - {"trash"})):
+            return
+        self.busy = True
+        self.update_count()
+
+        def done(r):
+            ok, failed = r
+            self.busy = False
+            self.checked.clear()
+            self.main.journal_tab.reload()
+            msg = tr(f"Удалено: {ok}.", f"Deleted: {ok}.")
+            if failed:
+                msg += tr(f"\nНе получилось: {failed} (заняты, принадлежат системе или нет доступа).",
+                          f"\nFailed: {failed} (in use, owned by the system, or no access).")
+            QMessageBox.information(self, tr("Готово", "Done"), msg)
+            self.scan()
+
+        def failed(e):
+            self.busy = False
+            self.update_count()
+            _show_error(e)
+
+        run_async(lambda progress: macstorage.delete(chosen, progress), done, failed, self.state.setText)
+
+    # --- автоочистка ---
+
+    def toggle_auto(self):
+        on = not settings.get("mac_autoclean")
+        if on and not confirm(self, tr("Включить автоочистку?", "Turn on auto-clean?"),
+                              macstorage.autoclean_text() + tr(
+                                  "\n\nФайлы удаляются сразу, без Корзины, пока WhySlow запущен. "
+                                  "Каждая очистка записывается в «Журнал». Выключить можно здесь же.",
+                                  "\n\nFiles are deleted right away, without the Trash, while WhySlow is running. "
+                                  "Each run is recorded in the Journal. You can turn it off here.")):
+            return
+        settings.set("mac_autoclean", on)
+        self.sw_auto.setChecked(on)
+        self.show_auto()
+        if on:
+            self.main.autoclean()
+
+    def show_auto(self):
+        on = settings.get("mac_autoclean")
+        self.every.setEnabled(on)
+        last = settings.get("mac_autoclean_last")
+        text = macstorage.autoclean_text()
+        if on:
+            text += " " + (tr(f"Последний раз: {time.strftime('%d.%m.%Y %H:%M', time.localtime(last))}.",
+                              f"Last run: {time.strftime('%Y-%m-%d %H:%M', time.localtime(last))}.") if last
+                           else tr("Ещё не запускалась.", "Hasn't run yet."))
+        else:
+            text += " " + tr("Выключена.", "Off.")
+        self.auto_state.setText(text)
+
+
 # ------------------------------------------------------------ Оптимизация ---
 
 class OptimizeTab(QWidget):
@@ -2243,7 +2613,9 @@ class JournalTab(QWidget):
         lay.addWidget(muted(tr("Всё, что WhySlow поменял в системе. Отключение автозагрузки, удаление записей, "
                                "выключение прокси и скачанный LibreHardwareMonitor можно откатить.",
                                "Everything WhySlow has changed on your system. Disabled startup items, removed entries, "
-                               "proxy changes and the downloaded LibreHardwareMonitor can be undone.")))
+                               "proxy changes and the downloaded LibreHardwareMonitor can be undone.")
+                            + (tr(" Перемещённое в Корзину из «Хранилища» возвращается на место.",
+                                  " Items moved to the Trash from Storage are put back.") if IS_MAC else "")))
         self.table = make_table([tr("Когда", "When"), tr("Что сделано", "What was done"), tr("Статус", "Status")])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -2292,6 +2664,8 @@ class JournalTab(QWidget):
                 updater.undo(e)
             elif e["kind"] == "lhm":
                 lhm.uninstall()
+            elif e["kind"] == "macdata_trash":
+                macstorage.undo(e)
         except Exception as ex:
             QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
             return
@@ -2477,13 +2851,18 @@ class MainWindow(QMainWindow):
         self.junk_tab = JunkTab(self)
         self.journal_tab = JournalTab(self)
         self.optimize_tab = OptimizeTab(self)
+        self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "journal": self.journal_tab}
-        for w, title in [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
-                         (self.system_tab, tr("Система", "System")),
-                         (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
-                         (self.junk_tab, tr("Очистка", "Cleanup")), (self.journal_tab, tr("Журнал", "Journal"))]:
+        pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
+                 (self.system_tab, tr("Система", "System")),
+                 (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
+                 (self.junk_tab, tr("Очистка", "Cleanup")), (self.journal_tab, tr("Журнал", "Journal"))]
+        if self.storage_tab:
+            self.tab_keys["storage"] = self.storage_tab
+            pages.insert(6, (self.storage_tab, tr("Хранилище", "Storage")))
+        for w, title in pages:
             self.tabs.addTab(w, title)
             self.nav.addTab(title)
         self.tabs.tabBar().hide()
@@ -2514,6 +2893,11 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(200, self.update_db)
         QTimer.singleShot(400, self.scan)
         QTimer.singleShot(1500, self.check_updates)
+        if IS_MAC:  # автоочистка по расписанию: проверяем при запуске и раз в час
+            QTimer.singleShot(30000, self.autoclean_if_due)
+            self.auto_timer = QTimer(self)
+            self.auto_timer.timeout.connect(self.autoclean_if_due)
+            self.auto_timer.start(3600 * 1000)
 
     def on_stats(self, s: dict):
         for k in ("disk_r", "disk_w", "net_rx", "net_tx"):
@@ -2625,6 +3009,31 @@ class MainWindow(QMainWindow):
             self.system_tab.activate()
         elif cur is self.procs_tab:
             self.procs_tab.refresh()
+        elif cur is self.storage_tab:
+            self.storage_tab.activate()
+
+    def autoclean_if_due(self):
+        if macstorage.autoclean_due():
+            self.autoclean()
+
+    def autoclean(self):
+        """Автоочистка «Системных данных» в фоне; итог — в строке состояния и в «Журнале»."""
+        if getattr(self, "_autocleaning", False):
+            return
+        self._autocleaning = True
+
+        def done(r):
+            self._autocleaning = False
+            self.status(tr(f"Автоочистка: освобождено {human_size(r[0])}", f"Auto-clean: freed {human_size(r[0])}"))
+            self.journal_tab.reload()
+            if self.storage_tab:
+                self.storage_tab.show_auto()
+
+        def failed(e):
+            self._autocleaning = False
+            self.status(tr(f"Автоочистка не удалась: {e}", f"Auto-clean failed: {e}"))
+
+        run_async(macstorage.autoclean, done, failed)
 
     def scan(self):
         self.b_scan.setEnabled(False)

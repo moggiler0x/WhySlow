@@ -120,27 +120,33 @@ def clean(cat: JunkCategory) -> tuple[int, int]:
         _recycle_empty()
         failed = 0
     else:
-        freed = failed = 0
-        for p, sz in list(_walk(cat.paths, cat.min_age_hours, cat.exclude)):
-            try:
-                os.remove(p)
-                freed += sz
-            except OSError:
-                failed += 1  # файл занят или нет прав — пропускаем
-        # подчищаем старые опустевшие папки (сами корни и исключения не трогаем)
-        cutoff = time.time() - cat.min_age_hours * 3600
-        for root in cat.paths:
-            if root.is_dir():
-                for dirpath, _, _ in sorted(os.walk(root), key=lambda x: -len(x[0])):
-                    if dirpath == str(root) or any(Path(dirpath).is_relative_to(e) for e in cat.exclude):
-                        continue
-                    try:
-                        if os.lstat(dirpath).st_mtime < cutoff:
-                            os.rmdir(dirpath)
-                    except OSError:
-                        pass
+        freed, failed = remove_old(cat.paths, cat.min_age_hours, cat.exclude)
     journal.add("junk_clean", tr(f"Очистка «{cat.title}»: освобождено {human_size(freed)}", f"Cleaned “{cat.title}”: freed {human_size(freed)}"),
                 {"key": cat.key, "freed": freed}, undoable=False)
+    return freed, failed
+
+
+def remove_old(paths: list[Path], min_age_hours: float, exclude: list[Path] = ()) -> tuple[int, int]:
+    """Удаляет свои файлы старше min_age_hours и опустевшие старые папки (корни и исключения
+    не трогает). Возвращает (освобождено байт, сколько файлов не удалось)."""
+    freed = failed = 0
+    for p, sz in list(_walk(paths, min_age_hours, exclude)):
+        try:
+            os.remove(p)
+            freed += sz
+        except OSError:
+            failed += 1  # файл занят или нет прав — пропускаем
+    cutoff = time.time() - min_age_hours * 3600
+    for root in paths:
+        if root.is_dir():
+            for dirpath, _, _ in sorted(os.walk(root), key=lambda x: -len(x[0])):
+                if dirpath == str(root) or any(Path(dirpath).is_relative_to(e) for e in exclude):
+                    continue
+                try:
+                    if os.lstat(dirpath).st_mtime < cutoff:
+                        os.rmdir(dirpath)
+                except OSError:
+                    pass
     return freed, failed
 
 
