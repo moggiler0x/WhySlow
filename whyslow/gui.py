@@ -13,11 +13,14 @@ from html import escape as _esc
 
 import psutil
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtGui import (
+    QBrush, QColor, QConicalGradient, QFont, QFontMetrics, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QPen,
+    QPixmap, QRadialGradient,
+)
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
     QComboBox, QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QSizePolicy, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from . import __version__, checks, journal, junk, knowledge, lhm, network, online, settings, startup, sysinfo, updater
@@ -28,11 +31,18 @@ from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duratio
 # ------------------------------------------------------------------ стиль ---
 
 C = {
-    "bg": "#0a0c16", "bg2": "#120f26", "panel": "#11142a", "panel2": "#181c38", "border": "#272c52",
-    "text": "#eef0ff", "muted": "#8d93b8", "accent": "#7c5cff", "accent2": "#22d3ee",
+    "bg": "#07060d", "bg2": "#0d0a1c", "panel": "#0c0b16", "panel2": "#15131f", "border": "#2a2640",
+    "text": "#f5f3ff", "muted": "#a19cb8", "accent": "#8b5cf6", "accent2": "#c4b5fd", "pink": "#e77edc",
     "ok": "#2ee59d", "info": "#4cc9f0", "warn": "#ffb547", "bad": "#ff4d6d",
 }
 VERDICT_COLORS = {"safe": C["ok"], "optional": C["warn"], "keep": C["info"], "bad": C["bad"], "unknown": C["muted"]}
+
+# Прозрачные слои поверх живого фона — «стекло», как в образце дизайна
+GLASS = "rgba(255, 255, 255, 9)"
+GLASS2 = "rgba(255, 255, 255, 16)"
+LINE = "rgba(255, 255, 255, 22)"
+LINE2 = "rgba(255, 255, 255, 60)"
+SERIF = "Georgia, 'Times New Roman', 'DejaVu Serif', serif"
 
 # На macOS пункт шрифта = пиксель, на Windows и Linux — 1,33 пикселя. Чтобы текст везде
 # был одинаково крупным, все размеры задаются в «условных пунктах» и пересчитываются здесь.
@@ -50,62 +60,105 @@ def px(size: float) -> int:
 
 GRAD = f"qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {C['accent']}, stop:1 {C['accent2']})"
 
-STYLE = f"""
+
+def dark_palette() -> QPalette:
+    """Тёмная палитра для того, что таблица стилей не задаёт: диалоги, меню, поля ввода."""
+    pal = QPalette()
+    for role, color in [(QPalette.Window, C["panel"]), (QPalette.WindowText, C["text"]), (QPalette.Base, C["bg"]),
+                        (QPalette.AlternateBase, C["panel2"]), (QPalette.Text, C["text"]), (QPalette.Button, C["panel2"]),
+                        (QPalette.ButtonText, C["text"]), (QPalette.Highlight, C["accent"]),
+                        (QPalette.HighlightedText, "#ffffff"), (QPalette.ToolTipBase, C["panel2"]),
+                        (QPalette.ToolTipText, C["text"]), (QPalette.PlaceholderText, C["muted"]), (QPalette.Link, C["accent2"])]:
+        pal.setColor(role, QColor(color))
+    pal.setColor(QPalette.Disabled, QPalette.Text, QColor(C["muted"]))
+    pal.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(C["muted"]))
+    return pal
+
+
+def build_style() -> str:
+    """Таблица стилей. Строится после выбора шрифта: «пилюлям» нужен радиус ровно в полвысоты,
+    а Qt молча рисует прямые углы, если радиус хоть на пиксель больше."""
+    line = QFontMetrics(QApplication.font()).height()
+
+    def pill(pad: int, text: float = 1.0, border: int = 2) -> int:
+        return (round(line * text) + 2 * pad + border) // 2 - 1
+
+    btn, prim, small, combo = pill(px(7)), pill(px(8), border=0), pill(3), pill(px(6))
+    badge, tab = pill(px(3), 0.85), pill(px(7), border=0)
+    nav = (round(line) + 2 * px(7) + 2 * px(3) + 2) // 2 - 1
+    return f"""
 * {{ color: {C['text']}; font-size: {pt(10)}; }}
-QMainWindow, QWidget#root {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {C['bg']}, stop:1 {C['bg2']}); }}
+QMainWindow {{ background: {C['bg']}; }}
 QToolTip {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C['border']}; padding: 4px; }}
-QTabWidget::pane {{ border: 1px solid {C['border']}; border-radius: 12px; background: {C['panel']}; top: -1px; }}
-QTabBar::tab {{ background: transparent; color: {C['muted']}; padding: {px(10)}px {px(20)}px; border: none;
-               border-bottom: 3px solid transparent; font-size: {pt(10.5)}; font-weight: 600; }}
-QTabBar::tab:selected {{ color: {C['text']}; border-bottom: 3px solid {C['accent2']}; }}
-QTabBar::tab:hover {{ color: {C['text']}; }}
-QPushButton {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 8px;
-              padding: {px(7)}px {px(16)}px; }}
-QPushButton:hover {{ border-color: {C['accent']}; background: #20254a; }}
-QPushButton:disabled {{ color: {C['muted']}; background: {C['panel']}; border-color: {C['panel2']}; }}
-QPushButton#primary {{ background: {GRAD}; border: none; color: white; font-weight: 700; padding: {px(9)}px {px(26)}px; }}
-QPushButton#primary:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9378ff, stop:1 #4fe0f5); }}
-QPushButton#primary:disabled {{ background: #3a3470; color: #c9c4f5; }}
+QTabWidget::pane {{ border: 1px solid {LINE}; border-radius: 20px; background: rgba(9, 8, 18, 215); }}
+QFrame#nav {{ background: {GLASS}; border: 1px solid {LINE}; border-radius: {nav}px; }}
+QTabBar {{ background: transparent; }}
+QTabBar::tab {{ background: transparent; color: rgba(255, 255, 255, 190); padding: {px(7)}px {px(16)}px;
+               margin: {px(3)}px 1px; border: none; border-radius: {tab}px; font-size: {pt(10)}; }}
+QTabBar::tab:selected {{ color: white; background: rgba(255, 255, 255, 28); }}
+QTabBar::tab:hover:!selected {{ color: white; background: rgba(255, 255, 255, 14); }}
+QPushButton {{ background: transparent; border: 1px solid rgba(255, 255, 255, 77); border-radius: {btn}px;
+              padding: {px(7)}px {px(18)}px; }}
+QPushButton:hover {{ background: rgba(255, 255, 255, 26); border-color: rgba(255, 255, 255, 128); }}
+QPushButton:disabled {{ color: {C['muted']}; border-color: {LINE}; }}
+QPushButton#primary {{ background: white; border: none; color: #09090b; font-weight: 600;
+                      padding: {px(8)}px {px(24)}px; border-radius: {prim}px; }}
+QPushButton#primary:hover {{ background: rgba(255, 255, 255, 225); }}
+QPushButton#primary:disabled {{ background: rgba(255, 255, 255, 110); color: #27272a; }}
 QPushButton#danger:hover {{ border-color: {C['bad']}; color: {C['bad']}; }}
 QPushButton#link {{ background: transparent; border: none; color: {C['accent2']}; padding: 2px 4px; font-weight: 600; }}
 QPushButton#link:hover {{ color: white; }}
-QGroupBox {{ border: 1px solid {C['border']}; border-radius: 12px; margin-top: {px(18)}px;
-             padding: {px(16)}px {px(12)}px {px(12)}px {px(12)}px; background: {C['panel2']}; }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 12px; padding: 0 6px; color: {C['accent2']};
-                    font-weight: 700; font-size: {pt(10.5)}; }}
+QGroupBox {{ border: 1px solid {LINE}; border-radius: 16px; margin-top: {px(18)}px;
+             padding: {px(16)}px {px(12)}px {px(12)}px {px(12)}px; background: {GLASS}; }}
+QGroupBox::title {{ subcontrol-origin: margin; left: 14px; padding: 0 6px; color: {C['accent2']};
+                    font-weight: 600; font-size: {pt(10.5)}; }}
 QLabel#muted {{ color: {C['muted']}; }}
-QLabel#h1 {{ font-size: {pt(19)}; font-weight: 800; }}
-QLabel#section {{ color: {C['muted']}; font-size: {pt(9)}; font-weight: 700; letter-spacing: 1px; }}
-QLabel#big {{ font-size: {pt(22)}; font-weight: 800; }}
-QLabel#field {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; padding: {px(4)}px {px(8)}px; }}
-QFrame#card {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 12px; }}
-QFrame#tile {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1c2142, stop:1 {C['panel2']});
-              border: 1px solid {C['border']}; border-radius: 14px; }}
+QLabel#h1 {{ font-size: {pt(19)}; font-weight: 300; }}
+QLabel#hero {{ font-size: {pt(25)}; font-weight: 300; color: white; }}
+QLabel#heroSub {{ color: rgba(255, 255, 255, 180); font-weight: 300; }}
+QLabel#badge {{ background: rgba(255, 255, 255, 13); border: 1px solid rgba(255, 255, 255, 24);
+               border-top-color: {LINE2}; border-radius: {badge}px; padding: {px(3)}px {px(12)}px;
+               color: rgba(255, 255, 255, 230); font-size: {pt(8.5)}; font-weight: 300; }}
+QLabel#section {{ color: {C['muted']}; font-size: {pt(9)}; font-weight: 600; letter-spacing: 1px; }}
+QLabel#big {{ font-size: {pt(22)}; font-weight: 300; }}
+QLabel#field {{ background: rgba(0, 0, 0, 90); border: 1px solid {LINE}; border-radius: 8px; padding: {px(4)}px {px(8)}px; }}
+QFrame#card {{ background: {GLASS}; border: 1px solid {LINE}; border-radius: 16px; }}
+QFrame#tile {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(139, 92, 246, 34), stop:1 {GLASS});
+              border: 1px solid {LINE}; border-top-color: rgba(255, 255, 255, 40); border-radius: 18px; }}
 QFrame#tile:hover {{ border-color: {C['accent']}; }}
-QTableWidget {{ background: {C['panel']}; alternate-background-color: {C['panel2']}; border: none;
-               gridline-color: transparent; selection-background-color: #2e2a6b; selection-color: white; }}
-QHeaderView::section {{ background: {C['panel2']}; color: {C['muted']}; border: none; font-weight: 700;
-                        border-bottom: 1px solid {C['border']}; padding: {px(8)}px; }}
-QProgressBar {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; text-align: center;
+QTableWidget {{ background: transparent; alternate-background-color: rgba(255, 255, 255, 7); border: none;
+               gridline-color: transparent; selection-background-color: rgba(139, 92, 246, 80); selection-color: white; }}
+QHeaderView {{ background: rgba(255, 255, 255, 10); border: none; }}
+QHeaderView::section {{ background: transparent; color: {C['muted']}; border: none; font-weight: 600;
+                        border-bottom: 1px solid {LINE}; padding: {px(8)}px; }}
+QTableCornerButton::section {{ background: transparent; border: none; }}
+QProgressBar {{ background: rgba(255, 255, 255, 10); border: 1px solid {LINE}; border-radius: 8px; text-align: center;
                font-size: {pt(8.5)}; font-weight: 600; }}
-QProgressBar::chunk {{ background: {GRAD}; border-radius: 5px; }}
+QProgressBar::chunk {{ background: {GRAD}; border-radius: 7px; }}
 QScrollArea {{ border: none; background: transparent; }}
+QScrollArea > QWidget > QWidget {{ background: transparent; }}
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: {C['border']}; border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: rgba(255, 255, 255, 30); border-radius: 4px; min-height: 30px; }}
 QScrollBar::handle:vertical:hover {{ background: {C['accent']}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
-QTextEdit {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+QTextEdit {{ background: rgba(0, 0, 0, 90); border: 1px solid {LINE}; border-radius: 10px; }}
 QStatusBar {{ background: transparent; color: {C['muted']}; }}
-QStatusBar QPushButton {{ padding: 3px 12px; }}
-QStatusBar QPushButton#update {{ background: {GRAD}; border: none; color: white; font-weight: 700; }}
-QCheckBox::indicator {{ width: {px(18)}px; height: {px(18)}px; }}
+QStatusBar::item {{ border: none; }}
+QStatusBar QPushButton {{ padding: 3px 14px; border-radius: {small}px; }}
+QStatusBar QPushButton#update {{ background: white; border: none; color: #09090b; font-weight: 600; }}
+QCheckBox::indicator {{ width: {px(18)}px; height: {px(18)}px; border: 1px solid {LINE2}; border-radius: 5px;
+                       background: {GLASS}; }}
+QCheckBox::indicator:hover {{ border-color: {C['accent2']}; }}
+QCheckBox::indicator:checked {{ background: {GRAD}; border-color: {C['accent']}; }}
+QMessageBox, QDialog {{ background: {C['panel']}; }}
 QMessageBox QLabel {{ font-size: {pt(10)}; }}
-QComboBox {{ background: {C['panel2']}; border: 1px solid {C['border']}; border-radius: 8px; color: {C['text']};
-            padding: {px(6)}px {px(10)}px; }}
-QComboBox:hover {{ border-color: {C['accent']}; }}
-QComboBox::drop-down {{ border: none; width: {px(20)}px; }}
+QComboBox {{ background: {GLASS}; border: 1px solid {LINE}; border-radius: {combo}px; color: {C['text']};
+            padding: {px(6)}px {px(14)}px; }}
+QComboBox:hover {{ border-color: rgba(255, 255, 255, 110); }}
+QComboBox::drop-down {{ border: none; width: {px(22)}px; }}
 QComboBox QAbstractItemView {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C['border']};
-                             selection-background-color: #2e2a6b; selection-color: white; outline: none; }}
+                             selection-background-color: rgba(139, 92, 246, 90); selection-color: white; outline: none; }}
 """
 
 
@@ -618,6 +671,295 @@ def _io_counters() -> tuple[tuple[int, int], tuple[int, int]]:
     return disk, net
 
 
+# ------------------------------------------------------------ живой фон ---
+
+# Пятна «сетчатого градиента»: цвет, яркость, центр (доли ширины и высоты), размах движения,
+# скорости, фаза и радиус (доля большей стороны)
+HERO_BLOBS = [
+    (C["accent"], 210, 0.78, 0.30, 0.16, 0.35, 0.31, 0.23, 0.0, 0.42),
+    ("#4c1d95", 230, 0.30, 0.85, 0.22, 0.30, 0.19, 0.27, 1.7, 0.50),
+    ("#1e1b4b", 255, 0.10, 0.20, 0.10, 0.25, 0.23, 0.17, 3.1, 0.45),
+    ("#ffffff", 70, 0.88, 0.75, 0.08, 0.20, 0.37, 0.29, 4.4, 0.20),
+    (C["accent"], 120, 0.50, 0.10, 0.25, 0.20, 0.13, 0.21, 2.2, 0.30),
+]
+WINDOW_BLOBS = [
+    (C["accent"], 70, 0.92, 0.02, 0, 0, 0, 0, 0, 0.45),
+    ("#4c1d95", 110, 0.05, 1.00, 0, 0, 0, 0, 0, 0.55),
+    ("#1e1b4b", 160, 0.40, 0.45, 0, 0, 0, 0, 0, 0.60),
+]
+
+
+def mesh_image(w: int, h: int, t: float, blobs) -> QImage:
+    """Размытые пятна на чёрном. Рисуется в малом разрешении и растягивается — это почти бесплатно."""
+    img = QImage(max(w, 2), max(h, 2), QImage.Format_RGB32)
+    img.fill(QColor("#000000"))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setCompositionMode(QPainter.CompositionMode_Screen)
+    p.setPen(Qt.NoPen)
+    side = max(w, h)
+    for color, alpha, cx, cy, ax, ay, sx, sy, ph, r in blobs:
+        x = (cx + ax * math.sin(t * sx + ph)) * w
+        y = (cy + ay * math.cos(t * sy + ph * 1.3)) * h
+        g = QRadialGradient(QPointF(x, y), r * side)
+        c0, c1 = QColor(color), QColor(color)
+        c0.setAlpha(alpha)
+        c1.setAlpha(0)
+        g.setColorAt(0, c0)
+        g.setColorAt(1, c1)
+        p.setBrush(g)
+        p.drawRect(0, 0, w, h)
+    p.end()
+    return img
+
+
+class MeshBackground(QWidget):
+    """Неподвижный фиолетовый градиент под всем окном; перерисовывается только при смене размера."""
+
+    def __init__(self):
+        super().__init__()
+        self._cache: QPixmap | None = None
+
+    def resizeEvent(self, e):
+        self._cache = None
+        super().resizeEvent(e)
+
+    def paintEvent(self, _e):
+        if self._cache is None or self._cache.size() != self.size():
+            img = mesh_image(self.width() // 8, self.height() // 8, 0, WINDOW_BLOBS)
+            self._cache = QPixmap.fromImage(img.scaled(self.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+        QPainter(self).drawPixmap(0, 0, self._cache)
+
+
+def accent(text: str, color: str = "white") -> str:
+    """Первое слово — курсивом с засечками, как заголовок в образце дизайна."""
+    first, _, rest = text.partition(" ")
+    return (f"<span style=\"font-family: {SERIF}; font-style: italic; font-weight: 500; color: {color};\">"
+            f"{_esc(first)}</span> {_esc(rest)}")
+
+
+class PulseRing(QWidget):
+    """Переливающееся кольцо с бегущей по кругу надписью; в центре — итог проверки."""
+
+    COLORS = ["#beecff", "#e77edc", "#ff4c3e", "#00ff88", "#ffd700", "#ff6b35", "#8a2be2"]
+
+    def __init__(self):
+        super().__init__()
+        self.setFixedSize(px(124), px(124))
+        self.t = 0.0
+        self.glyph, self.color = "…", C["muted"]
+        self._ring: QPixmap | None = None
+        self.text = tr("почему тормозит • WhySlow • ", "why so slow • WhySlow • ")
+
+    def set_state(self, glyph: str, color: str):
+        self.glyph, self.color = glyph, color
+        self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        c = QPointF(self.width() / 2, self.height() / 2)
+        side = min(self.width(), self.height())
+        ro = side * 0.25 * (1 + 0.05 * math.sin(self.t * 2.4))
+        glow = QRadialGradient(c, ro * 1.9)
+        g0 = QColor(self.color if self.glyph != "…" else C["accent"])
+        g0.setAlpha(90)
+        glow.setColorAt(0.45, g0)
+        glow.setColorAt(1, QColor(0, 0, 0, 0))
+        p.setPen(Qt.NoPen)
+        p.setBrush(glow)
+        p.drawEllipse(c, ro * 1.9, ro * 1.9)
+        cone = QConicalGradient(c, -self.t * 50)
+        for i, col in enumerate(self.COLORS + self.COLORS[:1]):
+            cone.setColorAt(i / len(self.COLORS), QColor(col))
+        p.setBrush(QColor(0, 0, 0, 220))
+        p.setPen(QPen(QBrush(cone), side * 0.045))
+        p.drawEllipse(c, ro, ro)
+        f = QFont(self.font())
+        f.setBold(True)
+        f.setPointSizeF(f.pointSizeF() * 1.5)
+        p.setFont(f)
+        p.setPen(QColor(self.color))
+        p.drawText(QRectF(c.x() - ro, c.y() - ro, ro * 2, ro * 2), Qt.AlignCenter, self.glyph)
+
+        # Надпись по кругу рисуется один раз, а потом только поворачивается
+        if self._ring is None or self._ring.size() != self.size():
+            self._ring = self._draw_ring_text()
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.translate(c)
+        p.rotate(self.t * 18)
+        p.drawPixmap(-self.width() // 2, -self.height() // 2, self._ring)
+
+    def _draw_ring_text(self) -> QPixmap:
+        """Повторяем фразу, пока она не обойдёт кольцо, и разносим буквы равномерно."""
+        pm = QPixmap(self.size())
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        f = QFont(SERIF.split(",")[0])
+        f.setItalic(True)
+        f.setPointSizeF(self.font().pointSizeF() * 0.78)
+        p.setFont(f)
+        fm = QFontMetrics(f)
+        rt = min(self.width(), self.height()) * 0.44
+        text = self.text
+        while fm.horizontalAdvance(text + self.text) < 2 * math.pi * rt:
+            text += self.text
+        total = fm.horizontalAdvance(text)
+        angle = 0.0
+        p.setPen(QColor(255, 255, 255, 200))
+        p.translate(self.width() / 2, self.height() / 2)
+        for ch in text:
+            adv = fm.horizontalAdvance(ch)
+            step = 360 * adv / total
+            p.save()
+            p.rotate(angle + step / 2)
+            p.drawText(QPointF(-adv / 2, -rt + fm.ascent() / 2), ch)
+            p.restore()
+            angle += step
+        p.end()
+        return pm
+
+
+class Hero(QFrame):
+    """Приветственный блок обзора: живой градиент, плашка, крупный заголовок, кнопки и кольцо."""
+
+    FPS = 10  # кольцо; градиент плывёт медленно, ему хватает каждого третьего кадра
+    AWAKE = 20  # сколько секунд градиент плывёт после открытия вкладки или проверки
+
+    def __init__(self):
+        super().__init__()
+        self.t = 0.0  # часы кольца
+        self.tm = 0.0  # часы градиента: идут, только пока он «проснулся»
+        self._frame = 0
+        self._awake_until = 0.0
+        self._bg: QPixmap | None = None
+        self.calm = False  # компьютер и так загружен — не добавляем ему работы
+        self.timer = QTimer(self)
+        self.timer.setInterval(1000 // self.FPS)
+        self.timer.timeout.connect(self._tick)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(px(28), px(14), px(22), px(14))
+        h.setSpacing(px(20))
+        v = QVBoxLayout()
+        v.setSpacing(px(8))
+        self.badge = QLabel()
+        self.badge.setObjectName("badge")
+        v.addWidget(self.badge, 0, Qt.AlignLeft)
+        self.title = QLabel()
+        self.title.setObjectName("hero")
+        self.title.setWordWrap(True)
+        v.addWidget(self.title)
+        self.sub = QLabel()
+        self.sub.setObjectName("heroSub")
+        self.sub.setWordWrap(True)
+        v.addWidget(self.sub)
+        self.buttons = QHBoxLayout()
+        self.buttons.setSpacing(px(12))
+        self.buttons.setContentsMargins(0, px(4), 0, 0)
+        v.addLayout(self.buttons)
+        h.addLayout(v, 1)
+        self.ring = PulseRing()
+        h.addWidget(self.ring, 0, Qt.AlignVCenter)
+
+    def add_button(self, text: str, on_click, primary=False) -> QPushButton:
+        b = QPushButton(text)
+        if primary:
+            b.setObjectName("primary")
+        b.setCursor(Qt.PointingHandCursor)
+        b.clicked.connect(on_click)
+        self.buttons.addWidget(b)
+        return b
+
+    def set_text(self, badge: str, title: str, sub: str, color: str = "white"):
+        self.badge.setText(badge)
+        self.title.setText(accent(title, color))
+        self.sub.setText(sub)
+
+    # Анимация идёт, только пока блок виден и окно не свёрнуто. Градиент, самая дорогая часть,
+    # плывёт лишь первые секунды и пока над ним курсор — как в образце, где фон оживает под мышью.
+    def wake(self):
+        self._awake_until = time.monotonic() + self.AWAKE
+
+    def showEvent(self, e):
+        self.wake()
+        self.timer.start()
+        super().showEvent(e)
+
+    def enterEvent(self, e):
+        self.wake()
+        super().enterEvent(e)
+
+    def hideEvent(self, e):
+        self.timer.stop()
+        super().hideEvent(e)
+
+    def resizeEvent(self, e):
+        self._bg = None
+        super().resizeEvent(e)
+
+    def _tick(self):
+        # Стоим, если окно свёрнуто, пользователь в другой программе или процессор и так загружен
+        if self.calm or not self.window().isActiveWindow():
+            return
+        self.t += 1 / self.FPS
+        self.ring.t = self.t
+        self._frame += 1
+        awake = self.underMouse() or time.monotonic() < self._awake_until
+        if awake:
+            self.tm += 1 / self.FPS
+        if awake and self._frame % 3 == 0:
+            self._bg = None
+            self.update()
+        else:
+            self.ring.update()
+
+    def paintEvent(self, _e):
+        if self._bg is None or self._bg.size() != self.size():
+            self._bg = self._draw_background()
+        QPainter(self).drawPixmap(0, 0, self._bg)
+
+    def _draw_background(self) -> QPixmap:
+        img = mesh_image(self.width() // 4, self.height() // 4, self.tm * 0.35, HERO_BLOBS)
+        q = QPainter(img)  # затемнение слева, чтобы текст читался на любом месте градиента
+        shade = QLinearGradient(0, 0, img.width(), 0)
+        shade.setColorAt(0, QColor(0, 0, 0, 150))
+        shade.setColorAt(0.6, QColor(0, 0, 0, 40))
+        shade.setColorAt(1, QColor(0, 0, 0, 0))
+        q.fillRect(img.rect(), shade)
+        q.end()
+
+        pm = QPixmap(self.size())
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.drawImage(QRectF(self.rect()), img)
+        # Тонкие волны поверх — как сетка второго слоя в образце
+        p.setPen(QPen(QColor(255, 255, 255, 16), 1))
+        w, hgt = r.width(), r.height()
+        for k in range(7):
+            path = QPainterPath()
+            for i in range(41):
+                x = w * i / 40
+                y = hgt * (0.1 + 0.13 * k) + math.sin(i / 40 * math.tau * 1.3 + self.tm * 0.3 + k * 0.9) * hgt * 0.07
+                path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
+            p.drawPath(path)
+        # Скругляем углы маской: это заметно дешевле, чем рисовать с обрезкой по контуру
+        p.setCompositionMode(QPainter.CompositionMode_DestinationIn)
+        p.setPen(Qt.NoPen)
+        p.setBrush(Qt.black)
+        p.drawRoundedRect(r, 20, 20)
+        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(r, 20, 20)
+        p.end()
+        return pm
+
+
 # ----------------------------------------------------------------- Обзор ---
 
 LEVEL_ICON = {checks.OK: "✓", checks.INFO: "i", checks.WARN: "!", checks.BAD: "✕"}
@@ -641,7 +983,7 @@ class StatTile(QFrame):
         self.sub = muted("")
         self.sub.setWordWrap(False)
         v.addWidget(self.sub)
-        self.graph = Sparkline(colors, maximum, 64)
+        self.graph = Sparkline(colors, maximum, 46)
         v.addWidget(self.graph, 1)
 
     def mousePressEvent(self, e):
@@ -658,7 +1000,7 @@ class TopList(QWidget):
         super().__init__()
         g = QGridLayout(self)
         g.setContentsMargins(0, 0, 0, 0)
-        g.setVerticalSpacing(px(6))
+        g.setVerticalSpacing(px(4))
         g.addWidget(section(title), 0, 0, 1, 2)
         self.rows = []
         for i in range(self.N):
@@ -684,21 +1026,19 @@ class OverviewTab(QWidget):
         super().__init__()
         self.main = main
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setContentsMargins(px(20), px(16), px(20), px(14))
         lay.setSpacing(px(14))
-        self.headline = QLabel(tr("Нажмите «Проверить», чтобы узнать, почему тормозит компьютер",
-                              "Press “Scan” to find out why your computer is slow"))
-        self.headline.setObjectName("h1")
-        self.headline.setWordWrap(True)
-        self.sub = muted(tr("Проверка ничего не меняет в системе. Любое изменение — только после вашего подтверждения, "
-                            "и его можно откатить во вкладке «Журнал».",
-                            "Scanning changes nothing on your system. Any change happens only after you confirm it, "
-                            "and it can be undone in the Journal tab."))
-        head = QVBoxLayout()
-        head.setSpacing(px(2))
-        head.addWidget(self.headline)
-        head.addWidget(self.sub)
-        lay.addLayout(head)
+        self.hero = Hero()
+        self.hero.set_text(tr("✨ Без вашего согласия ничего не меняется", "✨ Nothing changes without your consent"),
+                           tr("Почему тормозит компьютер?", "Why is my computer slow?"),
+                           tr("Нажмите «Проверить»: WhySlow посмотрит на нагрузку, автозагрузку, мусор и сеть. "
+                              "Любое изменение — только после вашего подтверждения, и его можно откатить во вкладке «Журнал».",
+                              "Press “Scan”: WhySlow looks at load, startup apps, junk and network. "
+                              "Any change happens only after you confirm it, and it can be undone in the Journal tab."))
+        self.hero.add_button(tr("Автозагрузка", "Startup apps"), lambda: self.main.go("startup"))
+        self.hero.add_button(tr("Очистка", "Cleanup"), lambda: self.main.go("junk"))
+        self.hero.buttons.addStretch()
+        lay.addWidget(self.hero)
 
         tiles = QHBoxLayout()
         tiles.setSpacing(px(12))
@@ -706,7 +1046,7 @@ class OverviewTab(QWidget):
         self.t_cpu = StatTile(tr("Процессор", "CPU"), [C["accent2"]], 100, go_sys)
         self.t_ram = StatTile(tr("Память", "Memory"), [C["accent"]], 100, go_sys)
         self.t_disk = StatTile(tr("Диск", "Disk"), [C["ok"], C["warn"]], None, go_sys)
-        self.t_net = StatTile(tr("Сеть", "Network"), [C["info"], "#ff7ad9"], None, go_sys)
+        self.t_net = StatTile(tr("Сеть", "Network"), [C["info"], C["pink"]], None, go_sys)
         for t in (self.t_cpu, self.t_ram, self.t_disk, self.t_net):
             tiles.addWidget(t, 1)
         lay.addLayout(tiles)
@@ -731,8 +1071,8 @@ class OverviewTab(QWidget):
         side = QFrame()
         side.setObjectName("card")
         sv = QVBoxLayout(side)
-        sv.setContentsMargins(px(16), px(14), px(16), px(12))
-        sv.setSpacing(px(14))
+        sv.setContentsMargins(px(16), px(12), px(16), px(10))
+        sv.setSpacing(px(10))
         self.top_cpu = TopList(tr("Сейчас грузят процессор", "Top CPU right now"))
         self.top_mem = TopList(tr("Больше всех памяти", "Top memory"))
         sv.addWidget(self.top_cpu)
@@ -742,7 +1082,11 @@ class OverviewTab(QWidget):
         b.setObjectName("link")
         b.clicked.connect(lambda: self.main.go("procs"))
         sv.addWidget(b, 0, Qt.AlignRight)
-        body.addWidget(side, 2)
+        # Списки длинные: на невысоком экране блок прокручивается, а не раздувает окно
+        side_scroll = QScrollArea()
+        side_scroll.setWidgetResizable(True)
+        side_scroll.setWidget(side)
+        body.addWidget(side_scroll, 2)
         lay.addLayout(body, 1)
 
     def on_stats(self, s: dict, h: dict):
@@ -771,27 +1115,27 @@ class OverviewTab(QWidget):
         self.top_mem.set([(g.name, human_size(g.mem), color(g)) for g in by_mem])
 
     def show_progress(self, text: str):
-        self.headline.setText(tr("Проверяю…", "Scanning…"))
-        self.headline.setStyleSheet("")
-        self.sub.setText(text)
+        self.hero.set_text(tr("✨ Проверка идёт", "✨ Scanning"), tr("Проверяю компьютер…", "Checking your computer…"), text)
+        self.hero.ring.set_state("…", C["muted"])
 
     def show_result(self, r: checks.ScanResult):
         bad = sum(f.level == checks.BAD for f in r.findings)
         warn = sum(f.level == checks.WARN for f in r.findings)
         if bad:
-            self.headline.setText(tr(f"Найдено серьёзных проблем: {bad}", f"Serious problems found: {bad}")
-                                  + (tr(f", замечаний: {warn}", f", warnings: {warn}") if warn else ""))
-            self.headline.setStyleSheet(f"color: {C['bad']};")
+            title = (tr(f"Серьёзных проблем: {bad}", f"Serious problems: {bad}")
+                     + (tr(f", замечаний: {warn}", f", warnings: {warn}") if warn else ""))
+            color, glyph = C["bad"], str(bad + warn)
         elif warn:
-            self.headline.setText(tr(f"Есть что улучшить: {warn}", f"Things to improve: {warn}"))
-            self.headline.setStyleSheet(f"color: {C['warn']};")
+            title, color, glyph = tr(f"Есть что улучшить: {warn}", f"Things to improve: {warn}"), C["warn"], str(warn)
         else:
-            self.headline.setText(tr("Всё в порядке", "All good"))
-            self.headline.setStyleSheet(f"color: {C['ok']};")
-        self.sub.setText(tr(f"Проверка заняла {r.took:.1f} с · {time.strftime('%H:%M')}. "
-                            "Показатели вверху обновляются каждую секунду.",
-                            f"Scan took {r.took:.1f}s · {time.strftime('%H:%M')}. "
-                            "The gauges above update every second."))
+            title, color, glyph = tr("Всё в порядке", "All good"), C["ok"], "✓"
+        self.hero.set_text(tr(f"✨ Проверено в {time.strftime('%H:%M')} за {r.took:.1f} с",
+                              f"✨ Checked at {time.strftime('%H:%M')} in {r.took:.1f}s"),
+                           title,
+                           tr("Показатели ниже обновляются каждую секунду. Любое изменение можно откатить в «Журнале».",
+                              "The gauges below update every second. Any change can be undone in the Journal."), color)
+        self.hero.ring.set_state(glyph, color)
+        self.hero.wake()
         while self.list_lay.count() > 1:
             w = self.list_lay.takeAt(0).widget()
             if w:
@@ -936,7 +1280,7 @@ class SystemTab(QWidget):
         nv = QVBoxLayout(net)
         self.net_io = muted("")
         nv.addWidget(self.net_io)
-        self.net_graph = Sparkline([C["info"], "#ff7ad9"], None, 130, axis=True, fmt=rate_short,
+        self.net_graph = Sparkline([C["info"], C["pink"]], None, 130, axis=True, fmt=rate_short,
                                    names=[tr("получено", "received"), tr("отправлено", "sent")])
         nv.addWidget(self.net_graph)
 
@@ -1053,7 +1397,7 @@ class SystemTab(QWidget):
                              f"<span style='color:{C['warn']}'>■</span> {tr('запись', 'write')} {rate(s['disk_w'])}")
         self.disk_graph.set_series(h["disk_r"], h["disk_w"])
         self.net_io.setText(f"<span style='color:{C['info']}'>■</span> {tr('получено', 'received')} {rate(s['net_rx'])}   "
-                            f"<span style='color:#ff7ad9'>■</span> {tr('отправлено', 'sent')} {rate(s['net_tx'])}")
+                            f"<span style='color:{C['pink']}'>■</span> {tr('отправлено', 'sent')} {rate(s['net_tx'])}")
         self.net_graph.set_series(h["net_rx"], h["net_tx"])
         self._fill_gpu(s.get("gpu"), s.get("gpu_ready"))
         self._fill_temps(s["temps"])
@@ -1549,7 +1893,7 @@ class JunkTab(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(10))
-        self.total = QLabel(tr("Нажмите «Проверить» вверху, чтобы найти мусор", "Press “Scan” above to find junk files"))
+        self.total = QLabel(accent(tr("Нажмите «Проверить» вверху, чтобы найти мусор", "Press “Scan” above to find junk files")))
         self.total.setObjectName("h1")
         lay.addWidget(self.total)
         lay.addWidget(muted(tr(f"Удаляются только ваши файлы старше суток ({junk.WHOLE}). "
@@ -1592,8 +1936,8 @@ class JunkTab(QWidget):
     def update_total(self):
         sel = sum(c.size for c, b in zip(self.cats, self.boxes) if b.isChecked())
         total = sum(c.size for c in self.cats)
-        self.total.setText(tr(f"Можно освободить {human_size(total)}", f"{human_size(total)} can be freed") if total
-                           else tr("Мусора не найдено", "No junk found"))
+        self.total.setText(accent(tr(f"Можно освободить {human_size(total)}", f"{human_size(total)} can be freed") if total
+                                  else tr("Мусора не найдено", "No junk found")))
         self.b_clean.setText(tr(f"Очистить выбранное ({human_size(sel)})", f"Clean selected ({human_size(sel)})"))
         self.b_clean.setEnabled(sel > 0)
 
@@ -1822,21 +2166,32 @@ class MainWindow(QMainWindow):
         self.scan_result: checks.ScanResult | None = None
         self.hist = {k: deque(maxlen=60) for k in ("cpu", "ram", "disk_r", "disk_w", "net_rx", "net_tx")}
 
-        root = QWidget()
-        root.setObjectName("root")
+        root = MeshBackground()
         self.setCentralWidget(root)
         lay = QVBoxLayout(root)
         lay.setContentsMargins(px(20), px(14), px(20), px(8))
         lay.setSpacing(px(12))
 
         header = QHBoxLayout()
-        logo = QLabel(f"Why<span style='color:{C['accent2']}'>Slow</span>")
-        logo.setStyleSheet(f"font-size: {pt(24)}; font-weight: 900; color: {C['accent']};")
+        header.setSpacing(px(12))
+        logo = QLabel(accent("Why Slow").replace("</span> ", "</span>"))
+        logo.setStyleSheet(f"font-size: {pt(22)}; font-weight: 600; color: white;")
+        logo.setToolTip(tr("объясняет, почему тормозит, и помогает это исправить",
+                           "explains why your computer is slow and helps fix it"))
         header.addWidget(logo)
-        tagline = muted(tr("объясняет, почему тормозит, и помогает это исправить",
-                            "explains why your computer is slow and helps fix it"))
-        tagline.setContentsMargins(px(12), px(6), 0, 0)
-        header.addWidget(tagline, 1)
+        header.addStretch(1)
+        # Вкладки — «пилюлями» в шапке, как навигация в образце; сами страницы ниже, в QTabWidget
+        nav = QFrame()
+        nav.setObjectName("nav")
+        nl = QHBoxLayout(nav)
+        nl.setContentsMargins(px(3), 0, px(3), 0)
+        self.nav = QTabBar()
+        self.nav.setDrawBase(False)
+        self.nav.setExpanding(False)
+        self.nav.setCursor(Qt.PointingHandCursor)
+        nl.addWidget(self.nav)
+        header.addWidget(nav)
+        header.addStretch(1)
         self.lang_box = QComboBox()
         for code, name in LANGS.items():
             self.lang_box.addItem(name, code)
@@ -1846,6 +2201,7 @@ class MainWindow(QMainWindow):
         header.addWidget(self.lang_box)
         self.b_scan = QPushButton(tr("Проверить", "Scan"))
         self.b_scan.setObjectName("primary")
+        self.b_scan.setCursor(Qt.PointingHandCursor)
         self.b_scan.clicked.connect(self.scan)
         header.addWidget(self.b_scan)
         lay.addLayout(header)
@@ -1863,6 +2219,10 @@ class MainWindow(QMainWindow):
                          (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                          (self.junk_tab, tr("Очистка", "Cleanup")), (self.journal_tab, tr("Журнал", "Journal"))]:
             self.tabs.addTab(w, title)
+            self.nav.addTab(title)
+        self.tabs.tabBar().hide()
+        self.nav.currentChanged.connect(self.tabs.setCurrentIndex)
+        self.tabs.currentChanged.connect(self.nav.setCurrentIndex)
         self.tabs.currentChanged.connect(self.on_tab)
         lay.addWidget(self.tabs, 1)
 
@@ -1895,6 +2255,7 @@ class MainWindow(QMainWindow):
         self.hist["cpu"].append(s["cpu"])
         self.hist["ram"].append(s["ram"][2])
         self.overview.on_stats(s, self.hist)
+        self.overview.hero.calm = s["cpu"] >= 70
         self.system_tab.on_stats(s, self.hist)
 
     def on_procs(self, groups):
@@ -2049,10 +2410,11 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("WhySlow")
     app.setStyle("Fusion")
+    app.setPalette(dark_palette())
     f = app.font()
     f.setPointSizeF(10 * SCALE)
     app.setFont(f)
-    app.setStyleSheet(STYLE)
+    app.setStyleSheet(build_style())
     w = MainWindow()
     w.show()
     return app.exec()
