@@ -195,5 +195,14 @@ def disks() -> list[dict]:
     return out
 
 
+def memory() -> tuple[int, int, float]:
+    """(занято, всего, процент) по одной формуле на всех ОС: занято всё, что
+    нельзя сразу отдать программам. Голое vm.used на macOS не учитывает сжатую
+    и служебную память, поэтому «2.8 ГБ из 8» соседствовало с «84%»."""
+    vm = psutil.virtual_memory()
+    used = vm.total - vm.available
+    return used, vm.total, used / vm.total * 100 if vm.total else 0.0
+
+
 def uptime() -> float:
     return time.time() - psutil.boot_time()

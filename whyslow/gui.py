@@ -355,10 +355,10 @@ class Sampler(QThread):
                 if tick % 10 == 0:
                     disks = sysinfo.disks()
                 freq = psutil.cpu_freq()
-                vm, sw = psutil.virtual_memory(), psutil.swap_memory()
+                sw = psutil.swap_memory()
                 self.stats.emit({
                     "cpu": sum(per) / max(len(per), 1), "per": per, "freq": freq.current if freq else None,
-                    "ram": (vm.used, vm.total, vm.percent), "swap": (sw.used, sw.total, sw.percent),
+                    "ram": sysinfo.memory(), "swap": (sw.used, sw.total, sw.percent),
                     "disk_r": max(disk1[0] - disk0[0], 0) / dt, "disk_w": max(disk1[1] - disk0[1], 0) / dt,
                     "net_rx": max(net1[0] - net0[0], 0) / dt, "net_tx": max(net1[1] - net0[1], 0) / dt,
                     "uptime": sysinfo.uptime(), "temps": temps, "disks": disks,
@@ -644,7 +644,7 @@ class SystemTab(QWidget):
         g.setVerticalSpacing(px(8))
         self._row(g, 0, "Всего", "ram_total")
         g.addWidget(muted("ОЗУ"), 1, 0)
-        self.ram_bar = Bar(70, 85, 26)
+        self.ram_bar = Bar(70, 90, 26)
         g.addWidget(self.ram_bar, 1, 1)
         g.addWidget(muted("Подкачка"), 2, 0)
         self.swap_bar = Bar(50, 80)

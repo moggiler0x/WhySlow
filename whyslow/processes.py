@@ -25,6 +25,18 @@ class ProcGroup:
     verdict: Verdict | None = None
 
 
+def _name(info: dict) -> str:
+    """Имя процесса целиком. macOS хранит в ядре только первые 16 байт имени —
+    кириллица режется посреди буквы («Яндекс М�»). Тогда берём имя файла."""
+    name = info.get("name") or "?"
+    exe = info.get("exe") or ""
+    if exe and ("\ufffd" in name or len(name.encode()) >= 15):
+        full = os.path.basename(exe)
+        if full.startswith(name.replace("\ufffd", "")[:-1] or full):
+            return full
+    return name
+
+
 class ProcessMonitor:
     """Держит объекты Process между замерами — иначе cpu_percent всегда 0."""
 
@@ -46,7 +58,7 @@ class ProcessMonitor:
             except psutil.Error:
                 continue
             info = p.info
-            name = info.get("name") or "?"
+            name = _name(info)
             if name.lower() in ("system idle process", "idle"):
                 continue
             g = groups.setdefault(name.lower(), ProcGroup(name))
