@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, online, optimize, settings, updater
+from . import checks, knowledge, macstorage, online, optimize, settings, updater
 from .i18n import tr
+from .util import IS_MAC, human_size
 
 ICONS = {checks.OK: "[ OK ]", checks.INFO: "[ i  ]", checks.WARN: "[ !  ]", checks.BAD: "[!!!!]"}
 
@@ -40,6 +41,9 @@ def main(fix: bool = False) -> int:
             print(f"  {it.name}: {text}")
     steps = optimize.plan(r)
     _print_plan(steps)
+    if IS_MAC:
+        print(tr("\nИз чего состоят «Системные данные» macOS: python3 -m whyslow --storage",
+                 "\nWhat macOS “System Data” is made of: python3 -m whyslow --storage"))
     if not fix:
         print(tr(f"\nПроверка заняла {r.took:.1f} с. Исправить отмеченное: python3 -m whyslow --optimize "
                  "(или в окне, вкладка «Оптимизация»).",
@@ -69,6 +73,28 @@ def _print_plan(steps) -> None:
         mark = "[x]" if s.checked else "[ ]"
         tail = "" if s.undoable else tr("  (необратимо)", "  (permanent)")
         print(f"  {mark} {s.title}{tail}")
+
+
+def storage() -> int:
+    """python -m whyslow --storage: «Системные данные» macOS по категориям. Только показывает,
+    удалять — в окне, вкладка «Хранилище»."""
+    if not IS_MAC:
+        print(tr("«Системные данные» есть только в macOS.", "“System Data” only exists on macOS."))
+        return 0
+    if not macstorage.has_full_disk_access():
+        print(tr("Нет полного доступа к диску, часть категорий не посчитать.\n",
+                 "No Full Disk Access, some categories can't be measured.\n") + macstorage.fda_hint() + "\n")
+    cats = macstorage.scan_all(progress=lambda t: print("  " + t))
+    print()
+    for c in cats:
+        size = human_size(c.size) if c.size_known else tr(f"{len(c.items)} шт.", f"{len(c.items)} items")
+        mark = tr("  (не всё доступно)", "  (partly measured)") if c.denied and c.fda else ""
+        print(f"  {size:>10}  {c.title:<36} {macstorage.level_label(c.level)}{mark}")
+    print(tr(f"\nВсего: {human_size(sum(c.size for c in cats))}. Удалить выбранное можно в окне, вкладка «Хранилище».",
+             f"\nTotal: {human_size(sum(c.size for c in cats))}. Delete selected items in the window, Storage tab."))
+    print(tr("Автоочистка: ", "Auto-clean: ") + (tr("включена. ", "on. ") if settings.get("mac_autoclean") else tr("выключена. ", "off. "))
+          + macstorage.autoclean_text())
+    return 0
 
 
 def update() -> int:
