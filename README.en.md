@@ -190,8 +190,12 @@ Installed copies see the new version as soon as the tag exists, even before the 
 * **NVIDIA graphics cards** — temperature comes from the driver on every system.
 * **Windows** does not expose CPU, motherboard and disk temperatures by itself. WhySlow gets them from
   [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) in one of two ways:
-  1. **Easiest:** run LibreHardwareMonitor as administrator and keep it open.
-     WhySlow reads the sensors via WMI, no setup needed.
+  1. **Easiest:** press "Download and run LibreHardwareMonitor" in the Temperatures block
+     on the System tab. After you confirm, WhySlow downloads the official release from GitHub,
+     checks its checksum, unpacks it into `%LOCALAPPDATA%\WhySlow\lhm` and starts it with an
+     administrator prompt. Keep LHM running (it minimizes to the tray): WhySlow reads the sensors
+     via WMI. After a reboot the same block offers a "Run" button.
+     The download can be removed by undoing it in the Journal.
   2. **Without the LHM window:** put `LibreHardwareMonitorLib.dll` and `HidSharp.dll` from the LHM archive
      into `%LOCALAPPDATA%\WhySlow\lhm` (or point the `WHYSLOW_LHM_DIR` variable at a folder),
      run `pip install pythonnet` and start WhySlow as administrator.

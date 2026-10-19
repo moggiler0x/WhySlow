@@ -214,7 +214,8 @@ def _temps(f):
     if not temps:
         if IS_WINDOWS:
             f.append(Finding(INFO, "Температуры недоступны", lhm.problem(),
-                             f"LibreHardwareMonitor: {lhm.RELEASES_URL}"))
+                             "Кнопка в блоке «Температуры» на вкладке «Система» скачает и запустит "
+                             f"LibreHardwareMonitor ({lhm.RELEASES_URL})."))
         elif IS_MAC:
             f.append(Finding(INFO, "Температуры недоступны",
                              "Датчики не найдены. На Mac с Apple Silicon они читаются сами, а на Mac с Intel "
