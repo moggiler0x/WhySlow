@@ -19,6 +19,9 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"  # на Windows иначе русский текст в файлах и выводе читается как cp1252
+
 jobs:
   build:
     name: ${{ matrix.name }}
@@ -33,11 +36,11 @@ jobs:
           - { name: Linux, os: ubuntu-22.04 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -54,7 +57,7 @@ jobs:
 
       - name: Сохранить файл
         if: ${{ !inputs.tag }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ steps.build.outputs.name }}
           path: ${{ steps.build.outputs.file }}

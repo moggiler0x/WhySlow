@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 
 from whyslow.updater import asset_name  # noqa: E402 — имена файлов те же, что ищет обновление
 
-VERSION = re.search(r'__version__ = "(.+)"', (ROOT / "whyslow" / "__init__.py").read_text()).group(1)
+VERSION = re.search(r'__version__ = "(.+)"', (ROOT / "whyslow" / "__init__.py").read_text(encoding="utf-8")).group(1)
 SYSTEM = platform.system()
 APPIMAGETOOL = ("https://github.com/AppImage/appimagetool/releases/download/continuous/"
                 "appimagetool-x86_64.AppImage")
