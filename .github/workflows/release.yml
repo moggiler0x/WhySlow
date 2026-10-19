@@ -1,0 +1,26 @@
+# Релиз из тега: git tag v0.3.0 && git push origin v0.3.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версия в коде совпадает с тегом
+        run: |
+          code=$(python3 -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('whyslow/__init__.py').read()).group(1))")
+          if [ "v$code" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Тег $GITHUB_REF_NAME, а в whyslow/__init__.py версия $code"
+            exit 1
+          fi
+      - name: Создать релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "WhySlow ${GITHUB_REF_NAME#v}" --generate-notes
