@@ -1,29 +1,93 @@
-# Релиз из тега: git tag v0.3.0 && git push origin v0.3.0
+# Выпуск новой версии.
+#
+# Проще всего: Actions → Release → Run workflow. Версию можно не вписывать —
+# возьмётся следующая (0.2.5 → 0.2.6). Workflow сам запишет её в whyslow/__init__.py,
+# закоммитит в main, поставит тег и создаст релиз.
+#
+# Если релиз всё же выпустили на сайте (Releases → Draft a new release) или
+# отправили тег из терминала, а версию в коде поднять забыли, workflow сам
+# допишет версию из тега в код и передвинет тег на этот коммит.
 name: Release
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Версия, например 0.3.0. Пусто — следующая по порядку"
+        required: false
   push:
     tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Версия в коде совпадает с тегом
+        with:
+          fetch-depth: 0
+
+      - name: Какую версию выпускаем
+        id: v
+        env:
+          INPUT: ${{ github.event.inputs.version }}
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
+          # Свежие тег и main: соседний запуск мог их только что передвинуть
+          git fetch -q -f origin "+refs/tags/*:refs/tags/*" "+refs/heads/main:refs/remotes/origin/main"
+          git checkout -q origin/main
           code=$(python3 -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('whyslow/__init__.py').read()).group(1))")
-          if [ "v$code" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Тег $GITHUB_REF_NAME, а в whyslow/__init__.py версия $code"
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ -n "$INPUT" ]; then
+              version="${INPUT#v}"
+            else
+              version=$(python3 -c "import sys; p=sys.argv[1].split('.'); p[-1]=str(int(p[-1])+1); print('.'.join(p))" "$code")
+            fi
+            git checkout -q origin/main
+          else
+            version="${TAG#v}"
+            git checkout -q "refs/tags/v$version"
+          fi
+          if ! echo "$version" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
+            echo "::error::Версия должна быть вида 0.3.0, а не «$version»"
             exit 1
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Выпускаю $version"
+
+      - name: Записать версию в код и поставить тег
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          base=$(git rev-parse HEAD)
+          sed -i -E "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" whyslow/__init__.py
+          if ! git diff --quiet; then
+            git commit -qam "Версия $VERSION"
+            # В main пишем, только если тег стоял на её последнем коммите
+            if [ "$base" = "$(git rev-parse origin/main)" ]; then
+              git push origin HEAD:main
+            fi
+          fi
+          if [ "$(git rev-parse -q --verify "refs/tags/v$VERSION^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            git tag -f "v$VERSION"
+            git push -f origin "refs/tags/v$VERSION"
+          fi
+
       - name: Создать релиз
         env:
           GH_TOKEN: ${{ github.token }}
-        # Если релиз уже создали вручную на сайте вместе с тегом, второй не нужен
+          VERSION: ${{ steps.v.outputs.version }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
-          gh release create "$GITHUB_REF_NAME" --title "WhySlow ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release view "v$VERSION" >/dev/null 2>&1 && exit 0
+          gh release create "v$VERSION" --title "WhySlow $VERSION" --generate-notes --verify-tag
