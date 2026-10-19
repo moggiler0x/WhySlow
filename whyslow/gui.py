@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from . import __version__, checks, journal, junk, knowledge, network, startup, sysinfo
+from . import __version__, checks, journal, junk, knowledge, lhm, network, startup, sysinfo
 from .processes import ProcessMonitor, kill
 from .util import IS_LINUX, IS_WINDOWS, human_duration, human_size, is_admin
 
@@ -418,13 +418,23 @@ class SystemTab(QWidget):
         temps = sysinfo.temperatures()
         self._clear(self.temp_lay)
         if not temps:
-            self.temp_lay.addWidget(muted("Система не отдаёт датчики температуры"
-                                          + (" (на Windows нужен драйвер датчиков)" if IS_WINDOWS else "")), 0, 0)
+            if not IS_WINDOWS:
+                text = "Система не отдаёт датчики температуры"
+            elif not lhm.ready():
+                text = "Ищу датчики…"
+            else:
+                text = f'{lhm.problem()} <a href="{lhm.RELEASES_URL}">Скачать LibreHardwareMonitor</a>'
+            lbl = muted(text)
+            lbl.setOpenExternalLinks(True)
+            self.temp_lay.addWidget(lbl, 0, 0, 1, 2)
         for i, (name, t) in enumerate(sorted(temps.items())):
             self.temp_lay.addWidget(muted(name), i, 0)
             b = Bar(75, 85)
             b.set(t, f"{t:.0f} °C")
             self.temp_lay.addWidget(b, i, 1)
+        if temps and lhm.source():
+            note = f"Источник: {lhm.source()}" + (f". {lhm.problem()}" if lhm.problem() else "")
+            self.temp_lay.addWidget(muted(note), len(temps), 0, 1, 2)
         self.temp_lay.setColumnStretch(1, 1)
 
 

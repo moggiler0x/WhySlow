@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import psutil
 
-from . import junk, network, startup, sysinfo
+from . import junk, lhm, network, startup, sysinfo
 from .knowledge import KnowledgeBase
 from .processes import ProcessMonitor
 from .util import IS_LINUX, IS_WINDOWS, human_duration, human_size, run
@@ -179,14 +179,14 @@ def _proxy(f, st):
 
 
 def _temps(f):
-    temps = sysinfo.temperatures()
+    temps = sysinfo.temperatures(wait=True)
     for g in sysinfo.gpus():
         if g.get("temp"):
             temps[g["name"]] = g["temp"]
     if not temps:
         if IS_WINDOWS:
-            f.append(Finding(INFO, "Температуры недоступны",
-                             "Windows не отдаёт их без драйвера датчиков. Видеокарты NVIDIA показываются на вкладке «Система»."))
+            f.append(Finding(INFO, "Температуры недоступны", lhm.problem(),
+                             f"LibreHardwareMonitor: {lhm.RELEASES_URL}"))
         return
     hot = {k: v for k, v in temps.items() if v >= 85}
     if hot:
