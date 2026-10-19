@@ -7,7 +7,7 @@ def selfcheck() -> int:
     import importlib
     from . import __version__
     names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
-             "lhm", "journal", "settings", "net", "online", "updater", "cli"]
+             "lhm", "journal", "optimize", "settings", "net", "online", "updater", "cli"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
         names.append("gui")
@@ -39,6 +39,9 @@ def main() -> int:
     if "--update" in sys.argv:
         from .cli import update
         return update()
+    if "--optimize" in sys.argv:
+        from .cli import main as cli_main
+        return cli_main(fix=True)
     if "--cli" in sys.argv:
         from .cli import main as cli_main
         return cli_main()

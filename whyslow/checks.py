@@ -32,6 +32,7 @@ class ScanResult:
     startup: list[startup.StartupItem] = field(default_factory=list)
     junk: list[junk.JunkCategory] = field(default_factory=list)
     proxy: network.ProxyState | None = None
+    procs: list = field(default_factory=list)  # программы на момент проверки, для плана оптимизации
     took: float = 0.0
 
 
@@ -44,7 +45,7 @@ def scan(kb: KnowledgeBase, progress=lambda text: None) -> ScanResult:
     mon = ProcessMonitor()
     mon.sample()
     cpu = psutil.cpu_percent(interval=1.5)
-    procs = mon.sample(kb)
+    procs = r.procs = mon.sample(kb)
     _cpu(f, cpu, procs)
     _ram(f, procs)
 

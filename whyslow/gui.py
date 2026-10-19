@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from . import __version__, checks, journal, junk, knowledge, lhm, network, online, settings, startup, sysinfo, updater
+from . import __version__, checks, journal, junk, knowledge, lhm, network, online, optimize, settings, startup, sysinfo, updater
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
@@ -1070,6 +1070,7 @@ class OverviewTab(QWidget):
                               "Любое изменение — только после вашего подтверждения, и его можно откатить во вкладке «Журнал».",
                               "Press “Scan”: WhySlow looks at load, startup apps, junk and network. "
                               "Any change happens only after you confirm it, and it can be undone in the Journal tab."))
+        self.hero.add_button(tr("Оптимизировать", "Optimize"), self.main.optimize, primary=True)
         self.hero.add_button(tr("Автозагрузка", "Startup apps"), lambda: self.main.go("startup"))
         self.hero.add_button(tr("Очистка", "Cleanup"), lambda: self.main.go("junk"))
         self.hero.buttons.addStretch()
@@ -2005,6 +2006,231 @@ class JunkTab(QWidget):
         run_async(work, done)
 
 
+# ------------------------------------------------------------ Оптимизация ---
+
+class OptimizeTab(QWidget):
+    """Одна кнопка: WhySlow сам подбирает, что исправить, и показывает план с галочками.
+    Ничего не меняется, пока человек не нажмёт «Применить»."""
+
+    FRESH = 120  # секунд: проверка свежее этого — план строится сразу, без новой проверки
+
+    @staticmethod
+    def kind_label(kind: str) -> str:
+        return {"proxy": tr("Сеть", "Network"), "startup": tr("Автозагрузка", "Startup"),
+                "process": tr("Фоновые программы", "Background apps"), "junk": tr("Мусор", "Junk")}[kind]
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.steps: list[optimize.Step] = []
+        self.boxes: list[QCheckBox] = []
+        self.wanted = False  # план просили кнопкой — показать его, как только закончится проверка
+        self.busy = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+
+        head = QHBoxLayout()
+        head.setSpacing(px(14))
+        text = QVBoxLayout()
+        text.setSpacing(px(4))
+        self.title = QLabel(accent(tr("Оптимизация в один клик", "One-click optimization")))
+        self.title.setObjectName("h1")
+        self.title.setWordWrap(True)
+        text.addWidget(self.title)
+        text.addWidget(muted(tr("WhySlow сам подберёт, что исправить: мусор, лишнее в автозагрузке по вердиктам базы, "
+                                "зависший прокси, тяжёлые фоновые программы. Безопасное уже отмечено, сомнительное — "
+                                "нет, а то, что база велит не трогать, не предлагается. Ничего не меняется, пока вы "
+                                "не нажмёте «Применить».",
+                                "WhySlow picks what to fix on its own: junk, unneeded startup apps per the database, "
+                                "a stuck proxy, heavy background apps. Safe items are pre-checked, questionable ones "
+                                "are not, and anything the database says to keep is never offered. Nothing changes "
+                                "until you press “Apply”.")))
+        head.addLayout(text, 1)
+        self.b_go = QPushButton(tr("Оптимизировать", "Optimize"))
+        self.b_go.setObjectName("primary")
+        self.b_go.setCursor(Qt.PointingHandCursor)
+        self.b_go.clicked.connect(self.start)
+        head.addWidget(self.b_go, 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.list = QWidget()
+        self.list_lay = QVBoxLayout(self.list)
+        self.list_lay.setContentsMargins(0, 0, px(6), 0)
+        self.list_lay.setSpacing(px(8))
+        self.scroll.setWidget(self.list)
+        lay.addWidget(self.scroll, 1)
+
+        row = QHBoxLayout()
+        self.state = muted("")
+        row.addWidget(self.state, 1)
+        self.b_apply = QPushButton(tr("Применить", "Apply"))
+        self.b_apply.setObjectName("primary")
+        self.b_apply.setCursor(Qt.PointingHandCursor)
+        self.b_apply.clicked.connect(self.apply)
+        row.addWidget(self.b_apply)
+        lay.addLayout(row)
+        self._message(tr("Нажмите «Оптимизировать» — план появится здесь.", "Press “Optimize” and the plan appears here."))
+
+    # --- план ---
+
+    def start(self):
+        """Кнопка «Оптимизировать»: свежая проверка → план. Старый результат не используем."""
+        r = self.main.scan_result
+        if r and time.time() - self.main.scan_time < self.FRESH and self.main.b_scan.isEnabled():
+            self.show_plan(r)
+            return
+        self.wanted = True
+        self._message(tr("Проверяю компьютер, чтобы составить план…", "Checking your computer to build the plan…"))
+        if self.main.b_scan.isEnabled():
+            self.main.scan()
+
+    def on_scan(self, r: checks.ScanResult | None):
+        """Проверка закончилась (r=None — упала). План обновляется, если его ждали или он уже показан."""
+        if self.busy:
+            return
+        if r is None:
+            if self.wanted:
+                self.wanted = False
+                self._message(tr("Проверка не удалась — план не составлен.", "The scan failed, so there is no plan."))
+            return
+        if self.wanted or self.steps:
+            self.wanted = False
+            self.show_plan(r)
+
+    def show_plan(self, r: checks.ScanResult):
+        self.steps = optimize.plan(r)
+        self._clear()
+        self.boxes = []
+        kind = None
+        for s in self.steps:
+            if s.kind != kind:
+                kind = s.kind
+                self.list_lay.addWidget(section(self.kind_label(kind)))
+            self.list_lay.addWidget(self._row(s))
+        tips = optimize.manual(r)
+        if tips:
+            self.list_lay.addWidget(section(tr("Сделать вручную", "Do it yourself")))
+            for f in tips:
+                card = QFrame()
+                card.setObjectName("card")
+                v = QVBoxLayout(card)
+                v.setContentsMargins(px(16), px(10), px(14), px(10))
+                v.setSpacing(px(2))
+                t = QLabel(f.title)
+                t.setWordWrap(True)
+                t.setStyleSheet("font-weight: 700;")
+                v.addWidget(t)
+                v.addWidget(muted("→ " + f.advice))
+                self.list_lay.addWidget(card)
+        if not self.steps:
+            self.list_lay.insertWidget(0, self._note(tr("Исправлять нечего — всё, что WhySlow умеет чинить сам, в порядке.",
+                                                        "Nothing to fix: everything WhySlow can repair on its own is fine.")))
+        self.list_lay.addStretch()
+        self.update_count()
+
+    def _row(self, s: optimize.Step) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        h = QHBoxLayout(card)
+        h.setContentsMargins(px(14), px(10), px(14), px(10))
+        h.setSpacing(px(12))
+        cb = QCheckBox()
+        cb.setChecked(s.checked)
+        cb.toggled.connect(self.update_count)
+        self.boxes.append(cb)
+        h.addWidget(cb, 0, Qt.AlignTop)
+        v = QVBoxLayout()
+        v.setSpacing(px(2))
+        t = QLabel(s.title)
+        t.setWordWrap(True)
+        t.setStyleSheet("font-weight: 700;")
+        v.addWidget(t)
+        if s.detail:
+            v.addWidget(muted(s.detail))
+        h.addLayout(v, 1)
+        tag = QLabel(tr("можно откатить", "can be undone") if s.undoable else tr("необратимо", "permanent"))
+        tag.setStyleSheet(f"color: {C['ok'] if s.undoable else C['warn']}; font-size: {pt(9)};")
+        h.addWidget(tag, 0, Qt.AlignTop)
+        # Щелчок по строке — то же, что по галочке
+        card.mousePressEvent = lambda _e, cb=cb: cb.isEnabled() and cb.toggle()
+        return card
+
+    def _note(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"font-size: {pt(11.5)};")
+        return lbl
+
+    def _message(self, text: str):
+        self.steps, self.boxes = [], []
+        self._clear()
+        self.list_lay.addWidget(self._note(text))
+        self.list_lay.addStretch()
+        self.update_count()
+
+    def _clear(self):
+        while self.list_lay.count():
+            w = self.list_lay.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+
+    def chosen(self) -> list[optimize.Step]:
+        return [s for s, b in zip(self.steps, self.boxes) if b.isChecked()]
+
+    def update_count(self):
+        chosen = self.chosen()
+        freed = sum(s.size for s in chosen)
+        self.b_apply.setText(tr(f"Применить ({len(chosen)})", f"Apply ({len(chosen)})") if chosen else tr("Применить", "Apply"))
+        self.b_apply.setEnabled(bool(chosen) and not self.busy)
+        self.b_go.setEnabled(not self.busy)
+        if self.steps:
+            self.state.setText(tr(f"Отмечено {len(chosen)} из {len(self.steps)}", f"{len(chosen)} of {len(self.steps)} checked")
+                               + (tr(f" · освободится до {human_size(freed)}", f" · up to {human_size(freed)} freed") if freed else ""))
+        else:
+            self.state.setText("")
+        MainWindow._repolish(self.b_apply)
+
+    # --- выполнение ---
+
+    def apply(self):
+        chosen = self.chosen()
+        if not chosen or self.busy:
+            return
+        permanent = [s for s in chosen if not s.undoable]
+        text = tr(f"Будет выполнено пунктов: {len(chosen)}.", f"{len(chosen)} items will be applied.")
+        if permanent:
+            text += tr("\n\nНельзя будет отменить:\n", "\n\nThese can't be undone:\n") + "\n".join(f"• {s.title}" for s in permanent)
+        text += tr("\n\nОтключение автозагрузки и прокси можно откатить во вкладке «Журнал».",
+                   "\n\nStartup and proxy changes can be undone in the Journal tab.")
+        if not confirm(self, tr("Применить оптимизацию?", "Apply the optimization?"), text, danger=bool(permanent)):
+            return
+        self.busy = True
+        for b in self.boxes:
+            b.setEnabled(False)
+        self.update_count()
+
+        def done(outcomes):
+            self.busy = False
+            self.main.journal_tab.reload()
+            self.main.status(tr("Оптимизация завершена", "Optimization finished"))
+            QMessageBox.information(self, tr("Готово", "Done"), optimize.summary(outcomes))
+            self.wanted = True  # показать, что осталось после исправлений
+            if self.main.b_scan.isEnabled():
+                self.main.scan()
+
+        def failed(e):
+            self.busy = False
+            for b in self.boxes:
+                b.setEnabled(True)
+            self.update_count()
+            _show_error(e)
+
+        run_async(lambda progress: optimize.apply(chosen, progress), done, failed, self.state.setText)
+
+
 # ----------------------------------------------------------------- Журнал ---
 
 class JournalTab(QWidget):
@@ -2199,6 +2425,7 @@ class MainWindow(QMainWindow):
         self.resize(min(1360, int(avail.width() * 0.92)), min(900, int(avail.height() * 0.92)))
         self.kb = knowledge.load()
         self.scan_result: checks.ScanResult | None = None
+        self.scan_time = 0.0
         self.hist = {k: deque(maxlen=60) for k in ("cpu", "ram", "disk_r", "disk_w", "net_rx", "net_tx")}
 
         root = MeshBackground()
@@ -2249,9 +2476,12 @@ class MainWindow(QMainWindow):
         self.procs_tab = ProcessesTab(self)
         self.junk_tab = JunkTab(self)
         self.journal_tab = JournalTab(self)
-        self.tab_keys = {"overview": self.overview, "system": self.system_tab, "startup": self.startup_tab,
-                         "procs": self.procs_tab, "junk": self.junk_tab, "journal": self.journal_tab}
-        for w, title in [(self.overview, tr("Обзор", "Overview")), (self.system_tab, tr("Система", "System")),
+        self.optimize_tab = OptimizeTab(self)
+        self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
+                         "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
+                         "journal": self.journal_tab}
+        for w, title in [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
+                         (self.system_tab, tr("Система", "System")),
                          (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                          (self.junk_tab, tr("Очистка", "Cleanup")), (self.journal_tab, tr("Журнал", "Journal"))]:
             self.tabs.addTab(w, title)
@@ -2403,18 +2633,25 @@ class MainWindow(QMainWindow):
 
         def done(r: checks.ScanResult):
             self.scan_result = r
+            self.scan_time = time.time()
             self.overview.show_result(r)
             self.startup_tab.set_items(r.startup)
             self.junk_tab.set_cats(r.junk)
             self.b_scan.setEnabled(True)
             self.b_scan.setText(tr("Проверить снова", "Scan again"))
+            self.optimize_tab.on_scan(r)
 
         def failed(e):
             self.b_scan.setEnabled(True)
             self.b_scan.setText(tr("Проверить", "Scan"))
+            self.optimize_tab.on_scan(None)
             _show_error(tr(f"Проверка упала: {e}", f"Scan failed: {e}"))
 
         run_async(lambda progress: checks.scan(self.kb, progress), done, failed, self.overview.show_progress)
+
+    def optimize(self):
+        self.go("optimize")
+        self.optimize_tab.start()
 
     def fix_proxy(self):
         st = self.scan_result.proxy if self.scan_result else None
