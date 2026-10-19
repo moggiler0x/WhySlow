@@ -12,7 +12,7 @@ One utility in the spirit of CPU-Z / GPU-Z: hardware info, load, startup items, 
 What sets it apart is a **shared knowledge base on GitHub**: WhySlow checks every startup item and every
 process against it and tells you whether it is safe to disable, better left alone, or worth removing.
 
-![Overview](docs/overview.png)
+![Overview](docs/overview-en.png)
 
 ## Contents
 
@@ -76,7 +76,7 @@ Each check answers its own question and offers a fix where possible:
 * "Remove from startup" keeps a backup of the entry, which you can restore from the Journal.
 * If the knowledge base says "Keep", the program asks you once more.
 
-![Startup](docs/startup.png)
+![Startup](docs/startup-en.png)
 
 ### Platform support
 
