@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, settings, updater
+from . import checks, knowledge, online, settings, updater
 
 ICONS = {checks.OK: "[ OK ]", checks.INFO: "[ i  ]", checks.WARN: "[ !  ]", checks.BAD: "[!!!!]"}
 
@@ -28,6 +28,12 @@ def main() -> int:
     for it in r.startup:
         state = "вкл " if it.enabled else "выкл"
         print(f"  [{state}] {it.name:<32} {it.verdict.label:<16} {it.source}")
+    unknown = [it for it in r.startup if it.verdict.verdict == "unknown"][:15]
+    if unknown:
+        print("\nНет в базе — что нашлось в интернете (не проверено):")
+        for it in unknown:
+            info = online.describe(it.name, it.command, timeout=4)
+            print(f"  {it.name}: {info.text + ' [' + info.source + ']' if info and info.text else 'описание не нашлось'}")
     print(f"\nПроверка заняла {r.took:.1f} с. Для исправлений запустите без --cli.")
     return 0
 
