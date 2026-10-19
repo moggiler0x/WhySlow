@@ -944,6 +944,7 @@ class SystemTab(QWidget):
         self.temp_lay = QGridLayout(self.temp_box)
         self.temp_bars: dict[str, Bar] = {}
         self._temp_names: tuple | None = None
+        self._lhm_state = ""  # текст хода скачивания LibreHardwareMonitor
 
         # Две независимые колонки: высота блока слева не растягивает соседа справа
         for col, boxes in enumerate([(cpu, mem, self.temp_box), (self.sys_box, self.gpu_box, self.disk_box, net)]):
@@ -1076,7 +1077,7 @@ class SystemTab(QWidget):
 
     def _fill_temps(self, temps: dict):
         names = tuple(sorted(temps))
-        note = ""
+        note, action = "", ""
         if not temps:
             if IS_MAC:
                 note = tr("Датчики температуры не найдены. На Mac с процессором Intel macOS не отдаёт их "
@@ -1088,11 +1089,11 @@ class SystemTab(QWidget):
             elif not lhm.ready():
                 note = tr("Ищу датчики…", "Looking for sensors…")
             else:
-                note = f'{lhm.problem()} <a href="{lhm.RELEASES_URL}">' + tr("Скачать LibreHardwareMonitor", "Download LibreHardwareMonitor") + "</a>"
+                note, action = lhm.problem(), self._lhm_state or lhm.action()
         elif lhm.source():
             note = tr(f"Источник: {lhm.source()}", f"Source: {lhm.source()}") + (f". {lhm.problem()}" if lhm.problem() else "")
-        if (names, note) != self._temp_names:
-            self._temp_names = (names, note)
+        if (names, note, action) != self._temp_names:
+            self._temp_names = (names, note, action)
             self._clear(self.temp_lay)
             self.temp_bars = {}
             for i, name in enumerate(names):
@@ -1103,9 +1104,77 @@ class SystemTab(QWidget):
                 lbl = muted(note)
                 lbl.setOpenExternalLinks(True)
                 self.temp_lay.addWidget(lbl, len(names), 0, 1, 2)
+            if action:
+                self.temp_lay.addWidget(self._lhm_buttons(action), len(names) + 1, 0, 1, 2)
             self.temp_lay.setColumnStretch(1, 1)
         for name, t in temps.items():
             self.temp_bars[name].set(t, f"{t:.0f} °C")
+
+    def _lhm_buttons(self, action: str) -> QWidget:
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, px(4), 0, 0)
+        if action == "install":
+            b = QPushButton(tr("Скачать и запустить LibreHardwareMonitor", "Download and run LibreHardwareMonitor"))
+            b.clicked.connect(self.install_lhm)
+            row.addWidget(b)
+        elif action == "launch":
+            b = QPushButton(tr("Запустить LibreHardwareMonitor", "Run LibreHardwareMonitor"))
+            b.clicked.connect(self.launch_lhm)
+            row.addWidget(b)
+        else:  # идёт скачивание: action — текст хода
+            row.addWidget(muted(action))
+        link = muted(f'<a href="{lhm.RELEASES_URL}">' + tr("страница программы", "program page") + "</a>")
+        link.setOpenExternalLinks(True)
+        link.setWordWrap(False)
+        row.addWidget(link)
+        row.addStretch(1)
+        return box
+
+    def install_lhm(self):
+        if not confirm(self, tr("Скачать LibreHardwareMonitor?", "Download LibreHardwareMonitor?"),
+                       tr("LibreHardwareMonitor — бесплатная программа с открытым кодом, которая читает "
+                          "датчики температуры. WhySlow скачает её последний официальный релиз:\n\n"
+                          f"{lhm.RELEASES_URL}\n\n"
+                          "Архив проверяется по контрольной сумме из GitHub и распаковывается сюда:\n"
+                          f"{lhm.install_dir()}\n\n"
+                          "Потом WhySlow запустит её: Windows спросит разрешение на права администратора, "
+                          "без них датчики не читаются. Новые версии могут ещё предложить поставить драйвер PawnIO.",
+                          "LibreHardwareMonitor is a free, open-source program that reads temperature "
+                          "sensors. WhySlow will download its latest official release:\n\n"
+                          f"{lhm.RELEASES_URL}\n\n"
+                          "The archive is verified against the GitHub checksum and unpacked here:\n"
+                          f"{lhm.install_dir()}\n\n"
+                          "Then WhySlow will start it: Windows will ask for administrator rights, which "
+                          "are needed to read sensors. Newer versions may also offer to install the PawnIO driver.")):
+            return
+        self._lhm_state = tr("Скачиваю LibreHardwareMonitor…", "Downloading LibreHardwareMonitor…")
+
+        def progress(text):
+            self._lhm_state = text
+            self._fill_temps({})
+
+        def done(version):
+            self._lhm_state = ""
+            journal.add("lhm", tr(f"Скачан LibreHardwareMonitor {version}", f"Downloaded LibreHardwareMonitor {version}"), {"dir": str(lhm.install_dir())})
+            self.launch_lhm()
+
+        def failed(e):
+            self._lhm_state = ""
+            self._fill_temps({})
+            _show_error(e)
+
+        run_async(lhm.install, done, failed, progress)
+        self._fill_temps({})
+
+    def launch_lhm(self):
+        if not lhm.launch():
+            QMessageBox.information(self, "LibreHardwareMonitor",
+                                    tr("LibreHardwareMonitor не запущен. Без прав администратора он не видит "
+                                       "датчики, поэтому WhySlow запускает его через запрос Windows.",
+                                       "LibreHardwareMonitor isn't running. Without administrator rights it can't "
+                                       "see the sensors, so WhySlow starts it through the Windows prompt."))
+        self._fill_temps({})
 
 
 # ------------------------------------------------------------ Автозагрузка ---
@@ -1566,10 +1635,10 @@ class JournalTab(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(px(20), px(18), px(20), px(18))
         lay.setSpacing(px(10))
-        lay.addWidget(muted(tr("Всё, что WhySlow поменял в системе. Отключение автозагрузки, удаление записей и "
-                               "выключение прокси можно откатить.",
-                               "Everything WhySlow has changed on your system. Disabled startup items, removed entries "
-                               "and proxy changes can be undone.")))
+        lay.addWidget(muted(tr("Всё, что WhySlow поменял в системе. Отключение автозагрузки, удаление записей, "
+                               "выключение прокси и скачанный LibreHardwareMonitor можно откатить.",
+                               "Everything WhySlow has changed on your system. Disabled startup items, removed entries, "
+                               "proxy changes and the downloaded LibreHardwareMonitor can be undone.")))
         self.table = make_table([tr("Когда", "When"), tr("Что сделано", "What was done"), tr("Статус", "Status")])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -1616,6 +1685,8 @@ class JournalTab(QWidget):
                 network.undo(e)
             elif e["kind"] == "update":
                 updater.undo(e)
+            elif e["kind"] == "lhm":
+                lhm.uninstall()
         except Exception as ex:
             QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
             return
