@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, online, settings, updater
+from . import checks, knowledge, online, optimize, settings, updater
 from .i18n import tr
 
 ICONS = {checks.OK: "[ OK ]", checks.INFO: "[ i  ]", checks.WARN: "[ !  ]", checks.BAD: "[!!!!]"}
 
 
-def main() -> int:
+def main(fix: bool = False) -> int:
     kb, msg = knowledge.update()
     print(msg)
     if settings.get("check_updates"):
@@ -38,9 +38,37 @@ def main() -> int:
             info = online.describe(it.name, it.command, timeout=4)
             text = f"{info.text} [{info.source}]" if info and info.text else tr("описание не нашлось", "no description found")
             print(f"  {it.name}: {text}")
-    print(tr(f"\nПроверка заняла {r.took:.1f} с. Для исправлений запустите без --cli.",
-             f"\nScan took {r.took:.1f} s. Run without --cli to fix things."))
-    return 0
+    steps = optimize.plan(r)
+    _print_plan(steps)
+    if not fix:
+        print(tr(f"\nПроверка заняла {r.took:.1f} с. Исправить отмеченное: python3 -m whyslow --optimize "
+                 "(или в окне, вкладка «Оптимизация»).",
+                 f"\nScan took {r.took:.1f} s. To fix the checked items: python3 -m whyslow --optimize "
+                 "(or in the window, Optimize tab)."))
+        return 0
+    chosen = [s for s in steps if s.checked]
+    if not chosen:
+        return 0
+    if input(tr(f"\nВыполнить отмеченные пункты ({len(chosen)})? [y/N] ",
+                f"\nApply the checked items ({len(chosen)})? [y/N] ")).strip().lower() not in ("y", "yes", "д", "да"):
+        print(tr("Отменено, ничего не изменено.", "Cancelled, nothing was changed."))
+        return 0
+    outcomes = optimize.apply(chosen, progress=lambda t: print("  " + t))
+    print("\n" + optimize.summary(outcomes))
+    return 0 if all(o.ok for o in outcomes) else 1
+
+
+def _print_plan(steps) -> None:
+    """[x] — сделается по --optimize, [ ] — только в окне, если отметить вручную."""
+    if not steps:
+        print(tr("\nОптимизировать нечего.", "\nNothing to optimize."))
+        return
+    print(tr("\nПлан оптимизации ([x] — безопасно, [ ] — на ваше усмотрение):",
+             "\nOptimization plan ([x] — safe, [ ] — your call):"))
+    for s in steps:
+        mark = "[x]" if s.checked else "[ ]"
+        tail = "" if s.undoable else tr("  (необратимо)", "  (permanent)")
+        print(f"  {mark} {s.title}{tail}")
 
 
 def update() -> int:

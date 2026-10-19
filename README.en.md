@@ -18,6 +18,7 @@ process against it and tells you whether it is safe to disable, better left alon
 
 * [What it does](#what-it-does)
   * [Tabs](#tabs)
+  * [One-click optimization](#one-click-optimization)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -45,11 +46,27 @@ process against it and tells you whether it is safe to disable, better left alon
 | Tab | What it does |
 |---|---|
 | **Overview** | Live CPU, memory, disk and network tiles with charts, what is loading the system right now, and a single **Check** button that lists problems with explanations and a **Fix** button |
+| **Optimize** | A single **Optimize** button: WhySlow builds a fix plan on its own and applies the checked items after **Apply** |
 | **System** | CPU with every core separately, clock speeds, memory, integrated GPU load, disks, network, temperatures — last-minute charts with a scale and hover tooltips |
 | **Startup** | Everything that starts with the system, plus the knowledge base verdict. Toggle items on or off right in the list, or remove them |
 | **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict |
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
+
+### One-click optimization
+
+The **Optimize** button (on the Optimize tab and on the Overview) checks the computer and picks what to fix on its own:
+
+* turn off a stuck proxy that broke the internet;
+* disable startup items the knowledge base marks as unneeded or unwanted;
+* close heavy background programs the knowledge base knows about;
+* clean temporary files, caches and the recycle bin.
+
+The plan is shown as a checklist. Safe items are pre-checked; questionable ones (services, items that need
+administrator rights, the recycle bin, closing programs) you check yourself; anything the knowledge base says to keep
+is never offered. Nothing changes until you press **Apply** and confirm. Startup and proxy changes can be rolled back
+in the Journal; cleanup and closing programs are permanent, and the list says so. Things the program can't fix on its own
+(no reboot for a long time, overheating) are shown below as advice.
 
 ### Problems it finds
 
@@ -168,7 +185,8 @@ run.bat         # Windows (Python from python.org, tick Add python.exe to PATH)
 No window, right in the terminal (from source; on macOS and Linux the app works the same way):
 
 ```bash
-python3 -m whyslow --cli       # check and report
+python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
+python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
 python3 -m whyslow --cli --lang en   # language for this run: en or ru
@@ -292,6 +310,7 @@ whyslow/
   gui.py         interface (PySide6)
   cli.py         text mode
   checks.py      diagnostics → list of findings
+  optimize.py    optimization plan from scan results, and applying it
   knowledge.py   knowledge base: loading, updating from GitHub, matching
   online.py      describing unknown programs: file details and Wikipedia
   startup.py     startup items on Windows / Linux / macOS

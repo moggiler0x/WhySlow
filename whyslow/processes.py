@@ -83,6 +83,16 @@ class ProcessMonitor:
         return result
 
 
+def pids_by_name(name: str) -> list[int]:
+    """Текущие процессы программы с таким же именем, как в группе."""
+    me = os.getpid()
+    pids = []
+    for p in psutil.process_iter(["name", "exe"]):
+        if p.pid not in (0, me) and _name(p.info).lower() == name.lower():
+            pids.append(p.pid)
+    return pids
+
+
 def kill(group: ProcGroup) -> tuple[int, int]:
     """Закрывает все процессы группы. Возвращает (закрыто, не удалось)."""
     procs = []

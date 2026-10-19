@@ -17,6 +17,7 @@
 |:---:|:---:|
 | [⬇ **Download**](README.en.md#download) | [⬇ **Скачать**](README.ru.md#скачать) |
 | [What it does](README.en.md#what-it-does) | [Что умеет](README.ru.md#что-умеет) |
+| [One-click optimization](README.en.md#one-click-optimization) | [Оптимизация в один клик](README.ru.md#оптимизация-в-один-клик) |
 | [Install and run](README.en.md#install-and-run) | [Установка и запуск](README.ru.md#установка-и-запуск) |
 | [Updates](README.en.md#updates) | [Обновление](README.ru.md#обновление) |
 | [Temperature sensors](README.en.md#temperature-sensors) | [Датчики температуры](README.ru.md#датчики-температуры) |
