@@ -217,7 +217,8 @@ def _temps(f):
                              f"LibreHardwareMonitor: {lhm.RELEASES_URL}"))
         elif IS_MAC:
             f.append(Finding(INFO, "Температуры недоступны",
-                             "macOS не отдаёт датчики программам без прав администратора.",
+                             "Датчики не найдены. На Mac с Apple Silicon они читаются сами, а на Mac с Intel "
+                             "macOS не отдаёт их программам без прав администратора.",
                              "Посмотреть их можно в терминале: sudo powermetrics --samplers smc -n 1"))
         else:
             f.append(Finding(INFO, "Температуры недоступны", "Система не отдаёт датчики.",

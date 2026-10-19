@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 import threading
 import time
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from . import __version__, checks, journal, junk, knowledge, lhm, network, online, settings, startup, sysinfo, updater
 from .processes import ProcessMonitor, kill
-from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, human_duration, human_size, is_admin
+from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
 
 # ------------------------------------------------------------------ стиль ---
 
@@ -159,20 +160,68 @@ class Bar(QProgressBar):
             self.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 5px; }}" if color else "")
 
 
-class Sparkline(QWidget):
-    """График за последнюю минуту, как в Диспетчере задач. Несколько линий — несколько цветов."""
+def nice_ticks(peak: float, n: int = 4, binary: bool = False) -> list[float]:
+    """Круглые деления шкалы от нуля до чуть выше peak: 0, 250, 500, 750, 1000.
+    binary=True — для байтов: деления круглые в КБ/МБ/ГБ (0, 2, 4, 6 МБ)."""
+    if binary and peak >= 1024:
+        unit = 1024 ** min(int(math.log(peak, 1024)), 4)
+        return [t * unit for t in nice_ticks(peak / unit, n)]
+    raw = max(peak, 1e-9) / n
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+    return [step * i for i in range(math.ceil(peak / step - 1e-9) + 1)] if peak > 0 else [0.0, 1.0]
 
-    def __init__(self, colors: list[str], maximum: float | None = 100, height: int = 70):
+
+def pct(v: float) -> str:
+    return f"{v:.0f}%"
+
+
+def rate_short(v: float) -> str:
+    """Подпись деления для скорости: «512 КБ/с», без лишних «.0»."""
+    return rate(v).replace(".0 ", " ") if v else "0"
+
+
+class Sparkline(QWidget):
+    """График за последнюю минуту, как в Диспетчере задач. Несколько линий — несколько цветов.
+
+    axis=True — с подписями: слева шкала значений, снизу — секунды назад. При наведении
+    мыши показывает точные значения в этот момент."""
+
+    def __init__(self, colors: list[str], maximum: float | None = 100, height: int = 70,
+                 axis: bool = False, fmt=pct, names: list[str] | None = None):
         super().__init__()
         self.colors = [QColor(c) for c in colors]
         self.maximum = maximum
         self.series: list[list[float]] = [[] for _ in colors]
         self.n = 60
+        self.axis = axis
+        self.fmt = fmt
+        self.names = names or []
+        self.hover: int | None = None
         self.setMinimumHeight(px(height))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMouseTracking(axis)
 
     def set_series(self, *series):
         self.series = [list(s) for s in series]
+        self.update()
+
+    def _plot_rect(self, r: QRectF, fm: QFontMetrics, ticks: list[float]) -> QRectF:
+        if not self.axis:
+            return r.adjusted(2, 6, -2, -2)
+        left = max(fm.horizontalAdvance(self.fmt(t)) for t in ticks) + px(10)
+        return r.adjusted(left, fm.height() * 0.7, -px(8), -fm.height() - px(6))
+
+    def mouseMoveEvent(self, e):
+        r = self._last_inner if hasattr(self, "_last_inner") else None
+        if r is None or not r.width():
+            return
+        i = round((e.position().x() - r.left()) / r.width() * (self.n - 1))
+        self.hover = min(max(i, 0), self.n - 1)
+        self.update()
+
+    def leaveEvent(self, _e):
+        self.hover = None
         self.update()
 
     def paintEvent(self, _e):
@@ -182,12 +231,41 @@ class Sparkline(QWidget):
         p.setPen(QPen(QColor(C["border"]), 1))
         p.setBrush(QColor(C["bg"]))
         p.drawRoundedRect(r, 8, 8)
-        p.setPen(QPen(QColor(255, 255, 255, 14), 1))
-        for k in (1, 2, 3):
-            y = r.top() + r.height() * k / 4
-            p.drawLine(QPointF(r.left() + 4, y), QPointF(r.right() - 4, y))
-        top = self.maximum or max([max(s) for s in self.series if s] + [1]) * 1.15
-        inner = r.adjusted(2, 6, -2, -2)
+        peak = max([max(s) for s in self.series if s] + [0])
+        if self.maximum:
+            ticks = nice_ticks(self.maximum)
+        else:  # скорости: шкала не мельче 1 КБ/с, чтобы тишина не выглядела как нагрузка
+            ticks = nice_ticks(max(peak * 1.1, 1024), binary=True)
+        top = ticks[-1]
+        font = QFont(self.font())
+        font.setPointSizeF(font.pointSizeF() * 0.8)
+        p.setFont(font)
+        fm = QFontMetrics(font)
+        inner = self._plot_rect(r, fm, ticks)
+        self._last_inner = inner
+        grid = QPen(QColor(255, 255, 255, 18), 1)
+        if self.axis:
+            for t in ticks:
+                y = inner.bottom() - inner.height() * t / top
+                p.setPen(grid)
+                p.drawLine(QPointF(inner.left(), y), QPointF(inner.right(), y))
+                p.setPen(QColor(C["muted"]))
+                p.drawText(QRectF(r.left(), y - fm.height() / 2, inner.left() - r.left() - px(5), fm.height()),
+                           Qt.AlignRight | Qt.AlignVCenter, self.fmt(t))
+            for k in range(5):  # каждые 15 секунд
+                x = inner.left() + inner.width() * k / 4
+                p.setPen(grid)
+                p.drawLine(QPointF(x, inner.top()), QPointF(x, inner.bottom()))
+                label = "сейчас" if k == 4 else f"{60 - k * 15} с"
+                w = fm.horizontalAdvance(label)
+                p.setPen(QColor(C["muted"]))
+                p.drawText(QPointF(min(max(x - w / 2, inner.left()), inner.right() - w),
+                                   inner.bottom() + fm.ascent() + px(4)), label)
+        else:
+            p.setPen(grid)
+            for k in (1, 2, 3):
+                y = r.top() + r.height() * k / 4
+                p.drawLine(QPointF(r.left() + 4, y), QPointF(r.right() - 4, y))
         step = inner.width() / (self.n - 1)
         for color, values in zip(self.colors, self.series):
             vals = values[-self.n:]
@@ -214,6 +292,126 @@ class Sparkline(QWidget):
             p.setPen(QPen(color, 2))
             p.setBrush(Qt.NoBrush)
             p.drawPath(line)
+        if self.axis and self.hover is not None:
+            self._draw_hover(p, inner, fm, step)
+        p.end()
+
+    def _draw_hover(self, p: QPainter, inner: QRectF, fm: QFontMetrics, step: float):
+        back = self.n - 1 - self.hover  # секунд назад
+        lines = []
+        for k, (color, values) in enumerate(zip(self.colors, self.series)):
+            if back < len(values):
+                name = self.names[k] + ": " if k < len(self.names) else ""
+                lines.append((color, name + self.fmt(values[-1 - back])))
+        if not lines:
+            return
+        x = inner.left() + self.hover * step
+        p.setPen(QPen(QColor(255, 255, 255, 90), 1, Qt.DashLine))
+        p.drawLine(QPointF(x, inner.top()), QPointF(x, inner.bottom()))
+        title = "сейчас" if back == 0 else f"{back} с назад"
+        w = max(fm.horizontalAdvance(t) for t in [title] + [t for _, t in lines]) + px(22)
+        h = fm.height() * (len(lines) + 1) + px(8)
+        bx = x + px(8) if x + px(8) + w < inner.right() else x - px(8) - w
+        box = QRectF(bx, inner.top() + px(2), w, h)
+        p.setPen(QPen(QColor(C["border"]), 1))
+        p.setBrush(QColor(C["panel2"]))
+        p.drawRoundedRect(box, 6, 6)
+        y = box.top() + px(4) + fm.ascent()
+        p.setPen(QColor(C["muted"]))
+        p.drawText(QPointF(box.left() + px(8), y), title)
+        for color, text in lines:
+            y += fm.height()
+            p.setPen(Qt.NoPen)
+            p.setBrush(color)
+            p.drawEllipse(QPointF(box.left() + px(11), y - fm.ascent() / 2 + 1), 3.5, 3.5)
+            p.setPen(QColor(C["text"]))
+            p.drawText(QPointF(box.left() + px(18), y), text)
+
+
+class CoreGrid(QWidget):
+    """Загрузка каждого ядра: плитка с номером, типом ядра, процентом и графиком за минуту."""
+
+    KIND = {"P": "производительное", "E": "энергоэффективное"}
+
+    def __init__(self):
+        super().__init__()
+        self.hist: list[deque] = []
+        self.kinds: list[str] = []
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def set_kinds(self, kinds: list[str]):
+        self.kinds = kinds
+        self.update()
+
+    def set_values(self, per: list[float]):
+        if len(self.hist) != len(per):
+            self.hist = [deque(maxlen=60) for _ in per]
+            self.updateGeometry()
+        for h, v in zip(self.hist, per):
+            h.append(v)
+        if self.height() != self._height():
+            self.setFixedHeight(self._height())
+        self.update()
+
+    def _cols(self) -> int:
+        n = len(self.hist)
+        return 4 if n <= 8 else 6 if n <= 24 else 8
+
+    def _cell_h(self) -> int:
+        return QFontMetrics(self.font()).height() + px(46)
+
+    def _height(self) -> int:
+        rows = math.ceil(len(self.hist) / self._cols()) if self.hist else 0
+        return rows * (self._cell_h() + px(6))
+
+    def paintEvent(self, _e):
+        if not self.hist:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        cols, gap = self._cols(), px(6)
+        w = (self.width() - gap * (cols - 1)) / cols
+        h = self._cell_h()
+        fm = QFontMetrics(self.font())
+        bold = QFont(self.font())
+        bold.setBold(True)
+        for i, hist in enumerate(self.hist):
+            v = hist[-1] if hist else 0
+            color = QColor(C["bad"] if v >= 95 else C["warn"] if v >= 80 else C["accent2"])
+            cell = QRectF((i % cols) * (w + gap), (i // cols) * (h + gap), w, h).adjusted(0.5, 0.5, -0.5, -0.5)
+            p.setPen(QPen(QColor(C["border"]), 1))
+            p.setBrush(QColor(C["bg"]))
+            p.drawRoundedRect(cell, 8, 8)
+            # заголовок: «Ядро 3 · P» слева, «56%» справа
+            kind = self.kinds[i] if i < len(self.kinds) else ""
+            p.setFont(self.font())
+            p.setPen(QColor(C["muted"]))
+            p.drawText(QPointF(cell.left() + px(8), cell.top() + px(4) + fm.ascent()),
+                       f"Ядро {i + 1}" + (f" · {kind}" if kind else ""))
+            p.setFont(bold)
+            p.setPen(color)
+            txt = f"{v:.0f}%"
+            p.drawText(QPointF(cell.right() - px(8) - QFontMetrics(bold).horizontalAdvance(txt),
+                               cell.top() + px(4) + fm.ascent()), txt)
+            # мини-график
+            g = QRectF(cell.left() + px(6), cell.top() + fm.height() + px(8), cell.width() - px(12),
+                       cell.height() - fm.height() - px(14))
+            p.setPen(QPen(QColor(255, 255, 255, 14), 1))
+            p.drawLine(QPointF(g.left(), g.center().y()), QPointF(g.right(), g.center().y()))
+            vals = list(hist)
+            if len(vals) >= 2:
+                step = g.width() / 59
+                x0 = g.right() - step * (len(vals) - 1)
+                path = QPainterPath(QPointF(x0, g.bottom()))
+                for k, val in enumerate(vals):
+                    path.lineTo(x0 + k * step, g.bottom() - g.height() * min(val, 100) / 100)
+                path.lineTo(g.right(), g.bottom())
+                path.closeSubpath()
+                fill = QColor(color)
+                fill.setAlpha(90)
+                p.setPen(QPen(color, 1.5))
+                p.setBrush(fill)
+                p.drawPath(path)
         p.end()
 
 
@@ -366,7 +564,7 @@ class Sampler(QThread):
         psutil.cpu_percent(percpu=True)
         last_t = time.monotonic()
         disk0, net0 = _io_counters()
-        temps, disks = {}, []
+        temps, disks, gpu = {}, [], None
         tick = 0
         while not self._stop.wait(1.0):
             try:
@@ -379,6 +577,8 @@ class Sampler(QThread):
                     temps = sysinfo.temperatures()
                 if tick % 10 == 0:
                     disks = sysinfo.disks()
+                if tick % 2 == 0:
+                    gpu = sysinfo.gpu_load()
                 freq = psutil.cpu_freq()
                 sw = psutil.swap_memory()
                 self.stats.emit({
@@ -387,6 +587,7 @@ class Sampler(QThread):
                     "disk_r": max(disk1[0] - disk0[0], 0) / dt, "disk_w": max(disk1[1] - disk0[1], 0) / dt,
                     "net_rx": max(net1[0] - net0[0], 0) / dt, "net_tx": max(net1[1] - net0[1], 0) / dt,
                     "uptime": sysinfo.uptime(), "temps": temps, "disks": disks,
+                    "gpu": gpu, "gpu_ready": tick >= 4,
                 })
                 disk0, net0 = disk1, net1
                 if tick % 2 == 1:
@@ -655,14 +856,14 @@ class SystemTab(QWidget):
         g.addWidget(muted("Загрузка"), 3, 0)
         self.cpu_bar = Bar(60, 85, 26)
         g.addWidget(self.cpu_bar, 3, 1, 1, 3)
-        self.cpu_graph = Sparkline([C["accent2"]], 100, 150)
+        self.cpu_graph = Sparkline([C["accent2"]], 100, 170, axis=True, names=["загрузка"])
         g.addWidget(self.cpu_graph, 4, 0, 1, 4)
-        self.core_box = QGridLayout()
-        self.core_box.setSpacing(px(5))
-        g.addLayout(self.core_box, 5, 0, 1, 4)
+        self.core_title = muted("")
+        g.addWidget(self.core_title, 5, 0, 1, 4)
+        self.cores = CoreGrid()
+        g.addWidget(self.cores, 6, 0, 1, 4)
         g.setColumnStretch(1, 1)
         g.setColumnStretch(3, 1)
-        self.core_bars: list[Bar] = []
 
         mem = QGroupBox("Память")
         g = QGridLayout(mem)
@@ -674,7 +875,7 @@ class SystemTab(QWidget):
         g.addWidget(muted("Подкачка"), 2, 0)
         self.swap_bar = Bar(50, 80)
         g.addWidget(self.swap_bar, 2, 1)
-        self.ram_graph = Sparkline([C["accent"]], 100, 100)
+        self.ram_graph = Sparkline([C["accent"]], 100, 130, axis=True, names=["занято"])
         g.addWidget(self.ram_graph, 3, 0, 1, 2)
         g.setColumnStretch(1, 1)
 
@@ -687,8 +888,23 @@ class SystemTab(QWidget):
         g.setColumnStretch(1, 1)
 
         self.gpu_box = QGroupBox("Видеокарта")
-        self.gpu_lay = QGridLayout(self.gpu_box)
+        gv = QVBoxLayout(self.gpu_box)
+        self.gpu_lay = QGridLayout()
         self.gpu_lay.addWidget(muted("Загрузка…"), 0, 0)
+        gv.addLayout(self.gpu_lay)
+        gl = QHBoxLayout()
+        self.gpu_label = muted("Загрузка видеоядра")
+        self.gpu_label.setWordWrap(False)
+        gl.addWidget(self.gpu_label)
+        self.gpu_bar = Bar(80, 95)
+        gl.addWidget(self.gpu_bar, 1)
+        gv.addLayout(gl)
+        self.gpu_graph = Sparkline(["#a78bfa"], 100, 110, axis=True, names=["видеоядро"])
+        gv.addWidget(self.gpu_graph)
+        self.gpu_note = muted("")
+        gv.addWidget(self.gpu_note)
+        self.gpu_hist: deque = deque(maxlen=60)
+        self._gpu_seen = False
 
         self.disk_box = QGroupBox("Диски")
         dv = QVBoxLayout(self.disk_box)
@@ -696,7 +912,8 @@ class SystemTab(QWidget):
         dv.addLayout(self.disk_lay)
         self.disk_io = muted("")
         dv.addWidget(self.disk_io)
-        self.disk_graph = Sparkline([C["ok"], C["warn"]], None, 80)
+        self.disk_graph = Sparkline([C["ok"], C["warn"]], None, 130, axis=True, fmt=rate_short,
+                                    names=["чтение", "запись"])
         dv.addWidget(self.disk_graph)
         self.disk_bars: dict[str, Bar] = {}
 
@@ -704,7 +921,8 @@ class SystemTab(QWidget):
         nv = QVBoxLayout(net)
         self.net_io = muted("")
         nv.addWidget(self.net_io)
-        self.net_graph = Sparkline([C["info"], "#ff7ad9"], None, 80)
+        self.net_graph = Sparkline([C["info"], "#ff7ad9"], None, 130, axis=True, fmt=rate_short,
+                                   names=["получено", "отправлено"])
         nv.addWidget(self.net_graph)
 
         self.temp_box = QGroupBox("Температуры")
@@ -731,6 +949,11 @@ class SystemTab(QWidget):
         if not self.loaded:
             self.loaded = True
             run_async(lambda _p: sysinfo.static_info(), self.fill)
+            run_async(lambda _p: sysinfo.core_kinds(), self._set_kinds)
+
+    def _set_kinds(self, kinds: list[str]):
+        self.cores.set_kinds(kinds)
+        self._kinds = kinds
 
     def fill(self, info: dict):
         self.info = info
@@ -758,13 +981,9 @@ class SystemTab(QWidget):
             vram = gpu.get("vram_mb")
             self.gpu_lay.addWidget(field(f"{vram / 1024:.1f} ГБ" if vram else "—"), row, 3)
             row += 1
-            if gpu.get("load") is not None:
-                self.gpu_lay.addWidget(muted("Загрузка"), row, 0)
-                b = Bar(80, 95)
-                b.set(gpu["load"])
-                self.gpu_lay.addWidget(b, row, 1)
-                self.gpu_lay.addWidget(muted("Темп."), row, 2)
-                self.gpu_lay.addWidget(field(f"{gpu['temp']:.0f} °C" if gpu.get("temp") else "—"), row, 3)
+            if gpu.get("temp"):
+                self.gpu_lay.addWidget(muted("Темп."), row, 0)
+                self.gpu_lay.addWidget(field(f"{gpu['temp']:.0f} °C"), row, 1)
                 row += 1
         self.gpu_lay.setColumnStretch(1, 1)
         self.gpu_lay.setColumnStretch(3, 1)
@@ -791,17 +1010,14 @@ class SystemTab(QWidget):
 
     def on_stats(self, s: dict, h: dict):
         per = s["per"]
-        if len(self.core_bars) != len(per):
-            for b in self.core_bars:
-                b.deleteLater()
-            self.core_bars = []
-            cols = 4 if len(per) > 8 else 2
-            for i in range(len(per)):
-                b = Bar(80, 95, 18)
-                self.core_bars.append(b)
-                self.core_box.addWidget(b, i // cols, i % cols)
-        for i, (b, v) in enumerate(zip(self.core_bars, per)):
-            b.set(v, f"{i}: {v:.0f}%")
+        self.cores.set_values(per)
+        if per:
+            busiest = max(range(len(per)), key=per.__getitem__)
+            kinds = getattr(self, "_kinds", [])
+            legend = (" P — производительные ядра (тяжёлые задачи), E — энергоэффективные (фоновые)."
+                      if kinds else "")
+            self.core_title.setText(f"Каждое ядро отдельно, график за минуту. Сейчас загруженнее всех "
+                                    f"ядро {busiest + 1} — {per[busiest]:.0f}%." + legend)
         self.cpu_bar.set(s["cpu"])
         self.cpu_graph.set_series(h["cpu"])
         self.f["freq"].setText(f"{s['freq']:.0f} МГц" if s["freq"] else "—")
@@ -819,14 +1035,30 @@ class SystemTab(QWidget):
         self.net_io.setText(f"<span style='color:{C['info']}'>■</span> получено {rate(s['net_rx'])}   "
                             f"<span style='color:#ff7ad9'>■</span> отправлено {rate(s['net_tx'])}")
         self.net_graph.set_series(h["net_rx"], h["net_tx"])
+        self._fill_gpu(s.get("gpu"), s.get("gpu_ready"))
         self._fill_temps(s["temps"])
+
+    def _fill_gpu(self, load: float | None, ready: bool):
+        if load is not None:
+            self._gpu_seen = True
+            self.gpu_hist.append(load)
+            self.gpu_bar.set(load)
+            self.gpu_graph.set_series(self.gpu_hist)
+        elif ready and not self._gpu_seen:
+            self.gpu_note.setText(by_os("Windows не отдаёт загрузку видеокарты (нужна Windows 10 1709 или новее).",
+                                        "macOS не отдаёт загрузку видеоядра на этом Mac.",
+                                        "Драйвер видеокарты не отдаёт загрузку (умеют NVIDIA и AMD)."))
+        for w in (self.gpu_label, self.gpu_bar, self.gpu_graph):
+            w.setVisible(self._gpu_seen)
+        self.gpu_note.setVisible(not self._gpu_seen)
 
     def _fill_temps(self, temps: dict):
         names = tuple(sorted(temps))
         note = ""
         if not temps:
             if IS_MAC:
-                note = "Система не отдаёт датчики температуры (macOS не даёт их программам без прав администратора)"
+                note = ("Датчики температуры не найдены. На Mac с процессором Intel macOS не отдаёт их "
+                        "программам без прав администратора.")
             elif not IS_WINDOWS:
                 note = "Система не отдаёт датчики температуры"
             elif not lhm.ready():
