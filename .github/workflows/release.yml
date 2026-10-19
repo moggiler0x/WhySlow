@@ -60,7 +60,7 @@ jobs:
             git checkout -q origin/main
           else
             version="${TAG#v}"
-            git checkout -q "refs/tags/v$version"
+            git checkout -q "refs/tags/$TAG"  # тег мог быть поставлен и без «v»: 0.3.1
           fi
           if ! echo "$version" | grep -Eq '^[0-9]+(\.[0-9]+)*$'; then
             echo "::error::Версия должна быть вида 0.3.0, а не «$version»"
@@ -95,6 +95,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.v.outputs.version }}
         run: |
+          # Релиз, выпущенный на сайте с тегом без «v» (0.3.1), переносим на тег v0.3.1 и прячем
+          # в черновик до готовности сборок: иначе встроенное обновление увидит релиз без файлов
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release edit "$VERSION" --tag "v$VERSION" --draft=true
+            git push origin ":refs/tags/$VERSION" || true
+          fi
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             # Релиз уже есть (например, опубликован на сайте) — просто приложим к нему сборки
             echo "draft=$(gh release view "v$VERSION" --json isDraft -q .isDraft)" >> "$GITHUB_OUTPUT"
