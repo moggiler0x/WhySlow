@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import journal
-from .util import IS_LINUX, IS_MAC, IS_WINDOWS, human_size
+from .util import IS_MAC, IS_WINDOWS, by_os, human_size
 
 
 @dataclass
@@ -45,6 +45,15 @@ def categories() -> list[JunkCategory]:
                          [windir / r"SoftwareDistribution\Download"]),
             JunkCategory("recycle", "Корзина", "Удалённые файлы", [], min_age_hours=0),
         ]
+    elif IS_MAC:
+        cats += [
+            JunkCategory("cache", "Кеш программ", "Программы пересоздадут его при необходимости",
+                         [home / "Library/Caches"]),
+            JunkCategory("temp", "Временные файлы", "Ваши временные файлы",
+                         [Path(os.environ.get("TMPDIR", "/tmp"))]),
+            JunkCategory("logs", "Логи", "Старые журналы программ", [home / "Library/Logs"]),
+            JunkCategory("trash", "Корзина", "Удалённые файлы", [home / ".Trash"], min_age_hours=0),
+        ]
     else:
         cache = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
         cats += [
@@ -54,12 +63,13 @@ def categories() -> list[JunkCategory]:
                          [cache / "thumbnails", home / ".thumbnails"], min_age_hours=0),
             JunkCategory("temp", "Временные файлы", "Ваши файлы в /tmp и /var/tmp",
                          [Path("/tmp"), Path("/var/tmp")]),
-            JunkCategory("trash", "Корзина", "Удалённые файлы",
-                         [home / ".local/share/Trash"] if IS_LINUX else [home / ".Trash"], min_age_hours=0),
+            JunkCategory("trash", "Корзина", "Удалённые файлы", [home / ".local/share/Trash"], min_age_hours=0),
         ]
-        if IS_MAC:
-            cats.append(JunkCategory("logs", "Логи", "Старые журналы программ", [home / "Library/Logs"]))
     return cats
+
+
+# что удаляется целиком, без ограничения по возрасту
+WHOLE = by_os("корзина — целиком", "корзина — целиком", "корзина и миниатюры — целиком")
 
 
 def _walk(paths: list[Path], min_age_hours: float, exclude: list[Path] = ()):

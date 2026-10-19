@@ -13,6 +13,18 @@ IS_LINUX = platform.system() == "Linux"
 IS_MAC = platform.system() == "Darwin"
 
 
+def by_os(win: str, mac: str, linux: str) -> str:
+    """Подсказка для текущей ОС: пути, меню и названия везде разные."""
+    if IS_WINDOWS:
+        return win
+    return mac if IS_MAC else linux
+
+
+ADMIN_HINT = by_os("нужны права администратора",
+                   "нужен пароль администратора или это системный процесс",
+                   "нужны права root (sudo)")
+
+
 def app_dir() -> Path:
     """Папка для кеша базы, журнала и резервных копий."""
     if IS_WINDOWS:

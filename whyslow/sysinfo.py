@@ -51,6 +51,8 @@ def os_name() -> str:
         if rel == "10" and build.isdigit() and int(build) >= 22000:
             rel = "11"  # Windows 11 честно представляется десяткой
         return f"Windows {rel} (сборка {build})"
+    if IS_MAC and platform.mac_ver()[0]:
+        return f"macOS {platform.mac_ver()[0]}"
     return f"{platform.system()} {platform.release()}"
 
 
@@ -166,10 +168,15 @@ def static_info() -> dict:
     }
 
 
+_MAC_DATA = "/System/Volumes/Data"
+
+
 def disks() -> list[dict]:
     out = []
     for p in psutil.disk_partitions(all=False):
         if IS_LINUX and (p.mountpoint.startswith(("/snap", "/boot/efi", "/var/snap")) or p.fstype in ("squashfs", "overlay")):
+            continue
+        if IS_MAC and p.mountpoint.startswith("/System/Volumes/") and p.mountpoint != _MAC_DATA:
             continue
         try:
             u = psutil.disk_usage(p.mountpoint)
@@ -178,6 +185,13 @@ def disks() -> list[dict]:
         if u.total < 1 << 30:
             continue
         out.append({"mount": p.mountpoint, "fs": p.fstype, "total": u.total, "free": u.free, "percent": u.percent})
+    if IS_MAC and any(d["mount"] == _MAC_DATA for d in out):
+        # «/» — только системный снимок, а файлы пользователя живут на томе Data
+        # того же диска: показываем Data под привычным именем «/»
+        out = [d for d in out if d["mount"] != "/"]
+        for d in out:
+            if d["mount"] == _MAC_DATA:
+                d["mount"] = "/"
     return out
 
 

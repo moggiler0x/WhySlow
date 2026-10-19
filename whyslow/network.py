@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import psutil
 
 from . import journal
-from .util import IS_LINUX, IS_WINDOWS, run
+from .util import IS_LINUX, IS_MAC, IS_WINDOWS, run
 
 _INET = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 
@@ -19,7 +19,7 @@ _INET = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
 class ProxyState:
     enabled: bool
     server: str = ""      # как записано в настройках
-    where: str = ""       # откуда настройка: Windows / GNOME / переменная окружения
+    where: str = ""       # откуда настройка: Windows / GNOME / macOS / переменная окружения
     host: str = ""
     port: int = 0
     listener: str = ""    # процесс, который слушает порт ("" — никто)
@@ -79,6 +79,13 @@ def proxy_state() -> ProxyState:
                 if host:
                     st = ProxyState(True, f"{host}:{port.strip()}", "Настройки GNOME", fixable=True)
                     break
+    elif IS_MAC:
+        code, out = run(["scutil", "--proxy"])
+        d = dict(re.findall(r"(\w+)\s*:\s*(\S+)", out)) if code == 0 else {}
+        for proto in ("HTTPS", "HTTP", "SOCKS"):
+            if d.get(f"{proto}Enable") == "1" and d.get(f"{proto}Proxy"):
+                st = ProxyState(True, f"{d[proto + 'Proxy']}:{d.get(proto + 'Port', '')}", "Настройки macOS")
+                break
     if not st.enabled:
         for var in ("all_proxy", "https_proxy", "http_proxy", "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY"):
             if os.environ.get(var):
