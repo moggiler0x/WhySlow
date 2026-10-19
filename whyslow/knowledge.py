@@ -18,7 +18,7 @@ from .util import IS_WINDOWS, app_dir
 
 DB_URL = os.environ.get(
     "WHYSLOW_DB_URL",
-    "https://raw.githubusercontent.com/vladimirgracev169-hash/whyslow/main/whyslow/data/known.json",
+    "https://raw.githubusercontent.com/vladimirgracev169-hash/WhySlow/main/whyslow/data/known.json",
 )
 BUNDLED = Path(__file__).resolve().parent / "data" / "known.json"
 
@@ -143,7 +143,7 @@ def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
 def report_url(name: str, command: str) -> str:
     """Ссылка на issue в репозитории с уже заполненными данными."""
     from urllib.parse import quote
-    repo = "https://github.com/vladimirgracev169-hash/whyslow"
+    repo = "https://github.com/vladimirgracev169-hash/WhySlow"
     title = f"Добавить в базу: {name}"
     body = f"**Имя:** `{name}`\n**Команда/путь:** `{command}`\n\nЧто это за программа и можно ли её отключать:\n"
     return f"{repo}/issues/new?title={quote(title)}&body={quote(body)}&labels=database"
