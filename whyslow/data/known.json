@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "updated": "2026-10-19",
  "entries": [
   {
@@ -71,6 +71,46 @@
     "msmpeng"
    ],
    "note": "Значок и служба встроенного антивируса. Отключать нельзя."
+  },
+  {
+   "id": "win_services_core",
+   "title": "Служба Windows",
+   "category": "Система",
+   "verdict": "keep",
+   "match": [
+    "\\b(wuauserv|usosvc|bits|cryptsvc|trustedinstaller|winmgmt|eventlog|rpcss|rpceptmapper|dcomlaunch|brokerinfrastructure|systemeventsbroker|schedule|plugplay|power|profsvc|usermanager|gpsvc|lsm|samss|dhcp|dnscache|nsi|nlasvc|netprofm|wlansvc|lanmanworkstation|lanmanserver|mpssvc|bfe|windefend|wdnissvc|wscsvc|sppsvc|audiosrv|audioendpointbuilder|themes|fontcache|sens|shellhwdetection|staterepository|coremessagingregistrar|tokenbroker|w32time|wpnservice|cdpsvc|cdpusersvc_\\w+|wpnuserservice_\\w+|onesyncsvc_\\w+|cbdhsvc_\\w+)$"
+   ],
+   "note": "Встроенная служба Windows: обновления, сеть, звук, вход в систему и т.п. Без неё что-то перестанет работать — не трогайте."
+  },
+  {
+   "id": "win_telemetry",
+   "title": "Телеметрия Windows",
+   "category": "Телеметрия",
+   "verdict": "safe",
+   "match": [
+    "\\b(diagtrack|dmwappushservice)$"
+   ],
+   "note": "Отправляет в Microsoft данные о работе системы. На работу Windows не влияет, отключать безопасно."
+  },
+  {
+   "id": "win_sysmain",
+   "title": "SysMain (Superfetch)",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "\\bsysmain$"
+   ],
+   "note": "Заранее подгружает в память частые программы. На HDD ускоряет их запуск, но может держать диск на 100% — тогда отключите. На SSD пользы почти нет."
+  },
+  {
+   "id": "win_search",
+   "title": "Поиск Windows",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "\\bwsearch$"
+   ],
+   "note": "Индексирует файлы для быстрого поиска в Пуске и Проводнике. Если поиском не пользуетесь или он грузит диск — отключите, поиск останется, но станет медленнее."
   },
   {
    "id": "antivirus",
@@ -247,6 +287,18 @@
    "note": "Если VPN нужен не всегда — уберите из автозагрузки. Кривые VPN после закрытия оставляют включённый прокси, и интернет «ломается» — WhySlow это проверяет на вкладке «Обзор»."
   },
   {
+   "id": "remote_access",
+   "title": "Удалённый доступ",
+   "category": "Сеть",
+   "verdict": "optional",
+   "match": [
+    "teamviewer",
+    "anydesk",
+    "rustdesk"
+   ],
+   "note": "Позволяет подключаться к этому компьютеру удалённо. Если так не делаете — отключите: заодно безопаснее."
+  },
+  {
    "id": "gaming_peripherals",
    "title": "ПО для мыши/клавиатуры",
    "category": "Периферия",
@@ -302,7 +354,8 @@
    "match": [
     "blueman",
     "^bluetooth[\\.\\s]",
-    "btdevicemanager"
+    "btdevicemanager",
+    "\\bbthserv$"
    ],
    "note": "Если Bluetooth не используете — можно отключить."
   },
@@ -315,7 +368,8 @@
     "^cups",
     "cups-browsed",
     "system-config-printer",
-    "print-applet"
+    "print-applet",
+    "\\bspooler$"
    ],
    "note": "Служба печати. Нет принтера — можно отключить."
   },
@@ -515,7 +569,10 @@
     "itunehelper",
     "ituneshelper",
     "ccleaner",
-    "cortana"
+    "cortana",
+    "edgeupdate",
+    "googleupdater",
+    "\\bgupdatem?$"
    ],
    "note": "Проверяет обновления. Программа обновится сама при следующем запуске."
   },

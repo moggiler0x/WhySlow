@@ -1,9 +1,11 @@
-"""Автозагрузка: Windows (реестр + папка «Автозагрузка»), Linux (XDG autostart
-+ systemd), macOS (LaunchAgents). Отключение сделано так же, как в системных
-инструментах, — поэтому его всегда можно включить обратно."""
+"""Автозагрузка: Windows (реестр, папка «Автозагрузка», Планировщик заданий,
+службы), Linux (XDG autostart + systemd), macOS (LaunchAgents). Отключение
+сделано так же, как в системных инструментах, — поэтому его всегда можно
+включить обратно."""
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import struct
@@ -13,7 +15,7 @@ from pathlib import Path
 
 from . import journal
 from .knowledge import KnowledgeBase, Verdict
-from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, run
+from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, is_admin, run
 
 
 class ActionError(Exception):
@@ -29,13 +31,15 @@ class StartupItem:
     kind: str
     meta: dict = field(default_factory=dict)
     can_delete: bool = False
+    can_toggle: bool = True
     needs_admin: bool = False
+    system: bool = False  # системные службы и задания прячутся за флажком
     verdict: Verdict | None = None
 
 
 def list_items(kb: KnowledgeBase | None = None) -> list[StartupItem]:
     if IS_WINDOWS:
-        items = _win_list()
+        items = _win_list() + _win_tasks_list() + _win_services_list()
     elif IS_LINUX:
         items = _xdg_list() + _systemd_list()
     elif IS_MAC:
@@ -44,17 +48,21 @@ def list_items(kb: KnowledgeBase | None = None) -> list[StartupItem]:
         items = []
     if kb:
         for it in items:
-            it.verdict = kb.lookup(it.name, it.command)
+            # Имя службы последним: записи базы для служб ищут его как `\\bимя$`
+            it.verdict = kb.lookup(it.name, it.command, it.meta.get("service", ""))
     return items
 
 
 def set_enabled(item: StartupItem, enabled: bool, log: bool = True) -> None:
     handler = {
         "win_reg": _win_set_enabled, "win_folder": _win_set_enabled,
+        "win_task": _win_task_set_enabled, "win_service": _win_service_set_enabled,
         "xdg": _xdg_set_enabled, "systemd": _systemd_set_enabled, "launchd": _mac_set_enabled,
     }.get(item.kind)
     if not handler:
         raise ActionError("Этот тип автозагрузки пока не поддерживается")
+    if not item.can_toggle:
+        raise ActionError("Эту запись можно только удалить: Windows не умеет её отключать")
     handler(item, enabled)
     if log:
         verb = "Включено" if enabled else "Отключено"
@@ -96,6 +104,7 @@ def undo(entry: dict) -> None:
 # ---------------------------------------------------------------- Windows ---
 
 _RUN = r"Software\Microsoft\Windows\CurrentVersion\Run"
+_RUNONCE = r"Software\Microsoft\Windows\CurrentVersion\RunOnce"
 _APPROVED = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved"
 
 
@@ -106,6 +115,11 @@ def _win_sources():
         (winreg.HKEY_LOCAL_MACHINE, "HKLM", _RUN, "Run", "Реестр (все пользователи)"),
         (winreg.HKEY_LOCAL_MACHINE, "HKLM", r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
          "Run32", "Реестр (все, 32-бит)"),
+        # RunOnce: запускается один раз при следующем входе и сам себя стирает
+        (winreg.HKEY_CURRENT_USER, "HKCU", _RUNONCE, "RunOnce", "Реестр, один раз (пользователь)"),
+        (winreg.HKEY_LOCAL_MACHINE, "HKLM", _RUNONCE, "RunOnce", "Реестр, один раз (все)"),
+        (winreg.HKEY_LOCAL_MACHINE, "HKLM", r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce",
+         "RunOnce", "Реестр, один раз (все, 32-бит)"),
     ]
 
 
@@ -141,11 +155,12 @@ def _win_list() -> list[StartupItem]:
                 except OSError:
                     break
                 i += 1
+                once = sub == "RunOnce"  # StartupApproved на RunOnce не действует
                 items.append(StartupItem(
                     name=name, command=str(value), source=label,
-                    enabled=_win_approved_enabled(hname, sub, name), kind="win_reg",
+                    enabled=once or _win_approved_enabled(hname, sub, name), kind="win_reg",
                     meta={"hive": hname, "path": path, "sub": sub, "value": name},
-                    can_delete=True, needs_admin=hname == "HKLM"))
+                    can_delete=True, can_toggle=not once, needs_admin=hname == "HKLM"))
     folders = [
         ("HKCU", Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs\Startup",
          "Папка «Автозагрузка»"),
@@ -202,6 +217,114 @@ def _win_restore_value(b: dict) -> None:
     import winreg
     with winreg.CreateKeyEx(_hive(b["hive"]), b["path"], 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
         winreg.SetValueEx(k, b["value"], 0, b["type"], b["data"])
+
+
+def _ps_json(script: str, timeout: float = 60) -> list[dict]:
+    """Выполняет PowerShell и разбирает ConvertTo-Json. Один объект тоже даёт список."""
+    code, out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script], timeout=timeout)
+    if code != 0 or not out.strip():
+        return []
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return []
+    data = data if isinstance(data, list) else [data]
+    return [d for d in data if isinstance(d, dict)]
+
+
+def _ours(kind: str) -> dict[str, dict]:
+    """Что выключили мы и ещё не откатили: key -> meta на момент отключения."""
+    out = {}
+    for e in journal.load():
+        d = e["data"]
+        if e["kind"] == "startup_toggle" and d["kind"] == kind and not e["undone"]:
+            out[d["meta"]["key"]] = d["meta"]
+    return out
+
+
+def _win_fail(code: int, out: str, what: str) -> None:
+    if code == 0:
+        return
+    if not is_admin():
+        raise ActionError("Нужны права администратора: запустите WhySlow от имени администратора")
+    raise ActionError(f"{what} не сработал: {out.strip()[:300]}")
+
+
+# Задания, которые стартуют при входе в систему или при загрузке
+_TASKS_PS = r"""
+Get-ScheduledTask | ForEach-Object {
+  $kinds = @($_.Triggers | ForEach-Object { $_.CimClass.CimClassName })
+  if ($kinds -match 'Logon|Boot') {
+    [pscustomobject]@{
+      Path = $_.TaskPath; Name = $_.TaskName; State = [string]$_.State
+      User = [string]$_.Principal.UserId; Boot = [bool]($kinds -match 'Boot')
+      Exec = (@($_.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)".Trim() }) -join '; ')
+    }
+  }
+} | ConvertTo-Json -Compress
+"""
+
+
+def _win_tasks_list() -> list[StartupItem]:
+    me = os.environ.get("USERNAME", "").lower()
+    items = []
+    for t in _ps_json(_TASKS_PS):
+        path, name = t.get("Path") or "\\", t.get("Name") or ""
+        if not name:
+            continue
+        tn = path + name
+        user = (t.get("User") or "").lower()
+        items.append(StartupItem(
+            name=name, command=t.get("Exec") or tn,
+            source="Планировщик (при загрузке)" if t.get("Boot") else "Планировщик (при входе)",
+            enabled=t.get("State") != "Disabled", kind="win_task",
+            meta={"key": tn, "tn": tn},
+            needs_admin=not user or user.rsplit("\\", 1)[-1] != me,
+            system=path.lower().startswith("\\microsoft\\")))
+    return items
+
+
+def _win_task_set_enabled(item: StartupItem, enabled: bool) -> None:
+    code, out = run(["schtasks", "/Change", "/TN", item.meta["tn"], "/ENABLE" if enabled else "/DISABLE"],
+                    timeout=60)
+    _win_fail(code, out, "schtasks")
+
+
+_SERVICES_PS = ("Get-CimInstance Win32_Service | "
+                "Select-Object Name, DisplayName, PathName, StartMode, DelayedAutoStart | ConvertTo-Json -Compress")
+
+
+def _win_services_list() -> list[StartupItem]:
+    # Плюс службы, которые перевели в «Вручную» мы: чтобы их можно было вернуть
+    ours = _ours("win_service")
+    items = []
+    for s in _ps_json(_SERVICES_PS):
+        name = s.get("Name") or ""
+        auto = s.get("StartMode") == "Auto"
+        if not name or not (auto or (name in ours and s.get("StartMode") == "Manual")):
+            continue
+        path = s.get("PathName") or ""
+        if auto:
+            start = "delayed-auto" if s.get("DelayedAutoStart") else "auto"
+        else:
+            start = ours[name].get("start", "auto")
+        low = path.lower().replace("/", "\\")
+        items.append(StartupItem(
+            name=s.get("DisplayName") or name, command=path,
+            source="Служба (отложенный запуск)" if start == "delayed-auto" else "Служба",
+            enabled=auto, kind="win_service",
+            meta={"key": name, "service": name, "start": start},
+            needs_admin=True,
+            system="\\windows\\" in low or "svchost.exe" in low))
+    return items
+
+
+def _win_service_set_enabled(item: StartupItem, enabled: bool) -> None:
+    """Отключение = режим «Вручную»: служба не стартует сама, но запустится, если её позовут."""
+    start = item.meta.get("start", "auto") if enabled else "demand"
+    code, out = run(["sc.exe", "config", item.meta["service"], "start=", start], timeout=60)
+    _win_fail(code, out, "sc config")
 
 
 # ------------------------------------------------------- Linux: autostart ---
@@ -328,7 +451,7 @@ def _systemd_list() -> list[StartupItem]:
                 name=unit.removesuffix(".service"), command=unit,
                 source="Служба (пользователь)" if scope == "user" else "Служба (система)",
                 enabled=on, kind="systemd", meta={"unit": unit, "scope": scope},
-                needs_admin=scope == "system"))
+                needs_admin=scope == "system", system=True))
     return items
 
 
