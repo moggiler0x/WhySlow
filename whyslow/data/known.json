@@ -1,0 +1,579 @@
+{
+ "version": 1,
+ "updated": "2026-10-19",
+ "entries": [
+  {
+   "id": "miner",
+   "title": "Майнер",
+   "category": "Угроза",
+   "verdict": "bad",
+   "match": [
+    "xmrig",
+    "nicehash",
+    "phoenixminer",
+    "t-rex",
+    "nbminer",
+    "lolminer",
+    "\\bminer\\.exe"
+   ],
+   "note": "Майнит криптовалюту на вашем железе — отсюда 100% загрузки CPU/GPU. Удалите и проверьте систему антивирусом."
+  },
+  {
+   "id": "mailru",
+   "title": "Mail.ru Агент / Спутник / Амиго",
+   "category": "Нежелательное ПО",
+   "verdict": "bad",
+   "match": [
+    "amigo",
+    "mail\\.?ru",
+    "sputnik",
+    "guard\\s*mail",
+    "mailruupdater"
+   ],
+   "note": "Ставится «в нагрузку» к другим программам, грузит систему и меняет поиск. Смело удаляйте."
+  },
+  {
+   "id": "pup_cleaners",
+   "title": "«Ускорители» и «оптимизаторы»",
+   "category": "Нежелательное ПО",
+   "verdict": "bad",
+   "match": [
+    "advanced\\s*systemcare",
+    "driver\\s*booster",
+    "iobit",
+    "reimage",
+    "pc\\s*accelerate",
+    "wise\\s*care",
+    "auslogics",
+    "systweak"
+   ],
+   "note": "Программы вида Driver Booster/Advanced SystemCare/Reimage сами тормозят систему и показывают рекламу."
+  },
+  {
+   "id": "opera_assistant",
+   "title": "Opera Browser Assistant",
+   "category": "Нежелательное ПО",
+   "verdict": "bad",
+   "match": [
+    "browser_assistant",
+    "opera.*assistant"
+   ],
+   "note": "Помощник Opera висит в фоне даже когда браузер закрыт. Пользе ноль."
+  },
+  {
+   "id": "win_security",
+   "title": "Безопасность Windows",
+   "category": "Система",
+   "verdict": "keep",
+   "match": [
+    "securityhealth",
+    "windows\\s*defender",
+    "msmpeng"
+   ],
+   "note": "Значок и служба встроенного антивируса. Отключать нельзя."
+  },
+  {
+   "id": "antivirus",
+   "title": "Антивирус",
+   "category": "Безопасность",
+   "verdict": "keep",
+   "match": [
+    "kaspersky",
+    "avp\\.exe",
+    "\\bavp\\b",
+    "\\beset\\b|ekrn\\.exe",
+    "egui\\.exe",
+    "avast",
+    "\\bavg(ui|svc)?\\b",
+    "dr\\.?web",
+    "bitdefender",
+    "malwarebytes",
+    "norton",
+    "360\\s*total"
+   ],
+   "note": "Антивирус должен стартовать вместе с системой."
+  },
+  {
+   "id": "audio_drivers",
+   "title": "Аудиодрайвер",
+   "category": "Драйвер",
+   "verdict": "keep",
+   "match": [
+    "realtek",
+    "rtkaud",
+    "rthdvcpl",
+    "ravcpl",
+    "nahimic",
+    "waves\\s*maxx",
+    "dolby"
+   ],
+   "note": "Управление звуком (Realtek и т.п.). Без него могут пропасть эффекты и переключение наушников."
+  },
+  {
+   "id": "gpu_driver",
+   "title": "Видеодрайвер",
+   "category": "Драйвер",
+   "verdict": "keep",
+   "match": [
+    "igfx",
+    "intel.*graphics",
+    "radeon\\s*software",
+    "amd\\s*crash",
+    "atiedxx",
+    "nvdisplay",
+    "nvcontainer"
+   ],
+   "note": "Компоненты видеодрайвера. Не отключайте — могут сломаться настройки экрана."
+  },
+  {
+   "id": "touchpad",
+   "title": "Тачпад/клавиатура ноутбука",
+   "category": "Драйвер",
+   "verdict": "keep",
+   "match": [
+    "synaptics",
+    "syntp",
+    "elan\\s*smart",
+    "etdctrl",
+    "asus.*(hotkey|atk)",
+    "lenovo.*(hotkey|vantage)",
+    "hp\\s*hotkey"
+   ],
+   "note": "Жесты тачпада и горячие клавиши ноутбука."
+  },
+  {
+   "id": "ctfmon",
+   "title": "Языковая панель",
+   "category": "Система",
+   "verdict": "keep",
+   "match": [
+    "ctfmon"
+   ],
+   "note": "Переключение раскладки и ввод текста."
+  },
+  {
+   "id": "linux_core",
+   "title": "Компонент рабочего стола",
+   "category": "Система",
+   "verdict": "keep",
+   "match": [
+    "gnome-keyring",
+    "polkit",
+    "at-spi",
+    "xdg-user-dirs",
+    "pipewire",
+    "pulseaudio",
+    "wireplumber",
+    "nm-applet",
+    "networkmanager",
+    "gsd-",
+    "org\\.gnome\\.settingsdaemon",
+    "kdeconnect",
+    "plasma",
+    "xfce4-power",
+    "xfsettingsd",
+    "ibus",
+    "fcitx",
+    "dbus",
+    "systemd-",
+    "user-dirs"
+   ],
+   "note": "Часть окружения рабочего стола Linux — без него что-то перестанет работать (звук, сеть, пароли, раскладка)."
+  },
+  {
+   "id": "linux_services_core",
+   "title": "Системная служба",
+   "category": "Система",
+   "verdict": "keep",
+   "match": [
+    "^(ssh|sshd|cron|rsyslog|udisks2|upower|accounts-daemon|gdm|sddm|lightdm|apparmor|ufw|snapd|wpa_supplicant|thermald|power-profiles-daemon|unattended-upgrades|getty@|console-setup|keyboard-setup|setvtrgb|irqbalance|switcheroo-control|fwupd)[\\.\\s]"
+   ],
+   "note": "Базовая служба Linux. Отключение может сломать загрузку, сеть или вход."
+  },
+  {
+   "id": "onedrive",
+   "title": "OneDrive",
+   "category": "Облако",
+   "verdict": "optional",
+   "match": [
+    "onedrive"
+   ],
+   "note": "Синхронизация файлов с облаком Microsoft. Если не пользуетесь — отключайте, при синхронизации сильно грузит диск."
+  },
+  {
+   "id": "gdrive",
+   "title": "Google Drive / Dropbox / Яндекс Диск",
+   "category": "Облако",
+   "verdict": "optional",
+   "match": [
+    "google\\s*drive",
+    "googledrivefs",
+    "dropbox",
+    "yandex\\s*disk",
+    "yandexdisk"
+   ],
+   "note": "Облачная синхронизация. Нужна, только если вы держите там файлы."
+  },
+  {
+   "id": "vpn",
+   "title": "VPN-клиент",
+   "category": "VPN",
+   "verdict": "optional",
+   "match": [
+    "nordvpn",
+    "protonvpn",
+    "windscribe",
+    "hotspot\\s*shield",
+    "expressvpn",
+    "surfshark",
+    "amnezia",
+    "hiddify",
+    "v2rayn",
+    "v2ray",
+    "nekoray",
+    "nekobox",
+    "clash",
+    "outline",
+    "psiphon",
+    "openvpn",
+    "wireguard",
+    "\\bhapp\\b",
+    "karing",
+    "\\bthrone\\b",
+    "adguardvpn",
+    "kaspersky\\s*vpn",
+    "planet\\s*vpn"
+   ],
+   "note": "Если VPN нужен не всегда — уберите из автозагрузки. Кривые VPN после закрытия оставляют включённый прокси, и интернет «ломается» — WhySlow это проверяет на вкладке «Обзор»."
+  },
+  {
+   "id": "gaming_peripherals",
+   "title": "ПО для мыши/клавиатуры",
+   "category": "Периферия",
+   "verdict": "optional",
+   "match": [
+    "lghub",
+    "logi.*(hub|options)",
+    "razer",
+    "synapse",
+    "steelseries",
+    "corsair",
+    "icue",
+    "hyperx",
+    "bloody",
+    "a4tech",
+    "armoury\\s*crate",
+    "\\baura\\b"
+   ],
+   "note": "Нужно для подсветки и макросов. Если настроили один раз — часто можно отключить: профиль хранится в самом устройстве."
+  },
+  {
+   "id": "overlay",
+   "title": "Мониторинг FPS / разгон",
+   "category": "Игры",
+   "verdict": "optional",
+   "match": [
+    "afterburner",
+    "rtss",
+    "rivatuner",
+    "fpsmonitor"
+   ],
+   "note": "MSI Afterburner, RivaTuner и т.п. Нужны, если вы правда смотрите FPS или держите разгон."
+  },
+  {
+   "id": "nvidia_extra",
+   "title": "NVIDIA App / GeForce Experience",
+   "category": "Драйвер",
+   "verdict": "optional",
+   "match": [
+    "geforce\\s*experience",
+    "nvidia\\s*app",
+    "nvbackend",
+    "nvidia\\s*share",
+    "nvsphelper"
+   ],
+   "note": "Оверлей и обновления драйверов. Сам драйвер работает и без них."
+  },
+  {
+   "id": "bluetooth",
+   "title": "Bluetooth",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "blueman",
+    "^bluetooth[\\.\\s]",
+    "btdevicemanager"
+   ],
+   "note": "Если Bluetooth не используете — можно отключить."
+  },
+  {
+   "id": "printing",
+   "title": "Печать (CUPS)",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "^cups",
+    "cups-browsed",
+    "system-config-printer",
+    "print-applet"
+   ],
+   "note": "Служба печати. Нет принтера — можно отключить."
+  },
+  {
+   "id": "avahi",
+   "title": "Avahi (поиск устройств в сети)",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "avahi"
+   ],
+   "note": "Ищет принтеры и устройства в локальной сети. Дома обычно не нужен."
+  },
+  {
+   "id": "dev_servers",
+   "title": "Сервер разработчика",
+   "category": "Разработка",
+   "verdict": "optional",
+   "match": [
+    "docker",
+    "containerd",
+    "mysql",
+    "mariadb",
+    "postgres",
+    "apache2",
+    "httpd",
+    "nginx",
+    "mongod",
+    "redis"
+   ],
+   "note": "Docker, базы данных, веб-серверы. Если вы не разработчик — скорее всего поставились случайно и жрут память."
+  },
+  {
+   "id": "tracker",
+   "title": "Индексатор файлов",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "tracker-miner",
+    "tracker3",
+    "baloo",
+    "searchindexer",
+    "localsearch"
+   ],
+   "note": "Индексирует файлы для поиска. На слабых ПК грузит диск сразу после включения."
+  },
+  {
+   "id": "snap_integration",
+   "title": "Snap интеграция",
+   "category": "Система",
+   "verdict": "optional",
+   "match": [
+    "snapd-desktop-integration"
+   ],
+   "note": "Интеграция snap-приложений с рабочим столом."
+  },
+  {
+   "id": "discord",
+   "title": "Discord",
+   "category": "Мессенджер",
+   "verdict": "safe",
+   "match": [
+    "discord"
+   ],
+   "note": "Мессенджер. Запустите вручную, когда понадобится."
+  },
+  {
+   "id": "telegram",
+   "title": "Telegram",
+   "category": "Мессенджер",
+   "verdict": "safe",
+   "match": [
+    "telegram"
+   ],
+   "note": "Мессенджер. Можно убрать из автозагрузки, если не нужен сразу."
+  },
+  {
+   "id": "whatsapp",
+   "title": "WhatsApp / Viber / Skype",
+   "category": "Мессенджер",
+   "verdict": "safe",
+   "match": [
+    "whatsapp",
+    "viber",
+    "skype"
+   ],
+   "note": "Мессенджер."
+  },
+  {
+   "id": "zoom",
+   "title": "Zoom / Teams",
+   "category": "Мессенджер",
+   "verdict": "safe",
+   "match": [
+    "zoom",
+    "teams",
+    "msteams"
+   ],
+   "note": "Нужен только во время звонков."
+  },
+  {
+   "id": "steam",
+   "title": "Steam",
+   "category": "Игры",
+   "verdict": "safe",
+   "match": [
+    "steam"
+   ],
+   "note": "Сам запустится, когда откроете игру. В автозагрузке только ест память и качает обновления."
+  },
+  {
+   "id": "launchers",
+   "title": "Игровой лаунчер",
+   "category": "Игры",
+   "verdict": "safe",
+   "match": [
+    "epicgames",
+    "epic\\s*games",
+    "eadesktop",
+    "ea\\s*app",
+    "\\borigin(\\.exe|\\s*client)",
+    "ubisoft",
+    "upc\\.exe",
+    "battle\\.net",
+    "galaxyclient",
+    "gog\\s*galaxy",
+    "riotclient",
+    "rockstar",
+    "lesta",
+    "wargaming",
+    "wgc\\.exe",
+    "vk\\s*play",
+    "gamecenter"
+   ],
+   "note": "Epic, EA, Ubisoft, Battle.net, GOG, Riot — всё запускается вручную."
+  },
+  {
+   "id": "spotify",
+   "title": "Spotify / Яндекс Музыка",
+   "category": "Медиа",
+   "verdict": "safe",
+   "match": [
+    "spotify",
+    "yandex.*music"
+   ],
+   "note": "Музыка не нужна в автозагрузке."
+  },
+  {
+   "id": "torrent",
+   "title": "Торрент-клиент",
+   "category": "Сеть",
+   "verdict": "safe",
+   "match": [
+    "utorrent",
+    "bittorrent",
+    "qbittorrent",
+    "transmission",
+    "mediaget",
+    "tixati"
+   ],
+   "note": "Раздаёт в фоне и грузит сеть и диск. Запускайте, когда качаете."
+  },
+  {
+   "id": "browsers",
+   "title": "Браузер (фоновый запуск)",
+   "category": "Браузер",
+   "verdict": "safe",
+   "match": [
+    "yandex(?!.*(disk|music))",
+    "browser\\.exe",
+    "microsoftedgeautolaunch",
+    "msedge.*--no-startup-window",
+    "chrome.*--no-startup-window",
+    "opera(?!.*assistant)",
+    "firefox",
+    "brave",
+    "vivaldi"
+   ],
+   "note": "Браузеру незачем стартовать до того, как вы его открыли."
+  },
+  {
+   "id": "updaters",
+   "title": "Программа обновления",
+   "category": "Обновления",
+   "verdict": "safe",
+   "match": [
+    "jusched",
+    "java.*update",
+    "adobe.*(updater|arm)",
+    "acrotray",
+    "adobegcclient",
+    "googleupdate",
+    "update-notifier",
+    "gnome-software",
+    "discover.*notifier",
+    "apple.*update",
+    "itunehelper",
+    "ituneshelper",
+    "ccleaner",
+    "cortana"
+   ],
+   "note": "Проверяет обновления. Программа обновится сама при следующем запуске."
+  },
+  {
+   "id": "adobe_cc",
+   "title": "Adobe Creative Cloud",
+   "category": "Работа",
+   "verdict": "safe",
+   "match": [
+    "creative\\s*cloud",
+    "adobe\\s*desktop\\s*service",
+    "cclibrary"
+   ],
+   "note": "Нужен только при запуске Adobe-программ, они сами его поднимут."
+  },
+  {
+   "id": "wallpaper",
+   "title": "Wallpaper Engine / живые обои",
+   "category": "Медиа",
+   "verdict": "safe",
+   "match": [
+    "wallpaper\\s*engine",
+    "wallpaper32",
+    "wallpaper64",
+    "lively"
+   ],
+   "note": "Живые обои отнимают ресурсы видеокарты. Отключите, если ПК тормозит."
+  },
+  {
+   "id": "evolution",
+   "title": "Evolution (календарь/почта GNOME)",
+   "category": "Система",
+   "verdict": "safe",
+   "match": [
+    "evolution-alarm",
+    "evolution-data"
+   ],
+   "note": "Напоминания календаря Evolution. Не пользуетесь — отключайте."
+  },
+  {
+   "id": "orca",
+   "title": "Orca (экранный диктор)",
+   "category": "Система",
+   "verdict": "safe",
+   "match": [
+    "\\borca\\b"
+   ],
+   "note": "Нужен только людям с нарушениями зрения."
+  },
+  {
+   "id": "modem",
+   "title": "ModemManager",
+   "category": "Система",
+   "verdict": "safe",
+   "match": [
+    "modemmanager"
+   ],
+   "note": "Управляет 3G/4G модемами. Нет модема — не нужен."
+  }
+ ]
+}
