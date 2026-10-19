@@ -5,7 +5,7 @@ def selfcheck() -> int:
     """Проверка после обновления: все модули импортируются. Печатает версию."""
     import importlib
     from . import __version__
-    names = ["util", "knowledge", "checks", "startup", "processes", "junk", "network", "sysinfo",
+    names = ["util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
              "lhm", "journal", "settings", "updater", "cli"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем

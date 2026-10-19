@@ -8,6 +8,7 @@ import time
 import traceback
 import webbrowser
 from collections import deque
+from html import escape as _esc
 
 import psutil
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from . import __version__, checks, journal, junk, knowledge, lhm, network, settings, startup, sysinfo, updater
+from . import __version__, checks, journal, junk, knowledge, lhm, network, online, settings, startup, sysinfo, updater
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, human_duration, human_size, is_admin
 
@@ -319,6 +320,29 @@ def confirm(parent, title: str, text: str, danger: bool = False) -> bool:
     box.button(QMessageBox.Cancel).setText("Отмена")
     box.setDefaultButton(QMessageBox.Cancel if danger else QMessageBox.Yes)
     return box.exec() == QMessageBox.Yes
+
+
+_asking: set[str] = set()
+
+
+def online_note(name: str, path: str, refresh) -> str:
+    """Пояснение из интернета для программы, которой нет в базе.
+    Если в кеше пусто — ищет в фоне и потом зовёт refresh(), чтобы окно перерисовалось."""
+    hit, info = online.cached(name)
+    if hit:
+        return online.as_html(info, C["muted"])
+    if name not in _asking:
+        _asking.add(name)
+        run_async(lambda _p: online.describe(name, path),
+                  lambda _r: (_asking.discard(name), refresh()),
+                  lambda _e: _asking.discard(name))
+    return f"<span style='color:{C['muted']}'>Ищу описание в интернете…</span>"
+
+
+def report_online(name: str, command: str):
+    """Открывает готовый issue; найденное в интернете описание подставляется черновиком."""
+    _hit, info = online.cached(name)
+    webbrowser.open(knowledge.report_url(name, command, info.text if info else "", info.source if info else ""))
 
 
 class Sampler(QThread):
@@ -870,7 +894,8 @@ class StartupTab(QWidget):
         self.detail.setWordWrap(True)
         self.detail.setStyleSheet(f"QLabel {{ background: {C['panel2']}; border: 1px solid {C['border']};"
                                   f"border-radius: 12px; padding: {px(12)}px; }}")
-        self.detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.detail.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.detail.setOpenExternalLinks(True)
         self.detail.setMinimumHeight(px(80))
         lay.addWidget(self.detail)
 
@@ -880,7 +905,7 @@ class StartupTab(QWidget):
         self.b_on = QPushButton("Включить")
         self.b_del = QPushButton("Удалить из автозагрузки")
         self.b_del.setObjectName("danger")
-        self.b_report = QPushButton("Сообщить в базу…")
+        self.b_report = QPushButton("Предложить в базу…")
         self.b_off.clicked.connect(lambda: self.toggle(self.current(), False))
         self.b_on.clicked.connect(lambda: self.toggle(self.current(), True))
         self.b_del.clicked.connect(self.delete)
@@ -968,7 +993,10 @@ class StartupTab(QWidget):
         if not it.can_toggle:
             admin += (f"<br><span style='color:{C['muted']}'>Запустится один раз при следующем входе. "
                       "Отключить такую запись нельзя, только удалить.</span>")
-        self.detail.setText(f"<b>{it.name}</b>{cat} — <b style='color:{color}'>{v.label}</b><br>{v.note}"
+        note = v.note
+        if v.verdict == "unknown":
+            note = "Нет в базе. " + online_note(it.name, it.command, lambda it=it: self.current() is it and self.on_select())
+        self.detail.setText(f"<b>{it.name}</b>{cat} — <b style='color:{color}'>{v.label}</b><br>{note}"
                             f"<br><span style='color:{C['muted']}'>{it.command}</span>{admin}")
 
     def _apply(self, fn, ok_text):
@@ -1033,7 +1061,7 @@ class StartupTab(QWidget):
     def report(self):
         it = self.current()
         if it:
-            webbrowser.open(knowledge.report_url(it.name, it.command))
+            report_online(it.name, it.command)
 
 
 # --------------------------------------------------------------- Процессы ---
@@ -1061,6 +1089,9 @@ class ProcessesTab(QWidget):
         self.table.itemSelectionChanged.connect(self.on_select)
         lay.addWidget(self.table, 1)
         self.detail = muted("")
+        self.detail.setTextFormat(Qt.RichText)
+        self.detail.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.detail.setOpenExternalLinks(True)
         lay.addWidget(self.detail)
         row = QHBoxLayout()
         self.b_kill = QPushButton("Закрыть программу")
@@ -1069,6 +1100,10 @@ class ProcessesTab(QWidget):
         self.b_kill.setEnabled(False)
         row.addWidget(self.b_kill)
         row.addStretch()
+        self.b_report = QPushButton("Предложить в базу…")
+        self.b_report.clicked.connect(self.report)
+        self.b_report.setEnabled(False)
+        row.addWidget(self.b_report)
         lay.addLayout(row)
 
     def on_procs(self, groups):
@@ -1111,10 +1146,19 @@ class ProcessesTab(QWidget):
         name = self.selected_name()
         g = self.groups.get(name) if name else None
         self.b_kill.setEnabled(g is not None)
+        self.b_report.setEnabled(g is not None)
         if g:
             v = g.verdict
-            note = v.note if v and v.verdict != "unknown" else ""
-            self.detail.setText(f"{g.exe or g.name}" + (f"\n{note}" if note else ""))
+            if v and v.verdict != "unknown":
+                note = _esc(v.note)
+            else:
+                note = online_note(g.name, g.exe, lambda name=name: self.selected_name() == name and self.on_select())
+            self.detail.setText(_esc(g.exe or g.name) + (f"<br>{note}" if note else ""))
+
+    def report(self):
+        g = self.groups.get(self.selected_name())
+        if g:
+            report_online(g.name, g.exe)
 
     def kill(self):
         g = self.groups.get(self.selected_name())

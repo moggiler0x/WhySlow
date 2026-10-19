@@ -102,7 +102,8 @@ class KnowledgeBase:
         for e in self.entries:
             if any(p.search(text) for p in e.patterns):
                 return Verdict(e.verdict, e.note, e.title, e.category, e.id)
-        return Verdict("unknown", "Нет в базе. Если знаете, что это, — пришлите в репозиторий, база пополнится.")
+        return Verdict("unknown", "Нет в базе. WhySlow поищет описание в интернете; если знаете точно — "
+                                  "предложите запись в базу, она пополнится для всех.")
 
 
 def _heuristic(text: str) -> Verdict | None:
@@ -175,10 +176,14 @@ def _explain(e: Exception) -> str:
     return str(e)
 
 
-def report_url(name: str, command: str) -> str:
-    """Ссылка на issue в репозитории с уже заполненными данными."""
+def report_url(name: str, command: str, found: str = "", source: str = "") -> str:
+    """Ссылка на issue в репозитории с уже заполненными данными.
+    found — описание, которое программа нашла в интернете (подставляется как черновик)."""
     from urllib.parse import quote
     repo = "https://github.com/moggiler0x/WhySlow"
     title = f"Добавить в базу: {name}"
-    body = f"**Имя:** `{name}`\n**Команда/путь:** `{command}`\n\nЧто это за программа и можно ли её отключать:\n"
+    body = f"**Имя:** `{name}`\n**Команда/путь:** `{command}`\n\n"
+    if found:
+        body += f"Найдено автоматически ({source or 'интернет'}), стоит проверить:\n> {found}\n\n"
+    body += "Что это за программа и можно ли её отключать:\n"
     return f"{repo}/issues/new?title={quote(title)}&body={quote(body)}&labels=database"
