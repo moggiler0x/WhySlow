@@ -188,6 +188,8 @@ How an update is installed depends on how you got the program:
 
 Without a terminal: on GitHub go to **Releases → Draft a new release**, type `v0.3.0` as the tag
 (branch `main`), click **Generate release notes** and **Publish release**.
+The tag must match the version in `whyslow/__init__.py` on `main` (step 1). If the version wasn't bumped,
+the program refuses to install such a release and asks for a fixed one.
 
 Installed copies see the new version as soon as the tag exists, even before the release is created.
 

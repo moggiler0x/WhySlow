@@ -132,6 +132,19 @@ def install(rel: Release, progress=lambda _t: None) -> str:
               f"WhySlow updated to version {rel.version}. Restart the program.")
 
 
+def _check_inside(rel: Release, init_py: str) -> None:
+    """Версия в коде релиза должна совпадать с тегом, иначе после установки программа
+    останется «старой» и будет предлагать то же обновление снова."""
+    m = re.search(r"__version__\s*=\s*[\"']([^\"']+)[\"']", init_py)
+    inside = m.group(1) if m else "?"
+    if inside != rel.version:
+        raise UpdateError(tr(
+            f"Релиз {rel.tag} выпущен с ошибкой: внутри него версия {inside}, а не {rel.version}. "
+            "Ничего не менял. Нужен исправленный релиз с новой версией.",
+            f"Release {rel.tag} is broken: it contains version {inside}, not {rel.version}. "
+            "Nothing was changed. A fixed release with a new version is needed."))
+
+
 def _verify(rel: Release, progress, rollback) -> None:
     """Ставит зависимости новой версии и проверяет, что она запускается."""
     progress(tr("Ставлю зависимости…", "Installing dependencies…"))
@@ -139,11 +152,19 @@ def _verify(rel: Release, progress, rollback) -> None:
                     timeout=600, cwd=ROOT)
     pip_failed = code != 0
     progress(tr("Проверяю новую версию…", "Checking the new version…"))
+    # Старый байткод с тем же размером и временем файла Python принял бы за свежий
+    for cache in (ROOT / "whyslow").rglob("__pycache__"):
+        shutil.rmtree(cache, ignore_errors=True)
     code, out = run([sys.executable, "-m", "whyslow", "--selfcheck"], timeout=120, cwd=ROOT)
     lines = out.strip().splitlines()
     if code != 0 or not lines or lines[-1].strip() != rel.version:
         progress(tr("Новая версия не запустилась, возвращаю старую…", "New version failed to start, restoring the old one…"))
         rollback()
+        if code == 0 and lines:
+            raise UpdateError(tr(f"Новая версия запустилась как {lines[-1].strip()}, а не {rel.version}. "
+                                 f"Вернул {__version__}.",
+                                 f"The new version reports {lines[-1].strip()}, not {rel.version}. "
+                                 f"Restored {__version__}."))
         tail = "\n".join(lines[-5:])
         hint = tr(" Не удалось поставить зависимости (pip).", " Failed to install dependencies (pip).") if pip_failed else ""
         raise UpdateError(tr(f"Новая версия не запустилась, вернул {__version__}.{hint}\n{tail}",
@@ -174,6 +195,8 @@ def _install_git(rel: Release, progress) -> dict:
     if code != 0:
         raise UpdateError(tr(f"Не удалось скачать обновление через git:\n{out.strip()}",
                              f"Could not download the update via git:\n{out.strip()}"))
+    _, init_py = _git("show", f"{rel.tag}:whyslow/__init__.py")
+    _check_inside(rel, init_py)
     if branch:
         code, out = _git("merge", "--ff-only", "--quiet", rel.tag)
     else:
@@ -227,6 +250,7 @@ def _install_files(rel: Release, progress) -> dict:
         if not (src / "whyslow" / "__init__.py").exists():
             raise UpdateError(tr("Архив обновления не похож на WhySlow — ничего не меняю.",
                                  "The update archive doesn't look like WhySlow — nothing changed."))
+        _check_inside(rel, (src / "whyslow" / "__init__.py").read_text(encoding="utf-8"))
 
         progress(tr("Сохраняю текущую версию…", "Backing up the current version…"))
         backup = app_dir() / "updates" / f"{__version__}-{time.strftime('%Y%m%d-%H%M%S')}"
