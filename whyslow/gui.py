@@ -13,12 +13,12 @@ import psutil
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+    QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from . import __version__, checks, journal, junk, knowledge, lhm, network, startup, sysinfo
+from . import __version__, checks, journal, junk, knowledge, lhm, network, settings, startup, sysinfo, updater
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, human_duration, human_size, is_admin
 
@@ -94,6 +94,7 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QTextEdit {{ background: {C['bg']}; border: 1px solid {C['border']}; border-radius: 6px; }}
 QStatusBar {{ background: transparent; color: {C['muted']}; }}
 QStatusBar QPushButton {{ padding: 3px 12px; }}
+QStatusBar QPushButton#update {{ background: {GRAD}; border: none; color: white; font-weight: 700; }}
 QCheckBox::indicator {{ width: {px(18)}px; height: {px(18)}px; }}
 QMessageBox QLabel {{ font-size: {pt(10)}; }}
 """
@@ -1275,6 +1276,8 @@ class JournalTab(QWidget):
                 startup.undo(e)
             elif e["kind"] == "proxy_off":
                 network.undo(e)
+            elif e["kind"] == "update":
+                updater.undo(e)
         except Exception as ex:
             QMessageBox.warning(self, "Не получилось", str(ex))
             return
@@ -1282,6 +1285,115 @@ class JournalTab(QWidget):
         self.main.status("Откачено: " + e["title"])
         self.reload()
         self.main.startup_tab.reload()
+        if e["kind"] == "update":
+            self.main.offer_restart(f"Вернул версию {e['data']['old_version']}.")
+
+
+class UpdateDialog(QDialog):
+    """Проверка и установка новых версий, настройки автообновления."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__(main)
+        self.main = main
+        self.rel: updater.Release | None = main.new_release
+        self.setWindowTitle("Обновления WhySlow")
+        self.setMinimumWidth(px(560))
+        self.setStyleSheet(f"QDialog {{ background: {C['panel']}; }}")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        head = QLabel(f"Установлена версия {__version__}")
+        head.setStyleSheet(f"font-size: {pt(13)}; font-weight: 700;")
+        lay.addWidget(head)
+        lay.addWidget(muted(updater.mode_hint()))
+        self.state = QLabel()
+        self.state.setWordWrap(True)
+        lay.addWidget(self.state)
+        self.notes = QTextEdit()
+        self.notes.setReadOnly(True)
+        self.notes.setMinimumHeight(px(140))
+        lay.addWidget(self.notes)
+
+        self.c_check = QCheckBox("Проверять новые версии при запуске")
+        self.c_check.setChecked(settings.get("check_updates"))
+        self.c_check.toggled.connect(lambda v: settings.set("check_updates", v))
+        self.c_auto = QCheckBox("Устанавливать обновления автоматически")
+        self.c_auto.setChecked(settings.get("auto_update"))
+        self.c_auto.toggled.connect(lambda v: settings.set("auto_update", v))
+        self.c_auto.setEnabled(updater.mode() != "manual")
+        lay.addWidget(self.c_check)
+        lay.addWidget(self.c_auto)
+        lay.addWidget(muted("Неудачное обновление откатывается само. Удачное можно откатить во вкладке «Журнал»."))
+
+        row = QHBoxLayout()
+        self.b_check = QPushButton("Проверить сейчас")
+        self.b_check.clicked.connect(self.check)
+        row.addWidget(self.b_check)
+        self.b_page = QPushButton("Страница релизов")
+        self.b_page.setObjectName("link")
+        self.b_page.clicked.connect(lambda: webbrowser.open(f"https://github.com/{updater.REPO}/releases"))
+        row.addWidget(self.b_page)
+        row.addStretch()
+        self.b_install = QPushButton("Установить")
+        self.b_install.setObjectName("primary")
+        self.b_install.clicked.connect(self.install)
+        row.addWidget(self.b_install)
+        lay.addLayout(row)
+        self.show_release()
+        if not self.rel:
+            self.check()
+
+    def show_release(self, msg: str = ""):
+        rel = self.rel
+        self.b_install.setVisible(bool(rel) and updater.mode() != "manual")
+        if rel:
+            self.b_install.setText(f"Установить {rel.version}")
+            self.state.setText(msg or f"Доступна новая версия {rel.version}.")
+            self.state.setStyleSheet(f"color: {C['ok']}; font-weight: 600;")
+        else:
+            self.state.setText(msg)
+            self.state.setStyleSheet("")
+        self.notes.setVisible(bool(rel and rel.notes))
+        self.notes.setPlainText(rel.notes if rel else "")
+
+    def check(self):
+        self.b_check.setEnabled(False)
+        self.state.setText("Проверяю…")
+
+        def done(r):
+            self.b_check.setEnabled(True)
+            self.rel, msg = r
+            self.main.set_release(self.rel)
+            self.show_release(msg)
+
+        def failed(e):
+            self.b_check.setEnabled(True)
+            self.show_release(e)
+
+        run_async(lambda _p: updater.check(), done, failed)
+
+    def install(self):
+        rel = self.rel
+        if not rel or not confirm(self, "Обновить WhySlow?",
+                                  f"Установить версию {rel.version} вместо {__version__}?\n"
+                                  "Если новая версия не запустится, старая вернётся сама."):
+            return
+        self.b_install.setEnabled(False)
+        self.b_check.setEnabled(False)
+
+        def done(msg):
+            self.main.journal_tab.reload()
+            self.main.set_release(None)
+            self.accept()
+            self.main.offer_restart(msg)
+
+        def failed(e):
+            self.b_install.setEnabled(True)
+            self.b_check.setEnabled(True)
+            self.state.setText(e)
+            self.state.setStyleSheet(f"color: {C['bad']};")
+
+        run_async(lambda progress: updater.install(rel, progress), done, failed, self.state.setText)
 
 
 # ---------------------------------------------------------- Главное окно ---
@@ -1337,6 +1449,10 @@ class MainWindow(QMainWindow):
         b_db = QPushButton("Обновить базу")
         b_db.clicked.connect(lambda: self.update_db(manual=True))
         sb.addPermanentWidget(b_db)
+        self.new_release: updater.Release | None = None
+        self.b_update = QPushButton("Обновления")
+        self.b_update.clicked.connect(lambda: UpdateDialog(self).exec())
+        sb.addPermanentWidget(self.b_update)
         if IS_WINDOWS and not is_admin():
             b_admin = QPushButton("Перезапустить от администратора")
             b_admin.clicked.connect(self.restart_as_admin)
@@ -1348,6 +1464,7 @@ class MainWindow(QMainWindow):
         self.sampler.start()
         QTimer.singleShot(200, self.update_db)
         QTimer.singleShot(400, self.scan)
+        QTimer.singleShot(1500, self.check_updates)
 
     def on_stats(self, s: dict):
         for k in ("disk_r", "disk_w", "net_rx", "net_tx"):
@@ -1379,6 +1496,67 @@ class MainWindow(QMainWindow):
             if manual:
                 self.status(msg)
         run_async(lambda _p: knowledge.update(), done)
+
+    def check_updates(self):
+        """Тихая проверка при запуске. Автоустановка — только если её включили в «Обновлениях»."""
+        cfg = settings.load()
+        if not (cfg["check_updates"] or cfg["auto_update"]):
+            return
+
+        def found(r):
+            rel, _ = r
+            self.set_release(rel)
+            if rel and cfg["auto_update"] and updater.mode() != "manual":
+                self.status(f"Устанавливаю обновление {rel.version}…")
+                run_async(lambda _p: updater.install(rel), installed, lambda e: self.status(e.splitlines()[0]))
+
+        def installed(msg):
+            self.set_release(None)
+            self.journal_tab.reload()
+            self.b_update.setText("Перезапустить")
+            self.b_update.setObjectName("update")
+            self._repolish(self.b_update)
+            self.b_update.clicked.disconnect()
+            self.b_update.clicked.connect(self.restart)
+            self.status(msg)
+
+        run_async(lambda _p: updater.check(timeout=5), found, lambda _e: None)
+
+    def set_release(self, rel):
+        self.new_release = rel
+        self.b_update.setText(f"Обновить до {rel.version}" if rel else "Обновления")
+        self.b_update.setObjectName("update" if rel else "")
+        self._repolish(self.b_update)
+
+    @staticmethod
+    def _repolish(w):
+        """Подхватить стиль после смены objectName и пересчитать ширину."""
+        w.style().unpolish(w)
+        w.style().polish(w)
+        w.setMinimumWidth(w.sizeHint().width())
+        w.updateGeometry()
+
+    def offer_restart(self, msg: str):
+        box = QMessageBox(self)
+        box.setWindowTitle("Готово")
+        box.setText(msg + "\nПерезапустить WhySlow сейчас?")
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.button(QMessageBox.Yes).setText("Перезапустить")
+        box.button(QMessageBox.No).setText("Позже")
+        if box.exec() == QMessageBox.Yes:
+            self.restart()
+
+    def restart(self):
+        import subprocess
+        flags = 0x00000008 if IS_WINDOWS else 0  # DETACHED_PROCESS: без лишнего окна консоли
+        try:
+            subprocess.Popen(updater.restart_command(), cwd=updater.ROOT, creationflags=flags,
+                             start_new_session=not IS_WINDOWS)
+        except OSError as e:
+            _show_error(f"Не удалось перезапустить: {e}. Запустите WhySlow заново вручную.")
+            return
+        self.close()
+        QApplication.quit()
 
     def go(self, key: str):
         self.tabs.setCurrentWidget(self.tab_keys[key])

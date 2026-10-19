@@ -41,7 +41,7 @@ def backup_dir() -> Path:
     return d
 
 
-def run(cmd: list[str], timeout: float = 10) -> tuple[int, str]:
+def run(cmd: list[str], timeout: float = 10, cwd=None) -> tuple[int, str]:
     """Запускает команду без окна консоли. Возвращает (код, stdout+stderr)."""
     if not shutil.which(cmd[0]):
         return 127, f"{cmd[0]}: не найдено"
@@ -49,7 +49,7 @@ def run(cmd: list[str], timeout: float = 10) -> tuple[int, str]:
     if IS_WINDOWS:
         kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd,
                            encoding="utf-8", errors="replace", **kwargs)
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, str(e)
