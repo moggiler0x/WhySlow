@@ -176,20 +176,14 @@ How an update is installed depends on how you got the program:
 
 ### Publishing a new version
 
-1. Bump `__version__` in [`whyslow/__init__.py`](whyslow/__init__.py) and commit it to `main`.
-2. Create a tag with the same version and push it:
-   ```bash
-   git tag v0.3.0
-   git push origin v0.3.0
-   ```
-3. GitHub Actions ([`release.yml`](.github/workflows/release.yml)) checks that the tag matches the version in code
-   and creates a release with the list of changes. The program shows the release text in the Updates window;
-   you can edit it on GitHub.
+One button: on GitHub open **Actions → Release → Run workflow** and click **Run workflow**.
+Leave the version empty to take the next one (0.2.5 → 0.2.6), or type your own, e.g. `0.3.0`.
+The workflow ([`release.yml`](.github/workflows/release.yml)) writes the version into
+[`whyslow/__init__.py`](whyslow/__init__.py), commits it to `main`, creates the tag and a release
+with the list of changes. The program shows the release text in the Updates window; you can edit it on GitHub.
 
-Without a terminal: on GitHub go to **Releases → Draft a new release**, type `v0.3.0` as the tag
-(branch `main`), click **Generate release notes** and **Publish release**.
-The tag must match the version in `whyslow/__init__.py` on `main` (step 1). If the version wasn't bumped,
-the program refuses to install such a release and asks for a fixed one.
+The old ways still work: **Releases → Draft a new release** on the site, or `git tag v0.3.0 && git push origin v0.3.0`.
+If the version in code wasn't bumped, the workflow writes it and moves the tag to that commit.
 
 Installed copies see the new version as soon as the tag exists, even before the release is created.
 
