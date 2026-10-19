@@ -23,4 +23,7 @@ jobs:
       - name: Создать релиз
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "WhySlow ${GITHUB_REF_NAME#v}" --generate-notes
+        # Если релиз уже создали вручную на сайте вместе с тегом, второй не нужен
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+          gh release create "$GITHUB_REF_NAME" --title "WhySlow ${GITHUB_REF_NAME#v}" --generate-notes
