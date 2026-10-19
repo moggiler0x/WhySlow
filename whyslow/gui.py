@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from . import __version__, checks, journal, junk, knowledge, lhm, network, startup, sysinfo
 from .processes import ProcessMonitor, kill
-from .util import IS_LINUX, IS_MAC, IS_WINDOWS, human_duration, human_size, is_admin
+from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, human_duration, human_size, is_admin
 
 # ------------------------------------------------------------------ стиль ---
 
@@ -1132,7 +1132,7 @@ class ProcessesTab(QWidget):
             closed, failed = r
             msg = f"«{g.name}»: закрыто процессов — {closed}"
             if failed:
-                msg += f", не удалось — {failed} (нужны права администратора)"
+                msg += f", не удалось — {failed} ({ADMIN_HINT})"
             self.main.status(msg)
             self.main.journal_tab.reload()
 
@@ -1153,7 +1153,7 @@ class JunkTab(QWidget):
         self.total = QLabel("Нажмите «Проверить» вверху, чтобы найти мусор")
         self.total.setObjectName("h1")
         lay.addWidget(self.total)
-        lay.addWidget(muted("Удаляются только ваши файлы старше суток (корзина и миниатюры — целиком). "
+        lay.addWidget(muted(f"Удаляются только ваши файлы старше суток ({junk.WHOLE}). "
                             "Файлы, которые сейчас заняты программами, пропускаются."))
         self.box = QGroupBox("Что можно удалить")
         self.box_lay = QGridLayout(self.box)

@@ -10,7 +10,7 @@ import psutil
 from . import junk, lhm, network, startup, sysinfo
 from .knowledge import KnowledgeBase
 from .processes import ProcessMonitor
-from .util import IS_LINUX, IS_WINDOWS, human_duration, human_size, run
+from .util import IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, run
 
 OK, INFO, WARN, BAD = "ok", "info", "warn", "bad"
 
@@ -120,10 +120,14 @@ def _ram(f, procs):
         f.append(Finding(OK, f"Оперативка: {vm.percent:.0f}%", detail))
     if vm.total < 6 * 2**30:
         f.append(Finding(INFO, f"Всего {human_size(vm.total)} оперативной памяти",
-                         "Для современного браузера и Windows этого маловато.",
-                         "Самый дешёвый апгрейд — докупить планку памяти."))
+                         by_os("Для современного браузера и Windows этого маловато.",
+                               "Для современного браузера и macOS этого маловато.",
+                               "Для современного браузера и рабочего стола этого маловато."),
+                         by_os("Самый дешёвый апгрейд — докупить планку памяти.",
+                               "На Mac память не докупить: держите открытыми поменьше вкладок и программ.",
+                               "Самый дешёвый апгрейд — докупить планку памяти. Помогает и zram.")))
     if swap.total and swap.percent > 50 and vm.percent > 70:
-        f.append(Finding(WARN, f"Файл подкачки занят на {swap.percent:.0f}%",
+        f.append(Finding(WARN, by_os("Файл подкачки", "Своп", "Подкачка (swap)") + f" занят на {swap.percent:.0f}%",
                          "Памяти не хватает, и система активно пишет её на диск."))
 
 
@@ -134,8 +138,16 @@ def _disks(f):
         system = d["mount"] in ("/", "C:\\")
         if free_pct < 10 or d["free"] < 5 * 2**30:
             f.append(Finding(BAD if system else WARN, title,
-                             "Когда системный диск почти полон, Windows и Linux заметно тормозят." if system else "",
-                             "Очистите мусор или перенесите большие файлы.", "junk"))
+                             "Когда системный диск почти полон, " + by_os(
+                                 "Windows негде держать файл подкачки и обновления — всё тормозит.",
+                                 "macOS негде держать своп и снимки Time Machine — всё тормозит.",
+                                 "системе негде держать подкачку и кеши — всё тормозит.") if system else "",
+                             by_os("Очистите мусор или перенесите большие файлы. Ещё место покажет "
+                               "«Параметры → Система → Память».",
+                               "Очистите мусор или перенесите большие файлы. Ещё место покажет "
+                               "меню  → «Об этом Mac» → «Хранилище».",
+                               "Очистите мусор или перенесите большие файлы. Что занимает место, "
+                               "покажет «Анализатор использования дисков» (baobab) или ncdu."), "junk"))
         elif free_pct < 20 and system:
             f.append(Finding(WARN, title, "Лучше держать свободными хотя бы 15–20%.", tab="junk"))
 
@@ -168,7 +180,7 @@ def _proxy(f, st):
                          f"{st.where}: {st.server}. Так бывает, когда VPN-клиент закрылся и не убрал за собой "
                          "настройки — браузер и программы перестают выходить в интернет.",
                          "Выключите прокси. Если VPN понадобится — он включит его снова." if st.fixable else
-                         f"Уберите строку с {st.where.split()[-1]} из ~/.bashrc, ~/.profile или /etc/environment.",
+                         _proxy_manual(st),
                          action="proxy_off" if st.fixable else ""))
     elif st.listener:
         f.append(Finding(INFO, f"Интернет идёт через прокси {st.server}",
@@ -176,6 +188,19 @@ def _proxy(f, st):
                          "попробуйте без него."))
     else:
         f.append(Finding(INFO, f"Включён прокси {st.server}", st.where))
+
+
+def _proxy_manual(st) -> str:
+    """Как убрать прокси, который WhySlow не умеет выключить сам."""
+    if st.where.startswith("переменная"):
+        var = st.where.split()[-1]
+        return by_os(f"Удалите переменную {var}: «Параметры → Система → О системе → Дополнительные параметры "
+                     "системы → Переменные среды».",
+                     f"Уберите строку с {var} из ~/.zshrc, ~/.zprofile или ~/.bash_profile и откройте терминал заново.",
+                     f"Уберите строку с {var} из ~/.bashrc, ~/.profile или /etc/environment.")
+    if IS_MAC:
+        return "Выключите его: «Системные настройки → Сеть → ваша сеть → Подробнее → Прокси»."
+    return "Выключите его в системных настройках сети."
 
 
 def _temps(f):
@@ -187,13 +212,23 @@ def _temps(f):
         if IS_WINDOWS:
             f.append(Finding(INFO, "Температуры недоступны", lhm.problem(),
                              f"LibreHardwareMonitor: {lhm.RELEASES_URL}"))
+        elif IS_MAC:
+            f.append(Finding(INFO, "Температуры недоступны",
+                             "macOS не отдаёт датчики программам без прав администратора.",
+                             "Посмотреть их можно в терминале: sudo powermetrics --samplers smc -n 1"))
+        else:
+            f.append(Finding(INFO, "Температуры недоступны", "Система не отдаёт датчики.",
+                             "Установите lm-sensors и выполните sudo sensors-detect."))
         return
     hot = {k: v for k, v in temps.items() if v >= 85}
     if hot:
         name, t = max(hot.items(), key=lambda kv: kv[1])
         f.append(Finding(BAD, f"Перегрев: {name} — {t:.0f}°C",
                          "При перегреве процессор и видеокарта сбрасывают частоты — это и есть тормоза.",
-                         "Почистите от пыли, замените термопасту, проверьте вентиляторы.", "system"))
+                         by_os("Почистите от пыли, замените термопасту, проверьте вентиляторы.",
+                               "Не держите Mac на мягком (одеяло, колени) и посмотрите во вкладке «Процессы», "
+                               "кто грузит процессор. Если вентилятор шумит постоянно — почистите от пыли в сервисе.",
+                               "Почистите от пыли, замените термопасту, проверьте вентиляторы."), "system"))
     else:
         t = max(temps.values())
         f.append(Finding(OK, f"Температуры в норме (максимум {t:.0f}°C)"))
@@ -204,7 +239,11 @@ def _uptime(f):
     if up > 7 * 86400:
         f.append(Finding(WARN, f"Компьютер не перезагружался {human_duration(up)}",
                          "За это время накапливаются утечки памяти и зависшие процессы.",
-                         "Просто перезагрузитесь (не «Завершение работы» — в Windows оно не сбрасывает систему полностью)."))
+                         by_os("Просто перезагрузитесь (не «Завершение работы» — в Windows оно не сбрасывает "
+                               "систему полностью).",
+                               "Перезагрузитесь: меню  → «Перезагрузить». Сон и закрытая крышка память не "
+                               "освобождают.",
+                               "Перезагрузитесь. Заодно применятся обновления ядра, если они были.")))
 
 
 def _failed_units(f):
