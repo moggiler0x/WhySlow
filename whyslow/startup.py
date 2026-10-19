@@ -1,5 +1,5 @@
 """Автозагрузка: Windows (реестр + папка «Автозагрузка»), Linux (XDG autostart
-+ systemd), macOS (LaunchAgents). Отключение сделано так же, как в системных
++ systemd), macOS (объекты входа, LaunchAgents, LaunchDaemons). Отключение сделано так же, как в системных
 инструментах, — поэтому его всегда можно включить обратно."""
 
 from __future__ import annotations
@@ -34,6 +34,8 @@ class StartupItem:
 
 
 def list_items(kb: KnowledgeBase | None = None) -> list[StartupItem]:
+    global last_error
+    last_error = ""
     if IS_WINDOWS:
         items = _win_list()
     elif IS_LINUX:
@@ -52,6 +54,7 @@ def set_enabled(item: StartupItem, enabled: bool, log: bool = True) -> None:
     handler = {
         "win_reg": _win_set_enabled, "win_folder": _win_set_enabled,
         "xdg": _xdg_set_enabled, "systemd": _systemd_set_enabled, "launchd": _mac_set_enabled,
+        "launchctl": _mac_launchctl_set_enabled, "mac_login": _mac_login_set_enabled,
     }.get(item.kind)
     if not handler:
         raise ActionError("Этот тип автозагрузки пока не поддерживается")
@@ -346,30 +349,70 @@ def _systemd_set_enabled(item: StartupItem, enabled: bool) -> None:
 
 
 # ------------------------------------------------------------------ macOS ---
+# Три источника, как в «Настройки → Основные → Объекты входа»:
+#  * объекты входа (приложения, которые открываются при входе) — через System Events;
+#  * агенты пользователя ~/Library/LaunchAgents — переносим plist в соседнюю папку;
+#  * агенты и демоны из /Library — `launchctl disable`, файлы программ не трогаем.
 
 _MAC_DISABLED = Path.home() / "Library" / "LaunchAgents" / "WhySlow-disabled"
 
 
+def _mac_plist(path: Path) -> dict:
+    import plistlib
+    try:
+        with open(path, "rb") as f:
+            data = plistlib.load(f)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _mac_disabled_labels(domain: str) -> set[str]:
+    """Что выключено через launchctl. Формат строк: "com.foo.bar" => disabled (или => true)."""
+    code, out = run(["launchctl", "print-disabled", domain])
+    if code != 0:
+        return set()
+    labels = set()
+    for line in out.splitlines():
+        if "=>" not in line:
+            continue
+        label, state = line.split("=>", 1)
+        if state.strip().lower() in ("disabled", "true"):
+            labels.add(label.strip().strip('"'))
+    return labels
+
+
 def _mac_list() -> list[StartupItem]:
-    items = []
-    sources = [(Path.home() / "Library/LaunchAgents", "LaunchAgents (пользователь)", True),
-               (_MAC_DISABLED, "LaunchAgents (пользователь)", True),
-               (Path("/Library/LaunchAgents"), "LaunchAgents (система)", False),
-               (Path("/Library/LaunchDaemons"), "LaunchDaemons (система)", False)]
-    for folder, label, user in sources:
+    items = _mac_login_list()
+    gui = f"gui/{os.getuid()}"
+    off = {gui: _mac_disabled_labels(gui), "system": _mac_disabled_labels("system")}
+    sources = [(Path.home() / "Library/LaunchAgents", "Агент (пользователь)", None),
+               (_MAC_DISABLED, "Агент (пользователь)", None),
+               (Path("/Library/LaunchAgents"), "Агент (все пользователи)", gui),
+               (Path("/Library/LaunchDaemons"), "Фоновая служба (система)", "system")]
+    for folder, label, domain in sources:
         if not folder.is_dir():
             continue
-        for f in folder.glob("*.plist"):
-            items.append(StartupItem(
-                name=f.stem, command=str(f), source=label, enabled=folder != _MAC_DISABLED,
-                kind="launchd", meta={"file": str(f), "user": user},
-                can_delete=user, needs_admin=not user))
+        for f in sorted(folder.glob("*.plist")):
+            plist = _mac_plist(f)
+            name = str(plist.get("Label") or f.stem)
+            args = plist.get("ProgramArguments") or []
+            prog = plist.get("Program") or (args[0] if args and isinstance(args, list) else "")
+            if domain is None:  # свой агент: выключение = перенос файла
+                items.append(StartupItem(
+                    name=name, command=str(prog or f), source=label, enabled=folder != _MAC_DISABLED,
+                    kind="launchd", meta={"file": str(f), "user": True},
+                    can_delete=True))
+            else:
+                items.append(StartupItem(
+                    name=name, command=str(prog or f), source=label, enabled=name not in off[domain],
+                    kind="launchctl", meta={"label": name, "domain": "system" if domain == "system" else "gui",
+                                            "file": str(f)},
+                    needs_admin=domain == "system"))
     return items
 
 
 def _mac_set_enabled(item: StartupItem, enabled: bool) -> None:
-    if not item.meta["user"]:
-        raise ActionError("Системные агенты macOS пока можно только посмотреть")
     src = Path(item.meta["file"])
     dst_dir = src.parent.parent if enabled else _MAC_DISABLED
     if src.parent == dst_dir:
@@ -378,3 +421,99 @@ def _mac_set_enabled(item: StartupItem, enabled: bool) -> None:
     dst = dst_dir / src.name
     shutil.move(str(src), dst)
     item.meta["file"] = str(dst)
+
+
+def _mac_launchctl_set_enabled(item: StartupItem, enabled: bool) -> None:
+    """Как `launchctl disable`: система запоминает запрет и не запускает агент при входе.
+    Для своего домена (gui/<uid>) права не нужны, для system macOS спросит пароль."""
+    verb = "enable" if enabled else "disable"
+    label = item.meta["label"]
+    if item.meta["domain"] == "gui":
+        code, out = run(["launchctl", verb, f"gui/{os.getuid()}/{label}"])
+    elif os.geteuid() == 0:
+        code, out = run(["launchctl", verb, f"system/{label}"])
+    else:
+        cmd = f"/bin/launchctl {verb} system/{_sh_quote(label)}"
+        code, out = run(["osascript", "-e",
+                         f"do shell script {_as_quote(cmd)} with administrator privileges"], timeout=180)
+        if code != 0 and "-128" in out:
+            raise ActionError("Отменено: macOS не получила пароль администратора")
+    if code != 0:
+        raise ActionError(f"launchctl {verb} не сработал: {out.strip()[:300]}")
+
+
+def _sh_quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def _as_quote(s: str) -> str:
+    """Строка для AppleScript."""
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+# Объекты входа: читаем и меняем через System Events (JavaScript for Automation).
+# При первом обращении macOS спросит, можно ли WhySlow управлять System Events.
+_JXA_LIST = """
+var se = Application("System Events");
+JSON.stringify(se.loginItems().map(function (i) {
+  return {name: i.name(), path: i.path(), hidden: i.hidden()};
+}));
+"""
+
+last_error = ""  # почему не удалось прочитать часть автозагрузки — показывается в интерфейсе
+
+
+def _jxa(script: str, timeout: float = 30) -> tuple[int, str]:
+    return run(["osascript", "-l", "JavaScript", "-e", script], timeout=timeout)
+
+
+def _mac_login_list() -> list[StartupItem]:
+    global last_error
+    import json
+    code, out = _jxa(_JXA_LIST)
+    data = []
+    if code == 0:
+        try:
+            data = json.loads(out.strip() or "[]")
+        except ValueError:
+            data = []
+    elif "-1743" in out or "not allowed" in out.lower():
+        last_error = ("macOS не разрешила прочитать объекты входа. Разрешите WhySlow (или Терминалу) управлять "
+                      "System Events: Настройки → Конфиденциальность и безопасность → Автоматизация.")
+    items, seen = [], set()
+    for d in data if isinstance(data, list) else []:
+        path = d.get("path") or ""
+        seen.add(path)
+        items.append(StartupItem(
+            name=d.get("name") or Path(path).stem, command=path, source="Объект входа", enabled=True,
+            kind="mac_login", meta={"key": path, "path": path, "hidden": bool(d.get("hidden"))}))
+    # Плюс объекты, которые убрали мы: чтобы их можно было включить обратно
+    for e in journal.load():
+        dd = e["data"]
+        if e["kind"] == "startup_toggle" and dd["kind"] == "mac_login" and not e["undone"] \
+                and not dd["enabled"] and dd["meta"]["path"] not in seen:
+            seen.add(dd["meta"]["path"])
+            items.append(StartupItem(
+                name=dd["name"], command=dd["meta"]["path"], source="Объект входа", enabled=False,
+                kind="mac_login", meta=dd["meta"]))
+    return items
+
+
+def _mac_login_set_enabled(item: StartupItem, enabled: bool) -> None:
+    """Выключение = убрать из объектов входа; включение = добавить обратно с теми же настройками."""
+    import json
+    path = item.meta["path"]
+    if enabled:
+        props = json.dumps({"path": path, "hidden": bool(item.meta.get("hidden"))})
+        script = (f'var se = Application("System Events");'
+                  f'se.loginItems.push(se.LoginItem({props}));')
+    else:
+        script = (f'var se = Application("System Events"); var p = {json.dumps(path)};'
+                  f'var all = se.loginItems();'
+                  f'for (var k = all.length - 1; k >= 0; k--) {{ if (all[k].path() === p) all[k].delete(); }}')
+    code, out = _jxa(script)
+    if code != 0:
+        if "-1743" in out or "not allowed" in out.lower():
+            raise ActionError("macOS не разрешила менять объекты входа. Разрешите WhySlow управлять System Events: "
+                              "Настройки → Конфиденциальность и безопасность → Автоматизация.")
+        raise ActionError(f"Не удалось изменить объекты входа: {out.strip()[:300]}")
