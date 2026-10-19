@@ -30,6 +30,10 @@ def _name(info: dict) -> str:
     кириллица режется посреди буквы («Яндекс М�»). Тогда берём имя файла."""
     name = info.get("name") or "?"
     exe = info.get("exe") or ""
+    # psutil отдаёт оборванный байт как «суррогат» (\udcd1) — такую строку нельзя
+    # ни закодировать, ни показать. Превращаем его в обычный знак «�».
+    name = name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    exe = exe.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
     if exe and ("\ufffd" in name or len(name.encode()) >= 15):
         full = os.path.basename(exe)
         if full.startswith(name.replace("\ufffd", "")[:-1] or full):
