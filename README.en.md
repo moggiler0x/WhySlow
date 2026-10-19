@@ -26,6 +26,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Windows](#windows)
   * [macOS](#macos)
   * [Linux](#linux)
+  * [From source](#from-source)
   * [Text mode](#text-mode)
   * [Language](#language)
 * [Updates](#updates)
@@ -91,24 +92,27 @@ Each check answers its own question and offers a fix where possible:
 
 ## Install and run
 
-You need **Python 3.10 or newer**. The launch scripts install everything else.
-
 ### Download
 
-* **Archive:** on the [Releases](https://github.com/moggiler0x/WhySlow/releases) page download `Source code (zip)`
-  for the latest version and unpack it anywhere. Or use the green **Code → Download ZIP** button on the main page.
-* **With git:**
-  ```bash
-  git clone https://github.com/moggiler0x/WhySlow.git
-  cd WhySlow
-  ```
+A ready-made app: download, open, done. No Python or anything else to install.
 
-Both ways can be updated from inside the program.
+| System | File |
+|---|---|
+| **Windows** 10 and 11 | [⬇ WhySlow-Windows.exe](https://github.com/moggiler0x/WhySlow/releases/latest/download/WhySlow-Windows.exe) |
+| **macOS** on Apple Silicon (M1, M2, M3, M4…) | [⬇ WhySlow-macOS-AppleSilicon.dmg](https://github.com/moggiler0x/WhySlow/releases/latest/download/WhySlow-macOS-AppleSilicon.dmg) |
+| **macOS** on Intel | [⬇ WhySlow-macOS-Intel.dmg](https://github.com/moggiler0x/WhySlow/releases/latest/download/WhySlow-macOS-Intel.dmg) |
+| **Linux** x86_64 | [⬇ WhySlow-Linux-x86_64.AppImage](https://github.com/moggiler0x/WhySlow/releases/latest/download/WhySlow-Linux-x86_64.AppImage) |
+
+Which Mac you have:  menu → **About This Mac**. "Chip Apple M…" means Apple Silicon, "Processor Intel" means Intel.
+
+Every version is on the [Releases](https://github.com/moggiler0x/WhySlow/releases) page. The apps are built by
+GitHub Actions straight from this repository's code ([`build.yml`](.github/workflows/build.yml)).
 
 ### Windows
 
-1. Install Python from [python.org](https://www.python.org/downloads/) and tick **Add python.exe to PATH** during setup.
-2. Double-click `run.bat` in the program folder. On first launch it installs the required libraries.
+1. Double-click `WhySlow-Windows.exe`. You can keep it in any folder, the desktop included.
+2. The app isn't signed with a paid certificate, so on first launch Windows may say
+   "Windows protected your PC". Click **More info → Run anyway**. You only do this once.
 3. To change startup items "for all users" and see all temperatures, click
    **Restart as administrator** at the bottom of the window.
 
@@ -116,32 +120,52 @@ For CPU, motherboard and disk temperatures, see [Temperature sensors](#temperatu
 
 ### macOS
 
-1. Python: [python.org](https://www.python.org/downloads/) or `brew install python`.
-2. Open **Terminal**, go to the program folder and run:
-   ```bash
-   cd ~/Downloads/WhySlow   # your folder
-   ./run.sh
-   ```
-   If macOS says "Permission denied", run `chmod +x run.sh` once.
-3. If the program says it cannot verify GitHub's certificate (happens with Python from python.org),
-   run `pip3 install certifi` or open `Install Certificates.command` from the Python folder in Applications.
+1. Open the downloaded `.dmg` and drag **WhySlow** into **Applications**.
+   Launch it from there: run straight from the disk image, the app can't update itself.
+2. The app isn't signed with an Apple developer certificate, so on first launch macOS says it can't
+   verify the developer. You allow it once:
+   * **macOS 15 Sequoia and newer:** try to open WhySlow, close the warning, then go to
+     **System Settings → Privacy & Security**, click **Open Anyway** next to the WhySlow line at the bottom
+     and confirm with your password.
+   * **macOS 14 and older:** right-click WhySlow in Applications → **Open** → **Open**.
+   * **Or with one Terminal command:**
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/WhySlow.app
+     ```
 
 On Apple Silicon temperatures are read without a password or extra software.
 
 ### Linux
 
 ```bash
-./run.sh
-# or manually
-pip install -r requirements.txt
-python3 -m whyslow
+chmod +x WhySlow-Linux-x86_64.AppImage
+./WhySlow-Linux-x86_64.AppImage
 ```
 
-The window needs PySide6 (installed from `requirements.txt`). Temperatures come from the system automatically.
+Or in the file manager: "Properties → Allow executing file as program", then double-click.
+If it complains about FUSE, install `libfuse2` (`libfuse2t64` on Ubuntu 24.04) or run it with
+`--appimage-extract-and-run`. Temperatures come from the system automatically.
+
+### From source
+
+For those who want to change the code. You need **Python 3.10 or newer**; the launch scripts install everything else.
+
+```bash
+git clone https://github.com/moggiler0x/WhySlow.git   # or Code → Download ZIP
+cd WhySlow
+./run.sh        # macOS and Linux
+run.bat         # Windows (Python from python.org, tick Add python.exe to PATH)
+```
+
+* macOS: if it says "Permission denied", run `chmod +x run.sh` once. If the program cannot verify
+  GitHub's certificate (happens with Python from python.org), run `pip3 install certifi`
+  or open `Install Certificates.command` from the Python folder in Applications.
+* To build the app yourself: `pip install -r requirements.txt pyinstaller pillow`, then
+  `python packaging/build.py`; the file appears in `dist/`.
 
 ### Text mode
 
-No window, right in the terminal:
+No window, right in the terminal (from source; on macOS and Linux the app works the same way):
 
 ```bash
 python3 -m whyslow --cli       # check and report
@@ -169,9 +193,12 @@ the button lights up: "Update to …".
 
 How an update is installed depends on how you got the program:
 
+* **ready-made app** — the file for your system is downloaded from the release. WhySlow checks its
+  checksum, makes sure the new version starts, and only then replaces the current one with it. The old one
+  is saved to the data folder (`updates/`). On a Mac the app must be in Applications.
 * **git clone** — through git, onto the new version's tag. If you edited the program files, the update
   refuses so it does not overwrite your changes. `git pull` still works.
-* **ZIP archive** — the new version's archive is downloaded, current files are saved to the data folder
+* **source ZIP archive** — the new version's archive is downloaded, current files are saved to the data folder
   (`updates/`) and replaced.
 
 ### Publishing a new version
@@ -179,13 +206,16 @@ How an update is installed depends on how you got the program:
 One button: on GitHub open **Actions → Release → Run workflow** and click **Run workflow**.
 Leave the version empty to take the next one (0.2.5 → 0.2.6), or type your own, e.g. `0.3.0`.
 The workflow ([`release.yml`](.github/workflows/release.yml)) writes the version into
-[`whyslow/__init__.py`](whyslow/__init__.py), commits it to `main`, creates the tag and a release
-with the list of changes. The program shows the release text in the Updates window; you can edit it on GitHub.
+[`whyslow/__init__.py`](whyslow/__init__.py), commits it to `main`, creates the tag, builds the apps
+for Windows, macOS and Linux, attaches them to the release and publishes it with the list of changes. While the
+apps are building, the release stays a draft. The program shows the release text in the Updates window; you can edit it on GitHub.
 
 The old ways still work: **Releases → Draft a new release** on the site, or `git tag v0.3.0 && git push origin v0.3.0`.
-If the version in code wasn't bumped, the workflow writes it and moves the tag to that commit.
+If the version in code wasn't bumped, the workflow writes it and moves the tag to that commit,
+and attaches the apps to the release once they are built.
 
-Installed copies see the new version as soon as the tag exists, even before the release is created.
+Copies run from source see the new version as soon as the tag exists; ready-made apps see it once the release
+has a build for their system.
 
 ## Temperature sensors
 
@@ -276,6 +306,10 @@ whyslow/
   settings.py    settings (language, update checks and auto-install)
   i18n.py        interface language: Russian and English
   data/known.json
+  data/icon.png  window icon
+packaging/
+  build.py       builds the ready-made app for the current OS (PyInstaller)
+  make_icon.py   draws the app icon
 ```
 
 Program data (base cache, journal, settings, backups, previous versions): `%LOCALAPPDATA%\WhySlow` on Windows,

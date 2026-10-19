@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 import threading
 import time
@@ -10,6 +11,7 @@ import traceback
 import webbrowser
 from collections import deque
 from html import escape as _esc
+from pathlib import Path
 
 import psutil
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
@@ -2369,8 +2371,8 @@ class MainWindow(QMainWindow):
         import subprocess
         flags = 0x00000008 if IS_WINDOWS else 0  # DETACHED_PROCESS: без лишнего окна консоли
         try:
-            subprocess.Popen(updater.restart_command(), cwd=updater.ROOT, creationflags=flags,
-                             start_new_session=not IS_WINDOWS)
+            subprocess.Popen(updater.restart_command(), cwd=updater.restart_cwd(), creationflags=flags,
+                             start_new_session=not IS_WINDOWS, env=updater.child_env())
         except OSError as e:
             _show_error(tr(f"Не удалось перезапустить: {e}. Запустите WhySlow заново вручную.",
                            f"Couldn't restart: {e}. Please start WhySlow again manually."))
@@ -2435,7 +2437,8 @@ class MainWindow(QMainWindow):
 
     def restart_as_admin(self):
         import ctypes
-        args = " ".join(f'"{a}"' for a in ["-m", "whyslow"]) if not getattr(sys, "frozen", False) else ""
+        args = " ".join(f'"{a}"' for a in ["-m", "whyslow"]) if not updater.FROZEN else ""
+        os.environ.update(updater.child_env())  # новый WhySlow.exe не должен брать наши временные файлы
         if ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, args, None, 1) > 32:
             QApplication.quit()
 
@@ -2443,6 +2446,8 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("WhySlow")
+    app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "data" / "icon.png")))
+    updater.cleanup()
     app.setStyle("Fusion")
     app.setPalette(dark_palette())
     f = app.font()
