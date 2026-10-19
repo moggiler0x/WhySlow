@@ -62,10 +62,24 @@ python3 -m whyslow
 |---|---|---|---|
 | Процессор, память, диски, процессы | ✅ | ✅ | ✅ |
 | Видеокарта | ✅ (+NVIDIA: загрузка, t°) | ✅ lspci (+NVIDIA) | ✅ |
-| Температуры | только NVIDIA | ✅ | — |
+| Температуры | через LibreHardwareMonitor (процессор, плата, диски) + NVIDIA | ✅ | — |
 | Автозагрузка | реестр Run и RunOnce, папка «Автозагрузка», Планировщик заданий, службы | XDG autostart + systemd | LaunchAgents (пользователь) |
 | Мёртвый прокси | ✅ + исправление | ✅ GNOME + исправление, переменные окружения | — |
 | Очистка | Temp, кеш браузеров, дампы, обновления, корзина | кеш, миниатюры, /tmp, корзина | кеш, логи, корзина |
+
+### Температуры в Windows
+
+Windows сама не отдаёт температуры процессора, платы и дисков. WhySlow берёт их у
+[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases), двумя способами:
+
+1. **Проще всего:** запустите LibreHardwareMonitor от администратора и не закрывайте его.
+   WhySlow сам прочитает датчики через WMI, ничего настраивать не нужно.
+2. **Без открытого окна LHM:** положите `LibreHardwareMonitorLib.dll` и `HidSharp.dll` из архива LHM
+   в `%LOCALAPPDATA%\WhySlow\lhm` (или укажите папку в переменной `WHYSLOW_LHM_DIR`),
+   поставьте `pip install pythonnet` и запускайте WhySlow от администратора.
+   Если LHM установлен в `Program Files\LibreHardwareMonitor`, DLL найдётся там сама.
+
+Если датчиков нет, вкладка «Система» и проверка объяснят, чего не хватает.
 
 ## База знаний
 
@@ -107,6 +121,7 @@ whyslow/
   junk.py        поиск и удаление мусора
   network.py     проверка системного прокси
   sysinfo.py     сведения о железе
+  lhm.py         температуры в Windows через LibreHardwareMonitor
   journal.py     журнал изменений для отката
   data/known.json
 ```
@@ -117,5 +132,4 @@ whyslow/
 ## Планы
 
 * Планировщик заданий Windows (задачи при входе в систему)
-* Датчики температуры в Windows через LibreHardwareMonitor
 * Сборка в один `.exe` (PyInstaller)

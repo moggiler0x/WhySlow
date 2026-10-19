@@ -12,6 +12,7 @@ from pathlib import Path
 
 import psutil
 
+from . import lhm
 from .util import IS_LINUX, IS_MAC, IS_WINDOWS, run
 
 
@@ -127,8 +128,14 @@ def _num(s: str):
         return None
 
 
-def temperatures() -> dict[str, float]:
-    """Максимальная температура по каждому датчику (где ОС её отдаёт)."""
+def temperatures(wait: bool = False) -> dict[str, float]:
+    """Максимальная температура по каждому датчику (где ОС её отдаёт).
+
+    В Windows — через LibreHardwareMonitor (см. lhm.py). wait=False отдаёт кеш
+    и обновляет его в фоне, чтобы не подвешивать интерфейс.
+    """
+    if IS_WINDOWS:
+        return lhm.temperatures(wait)
     out = {}
     try:
         sensors = psutil.sensors_temperatures()
