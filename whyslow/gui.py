@@ -444,7 +444,7 @@ class StartupTab(QWidget):
         top = QHBoxLayout()
         top.addWidget(muted("Что запускается вместе с системой. Вердикт — из общей базы WhySlow на GitHub."), 1)
         self.show_services = QCheckBox("Показывать системные службы")
-        self.show_services.setVisible(IS_LINUX)
+        self.show_services.setVisible(IS_LINUX or IS_WINDOWS)
         self.show_services.toggled.connect(self.refill)
         top.addWidget(self.show_services)
         lay.addLayout(top)
@@ -497,7 +497,7 @@ class StartupTab(QWidget):
         self.refill()
 
     def visible_items(self):
-        return [i for i in self.items if self.show_services.isChecked() or i.kind != "systemd"
+        return [i for i in self.items if self.show_services.isChecked() or not i.system
                 or not i.enabled or (i.verdict and i.verdict.verdict in ("bad", "safe"))]
 
     def refill(self):
@@ -537,13 +537,16 @@ class StartupTab(QWidget):
         if not it:
             self.detail.setText("Выберите программу, чтобы увидеть пояснение.")
             return
-        self.b_off.setEnabled(it.enabled)
-        self.b_on.setEnabled(not it.enabled)
+        self.b_off.setEnabled(it.enabled and it.can_toggle)
+        self.b_on.setEnabled(not it.enabled and it.can_toggle)
         self.b_del.setEnabled(it.can_delete)
         v = it.verdict
         color = VERDICT_COLORS.get(v.verdict, C["muted"])
         cat = f" · {v.category}" if v.category else ""
         admin = "<br><span style='color:#8f98a8'>Для изменения нужны права администратора.</span>" if it.needs_admin else ""
+        if not it.can_toggle:
+            admin += ("<br><span style='color:#8f98a8'>Запустится один раз при следующем входе. "
+                      "Отключить такую запись нельзя, только удалить.</span>")
         self.detail.setText(f"<b>{it.name}</b>{cat} — <b style='color:{color}'>{v.label}</b><br>{v.note}"
                             f"<br><span style='color:#8f98a8'>{it.command}</span>{admin}")
 
@@ -570,6 +573,12 @@ class StartupTab(QWidget):
                 if not confirm(self, "Точно отключить?",
                                f"База WhySlow советует НЕ трогать «{it.name}».\n\n{v.note}\n\n"
                                "Отключить всё равно? (включить обратно можно в любой момент)", danger=True):
+                    return
+            elif it.kind == "win_service":
+                if not confirm(self, "Перевести службу в режим «Вручную»?",
+                               f"Служба «{it.name}» перестанет запускаться сама при включении компьютера.\n"
+                               "Если она понадобится какой-то программе, Windows запустит её сама.\n\n"
+                               "Вернуть прежний режим можно здесь же или во вкладке «Журнал»."):
                     return
             elif not confirm(self, "Отключить из автозагрузки?",
                              f"«{it.name}» перестанет запускаться при включении компьютера.\n"

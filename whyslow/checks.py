@@ -141,7 +141,7 @@ def _disks(f):
 
 
 def _startup(f, items):
-    on = [i for i in items if i.enabled and not i.kind == "systemd"]
+    on = [i for i in items if i.enabled and not i.system]
     bad = [i for i in items if i.enabled and i.verdict and i.verdict.verdict == "bad"]
     safe = [i for i in on if i.verdict and i.verdict.verdict == "safe"]
     unknown = [i for i in on if i.verdict and i.verdict.verdict == "unknown"]
