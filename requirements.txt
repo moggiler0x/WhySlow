@@ -1,2 +1,3 @@
 psutil>=5.9
 PySide6>=6.5
+certifi

@@ -10,12 +10,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import socket
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import net
 from .util import IS_WINDOWS, app_dir
 
 DB_URL = os.environ.get(
@@ -144,11 +142,10 @@ def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
     """Скачивает базу с GitHub. Возвращает (база, сообщение для пользователя)."""
     current = load()
     try:
-        req = urllib.request.Request(DB_URL, headers={"User-Agent": "WhySlow"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with net.urlopen(DB_URL, timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:  # сеть, DNS, кривой JSON — всё одно
-        return current, f"Не удалось обновить базу: {_explain(e)}. Продолжаю с имеющейся копией."
+        return current, f"Не удалось обновить базу: {net.explain(e, 'файл базы')}. Продолжаю с имеющейся копией."
     if not _valid(data):
         return current, "Не удалось обновить базу: файл на GitHub повреждён. Продолжаю с имеющейся копией."
     if _version(data) <= current.version:
@@ -159,21 +156,6 @@ def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
     except OSError:
         return kb, f"База обновлена до версии {kb.version}, но сохранить её на диск не удалось"
     return kb, f"База обновлена до версии {kb.version}: {len(kb.entries)} записей"
-
-
-def _explain(e: Exception) -> str:
-    """Понятное человеку описание сетевой ошибки."""
-    if isinstance(e, urllib.error.HTTPError):
-        if e.code == 404:
-            return "файл базы не найден на GitHub"
-        return f"сервер GitHub ответил ошибкой {e.code}"
-    if isinstance(e, (socket.timeout, TimeoutError)):
-        return "GitHub не ответил вовремя"
-    if isinstance(e, urllib.error.URLError):
-        return "нет подключения к интернету или GitHub недоступен"
-    if isinstance(e, ValueError):
-        return "файл на GitHub повреждён"
-    return str(e)
 
 
 def report_url(name: str, command: str, found: str = "", source: str = "") -> str:
