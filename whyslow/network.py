@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import psutil
 
 from . import journal
+from .i18n import tr
 from .util import IS_LINUX, IS_MAC, IS_WINDOWS, run
 
 _INET = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
@@ -24,6 +25,7 @@ class ProxyState:
     port: int = 0
     listener: str = ""    # процесс, который слушает порт ("" — никто)
     fixable: bool = False
+    env_var: str = ""     # имя переменной окружения, если прокси задан ею
 
     @property
     def is_local(self) -> bool:
@@ -50,9 +52,9 @@ def _listener(port: int) -> str:
         for c in psutil.net_connections(kind="inet"):
             if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port:
                 try:
-                    return psutil.Process(c.pid).name() if c.pid else "неизвестный процесс"
+                    return psutil.Process(c.pid).name() if c.pid else tr("неизвестный процесс", "unknown process")
                 except psutil.Error:
-                    return "неизвестный процесс"
+                    return tr("неизвестный процесс", "unknown process")
     except (psutil.AccessDenied, OSError):
         return "?"  # не можем проверить — не будем пугать
     return ""
@@ -77,19 +79,19 @@ def proxy_state() -> ProxyState:
                 _, port = run(["gsettings", "get", f"org.gnome.system.proxy.{proto}", "port"])
                 host = host.strip().strip("'")
                 if host:
-                    st = ProxyState(True, f"{host}:{port.strip()}", "Настройки GNOME", fixable=True)
+                    st = ProxyState(True, f"{host}:{port.strip()}", tr("Настройки GNOME", "GNOME settings"), fixable=True)
                     break
     elif IS_MAC:
         code, out = run(["scutil", "--proxy"])
         d = dict(re.findall(r"(\w+)\s*:\s*(\S+)", out)) if code == 0 else {}
         for proto in ("HTTPS", "HTTP", "SOCKS"):
             if d.get(f"{proto}Enable") == "1" and d.get(f"{proto}Proxy"):
-                st = ProxyState(True, f"{d[proto + 'Proxy']}:{d.get(proto + 'Port', '')}", "Настройки macOS")
+                st = ProxyState(True, f"{d[proto + 'Proxy']}:{d.get(proto + 'Port', '')}", tr("Настройки macOS", "macOS settings"))
                 break
     if not st.enabled:
         for var in ("all_proxy", "https_proxy", "http_proxy", "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY"):
             if os.environ.get(var):
-                st = ProxyState(True, os.environ[var], f"переменная {var}")
+                st = ProxyState(True, os.environ[var], tr(f"переменная {var}", f"{var} environment variable"), env_var=var)
                 break
     if st.enabled:
         st.host, st.port = _parse(st.server)
@@ -110,7 +112,7 @@ def disable_proxy(st: ProxyState) -> None:
         data = {"os": "gnome"}
     else:
         return
-    journal.add("proxy_off", f"Выключен системный прокси {st.server}", data)
+    journal.add("proxy_off", tr(f"Выключен системный прокси {st.server}", f"Turned off system proxy {st.server}"), data)
 
 
 def undo(entry: dict) -> None:

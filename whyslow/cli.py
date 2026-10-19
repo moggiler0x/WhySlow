@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from . import checks, knowledge, online, settings, updater
+from .i18n import tr
 
 ICONS = {checks.OK: "[ OK ]", checks.INFO: "[ i  ]", checks.WARN: "[ !  ]", checks.BAD: "[!!!!]"}
 
@@ -16,7 +17,8 @@ def main() -> int:
         except updater.UpdateError:
             rel = None
         if rel:
-            print(f"Доступна новая версия WhySlow {rel.version}. Обновить: python3 -m whyslow --update")
+            print(tr(f"Доступна новая версия WhySlow {rel.version}. Обновить: python3 -m whyslow --update",
+                     f"WhySlow {rel.version} is available. Update: python3 -m whyslow --update"))
     r = checks.scan(kb, progress=lambda t: print("  " + t))
     print()
     for f in r.findings:
@@ -24,17 +26,20 @@ def main() -> int:
         for line in (f.detail, f.advice):
             if line:
                 print(f"        {line}")
-    print("\nАвтозагрузка:")
+    print(tr("\nАвтозагрузка:", "\nStartup:"))
     for it in r.startup:
-        state = "вкл " if it.enabled else "выкл"
+        state = (tr("вкл ", "on  ") if it.enabled else tr("выкл", "off "))
         print(f"  [{state}] {it.name:<32} {it.verdict.label:<16} {it.source}")
     unknown = [it for it in r.startup if it.verdict.verdict == "unknown"][:15]
     if unknown:
-        print("\nНет в базе — что нашлось в интернете (не проверено):")
+        print(tr("\nНет в базе — что нашлось в интернете (не проверено):",
+                 "\nNot in the database — what was found online (unverified):"))
         for it in unknown:
             info = online.describe(it.name, it.command, timeout=4)
-            print(f"  {it.name}: {info.text + ' [' + info.source + ']' if info and info.text else 'описание не нашлось'}")
-    print(f"\nПроверка заняла {r.took:.1f} с. Для исправлений запустите без --cli.")
+            text = f"{info.text} [{info.source}]" if info and info.text else tr("описание не нашлось", "no description found")
+            print(f"  {it.name}: {text}")
+    print(tr(f"\nПроверка заняла {r.took:.1f} с. Для исправлений запустите без --cli.",
+             f"\nScan took {r.took:.1f} s. Run without --cli to fix things."))
     return 0
 
 
@@ -49,12 +54,12 @@ def update() -> int:
     if not rel:
         return 0
     if rel.notes:
-        print("\nЧто нового:\n" + rel.notes.strip() + "\n")
+        print(tr("\nЧто нового:\n", "\nWhat's new:\n") + rel.notes.strip() + "\n")
     print(updater.mode_hint())
     if updater.mode() == "manual":
         return 1
-    if input(f"Установить {rel.version}? [y/N] ").strip().lower() not in ("y", "yes", "д", "да"):
-        print("Отменено.")
+    if input(tr(f"Установить {rel.version}? [y/N] ", f"Install {rel.version}? [y/N] ")).strip().lower() not in ("y", "yes", "д", "да"):
+        print(tr("Отменено.", "Cancelled."))
         return 0
     try:
         print(updater.install(rel, progress=lambda t: print("  " + t)))

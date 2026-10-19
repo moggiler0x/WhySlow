@@ -27,6 +27,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [macOS](#macos)
   * [Linux](#linux)
   * [Text mode](#text-mode)
+  * [Language](#language)
 * [Updates](#updates)
   * [Publishing a new version](#publishing-a-new-version)
 * [Temperature sensors](#temperature-sensors)
@@ -146,7 +147,13 @@ No window, right in the terminal:
 python3 -m whyslow --cli       # check and report
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
+python3 -m whyslow --cli --lang en   # language for this run: en or ru
 ```
+
+### Language
+
+The program speaks English and Russian. By default it follows the system language; switch it with the
+language list at the top of the window (the program restarts in the chosen language and remembers it).
 
 ## Updates
 
@@ -214,12 +221,18 @@ from the `main` branch here and caches it. The built-in copy works offline.
 {
   "id": "discord",
   "title": "Discord",
+  "title_en": "Discord",
   "category": "Мессенджер",
+  "category_en": "Messenger",
   "verdict": "safe",
   "match": ["discord"],
-  "note": "Мессенджер. Запустите вручную, когда понадобится."
+  "note": "Мессенджер. Запустите вручную, когда понадобится.",
+  "note_en": "Messenger. Start it manually when you need it."
 }
 ```
+
+* `title`, `category`, `note` are in Russian; `title_en`, `category_en`, `note_en` are the English versions.
+  If an English field is missing, the program shows the Russian text.
 
 * `verdict`: `safe` — can be disabled, `optional` — up to you, `keep` — leave alone, `bad` — better removed.
 * `match`: regular expressions (case-insensitive), matched against the name and the launch command.
@@ -264,7 +277,8 @@ whyslow/
   macsensors.py  Mac temperatures and GPU load without admin rights
   journal.py     change journal for rollback
   updater.py     updating the program from GitHub
-  settings.py    settings (update checks and auto-install)
+  settings.py    settings (language, update checks and auto-install)
+  i18n.py        interface language: Russian and English
   data/known.json
 ```
 

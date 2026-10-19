@@ -32,6 +32,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from . import net
+from .i18n import tr
 from .util import IS_WINDOWS, app_dir, is_admin, run
 
 LHM_REPO = "LibreHardwareMonitor/LibreHardwareMonitor"
@@ -44,7 +45,7 @@ MAX_SIZE = 100 * 1024 * 1024
 REFRESH = 3.0   # секунд между опросами, пока датчики есть
 RETRY = 15.0    # …и пока их нет: не дёргаем PowerShell зря
 
-KINDS = {"cpu": "Процессор", "board": "Плата", "storage": "Диск"}
+KINDS = {"cpu": tr("Процессор", "CPU"), "board": tr("Плата", "Motherboard"), "storage": tr("Диск", "Disk")}
 # Датчики, которые лучше всего описывают процессор целиком.
 CPU_MAIN = ("Core (Tctl/Tdie)", "CPU Package", "Core Max", "Core (Tctl)", "CPU")
 
@@ -157,7 +158,7 @@ class _Library:
             c.IsStorageEnabled = True
             c.Open()
         except Exception as e:  # .NET-исключения приходят своими типами
-            self.error = f"Не удалось загрузить {dll.name}: {e}"
+            self.error = tr(f"Не удалось загрузить {dll.name}: {e}", f"Couldn't load {dll.name}: {e}")
             return False
         self.computer = c
         atexit.register(self.close)
@@ -207,40 +208,52 @@ class _Reader:
             temps, source = _read_wmi(), "LibreHardwareMonitor"
             if not temps and self.lib.open():
                 try:
-                    temps, source = self.lib.read(), "библиотека LibreHardwareMonitor"
+                    temps, source = self.lib.read(), tr("библиотека LibreHardwareMonitor", "LibreHardwareMonitor library")
                 except Exception as e:
-                    self.lib.error, temps = f"Ошибка чтения датчиков: {e}", None
+                    self.lib.error, temps = tr(f"Ошибка чтения датчиков: {e}", f"Sensor read error: {e}"), None
             self.action = "" if temps else (
                 "install" if not installed() else "" if running() else "launch")
             self.temps = temps or {}
             self.source = source if temps else ""
             self.problem = "" if temps else self._explain(wmi_running=temps is not None)
             if temps and not any(k.startswith(KINDS["cpu"]) for k in temps):
-                self.problem = ("Температура процессора не видна: запустите LibreHardwareMonitor"
-                                + ("" if source == "LibreHardwareMonitor" else " или WhySlow")
-                                + " от администратора.")
+                self.problem = (tr("Температура процессора не видна: запустите LibreHardwareMonitor ",
+                                   "CPU temperature isn't visible: run LibreHardwareMonitor ")
+                                + ("" if source == "LibreHardwareMonitor" else tr("или WhySlow ", "or WhySlow "))
+                                + tr("от администратора.", "as administrator."))
             self.stamp = time.time()
             self.busy = False
 
     def _explain(self, wmi_running: bool) -> str:
         if self.action == "launch":
-            return ("LibreHardwareMonitor скачан, но не запущен. Запустите его от администратора "
-                    "и не закрывайте: WhySlow подхватит датчики сам.")
+            return tr("LibreHardwareMonitor скачан, но не запущен. Запустите его от администратора "
+                      "и не закрывайте: WhySlow подхватит датчики сам.",
+                      "LibreHardwareMonitor is downloaded but not running. Run it as administrator "
+                      "and keep it open: WhySlow will pick up the sensors on its own.")
         if self.lib.computer is not None and not is_admin():
-            return ("Датчики не отдают данные без прав администратора. "
-                    "Нажмите «Перезапустить от администратора» внизу окна.")
+            return tr("Датчики не отдают данные без прав администратора. "
+                      "Нажмите «Перезапустить от администратора» внизу окна.",
+                      "Sensors don't report data without administrator rights. "
+                      "Click “Restart as administrator” at the bottom of the window.")
         if self.lib.computer is not None or wmi_running:
-            return ("LibreHardwareMonitor работает, но не видит датчиков температуры. "
-                    "Запустите его от администратора; в новых версиях нужен ещё драйвер PawnIO, "
-                    "LibreHardwareMonitor предложит его поставить.")
+            return tr("LibreHardwareMonitor работает, но не видит датчиков температуры. "
+                      "Запустите его от администратора; в новых версиях нужен ещё драйвер PawnIO, "
+                      "LibreHardwareMonitor предложит его поставить.",
+                      "LibreHardwareMonitor is running but sees no temperature sensors. "
+                      "Run it as administrator; newer versions also need the PawnIO driver, "
+                      "which LibreHardwareMonitor offers to install.")
         if self.lib.error == "nopythonnet":
-            return ("Нашёл LibreHardwareMonitorLib.dll, но для неё нужен пакет pythonnet: "
-                    "pip install pythonnet. Или просто запустите LibreHardwareMonitor от администратора.")
+            return tr("Нашёл LibreHardwareMonitorLib.dll, но для неё нужен пакет pythonnet: "
+                      "pip install pythonnet. Или просто запустите LibreHardwareMonitor от администратора.",
+                      "Found LibreHardwareMonitorLib.dll, but it needs the pythonnet package: "
+                      "pip install pythonnet. Or just run LibreHardwareMonitor as administrator.")
         if self.lib.error not in ("", "nodll"):
             return self.lib.error
-        return ("Windows не отдаёт температуры процессора, платы и дисков сама. Их умеет читать "
-                "бесплатная программа LibreHardwareMonitor: WhySlow может скачать её с GitHub "
-                "и запустить.")
+        return tr("Windows не отдаёт температуры процессора, платы и дисков сама. Их умеет читать "
+                  "бесплатная программа LibreHardwareMonitor: WhySlow может скачать её с GitHub "
+                  "и запустить.",
+                  "Windows doesn't expose CPU, motherboard and disk temperatures by itself. The free "
+                  "LibreHardwareMonitor can read them: WhySlow can download it from GitHub and start it.")
 
     def get(self, wait: bool) -> dict[str, float]:
         if wait and not self.stamp:
@@ -329,23 +342,28 @@ def latest_release(timeout: float = 10) -> tuple[str, dict]:
         with net.urlopen(LATEST_API, timeout, {"Accept": "application/vnd.github+json"}) as resp:
             rel = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        raise InstallError(f"Не удалось узнать последнюю версию LibreHardwareMonitor: {net.explain(e, 'релиз')}") from e
+        why = net.explain(e, tr("релиз", "release"))
+        raise InstallError(tr(f"Не удалось узнать последнюю версию LibreHardwareMonitor: {why}",
+                              f"Couldn't get the latest LibreHardwareMonitor version: {why}")) from e
     asset = pick_asset(rel.get("assets") or [])
     if not asset:
-        raise InstallError(f"В последнем релизе LibreHardwareMonitor нет архива программы. Скачайте её вручную: {RELEASES_URL}")
+        raise InstallError(tr(f"В последнем релизе LibreHardwareMonitor нет архива программы. Скачайте её вручную: {RELEASES_URL}",
+                              f"The latest LibreHardwareMonitor release has no program archive. Download it manually: {RELEASES_URL}"))
     return rel.get("tag_name") or "", asset
 
 
 def _check_url(url: str) -> None:
     if not re.match(rf"https://github\.com/{re.escape(LHM_REPO)}/releases/download/", url):
-        raise InstallError(f"Архив лежит не в официальном репозитории LibreHardwareMonitor: {url}")
+        raise InstallError(tr(f"Архив лежит не в официальном репозитории LibreHardwareMonitor: {url}",
+                              f"The archive isn't in the official LibreHardwareMonitor repository: {url}"))
 
 
 def _download(asset: dict, dest: Path, progress) -> None:
     url, size = asset["browser_download_url"], int(asset.get("size") or 0)
     _check_url(url)
     if size > MAX_SIZE:
-        raise InstallError("Архив LibreHardwareMonitor подозрительно большой, не качаю.")
+        raise InstallError(tr("Архив LibreHardwareMonitor подозрительно большой, не качаю.",
+                                      "The LibreHardwareMonitor archive is suspiciously large, not downloading."))
     digest = hashlib.sha256()
     got = 0
     try:
@@ -353,21 +371,26 @@ def _download(asset: dict, dest: Path, progress) -> None:
             while chunk := resp.read(256 * 1024):
                 got += len(chunk)
                 if got > MAX_SIZE:
-                    raise InstallError("Архив LibreHardwareMonitor подозрительно большой, не качаю.")
+                    raise InstallError(tr("Архив LibreHardwareMonitor подозрительно большой, не качаю.",
+                                      "The LibreHardwareMonitor archive is suspiciously large, not downloading."))
                 digest.update(chunk)
                 f.write(chunk)
                 if size:
-                    progress(f"Скачиваю LibreHardwareMonitor… {got * 100 // size}%")
+                    progress(tr("Скачиваю LibreHardwareMonitor…", "Downloading LibreHardwareMonitor…") + f" {got * 100 // size}%")
     except InstallError:
         raise
     except Exception as e:
-        raise InstallError(f"Не удалось скачать LibreHardwareMonitor: {net.explain(e, 'архив')}") from e
+        why = net.explain(e, tr("архив", "archive"))
+        raise InstallError(tr(f"Не удалось скачать LibreHardwareMonitor: {why}",
+                              f"Couldn't download LibreHardwareMonitor: {why}")) from e
     if size and got != size:
-        raise InstallError("Архив LibreHardwareMonitor скачался не полностью, попробуйте ещё раз.")
+        raise InstallError(tr("Архив LibreHardwareMonitor скачался не полностью, попробуйте ещё раз.",
+                              "The LibreHardwareMonitor archive didn't download completely, try again."))
     # GitHub публикует SHA-256 каждого файла релиза (поле digest вида «sha256:…»).
     expected = (asset.get("digest") or "").lower()
     if expected.startswith("sha256:") and expected[7:] != digest.hexdigest():
-        raise InstallError("Контрольная сумма архива LibreHardwareMonitor не совпала с GitHub, файл не установлен.")
+        raise InstallError(tr("Контрольная сумма архива LibreHardwareMonitor не совпала с GitHub, файл не установлен.",
+                              "The LibreHardwareMonitor archive checksum doesn't match GitHub; not installed."))
 
 
 def _extract(archive: Path, target: Path) -> None:
@@ -375,16 +398,17 @@ def _extract(archive: Path, target: Path) -> None:
         with zipfile.ZipFile(archive) as z:
             names = z.namelist()
             if z.testzip() is not None:
-                raise InstallError("Архив LibreHardwareMonitor повреждён.")
+                raise InstallError(tr("Архив LibreHardwareMonitor повреждён.", "The LibreHardwareMonitor archive is corrupted."))
             for n in names:
                 p = PurePosixPath(n.replace("\\", "/"))
                 if p.is_absolute() or ".." in p.parts or (p.parts and ":" in p.parts[0]):
-                    raise InstallError(f"В архиве LibreHardwareMonitor странный путь: {n}")
+                    raise InstallError(tr(f"В архиве LibreHardwareMonitor странный путь: {n}",
+                                          f"Odd path in the LibreHardwareMonitor archive: {n}"))
             if not any(PurePosixPath(n).name == EXE for n in names):
-                raise InstallError(f"В архиве нет {EXE}.")
+                raise InstallError(tr(f"В архиве нет {EXE}.", f"{EXE} is missing from the archive."))
             z.extractall(target)
     except zipfile.BadZipFile as e:
-        raise InstallError("Архив LibreHardwareMonitor повреждён.") from e
+        raise InstallError(tr("Архив LibreHardwareMonitor повреждён.", "The LibreHardwareMonitor archive is corrupted.")) from e
     # Программа могла лежать во вложенной папке — поднимаем её наверх.
     exe = next(target.rglob(EXE))
     if exe.parent != target:
@@ -405,19 +429,21 @@ _CONFIG = """<?xml version="1.0" encoding="utf-8"?>
 
 def install(progress=lambda _t: None) -> str:
     """Скачивает последний релиз LHM с GitHub в install_dir(). Возвращает версию."""
-    progress("Ищу последний релиз LibreHardwareMonitor на GitHub…")
+    progress(tr("Ищу последний релиз LibreHardwareMonitor на GitHub…",
+                "Looking for the latest LibreHardwareMonitor release on GitHub…"))
     version, asset = latest_release()
     target = install_dir()
     with tempfile.TemporaryDirectory(prefix="whyslow-lhm-") as tmp:
         archive = Path(tmp) / "lhm.zip"
         _download(asset, archive, progress)
-        progress("Проверяю и распаковываю…")
+        progress(tr("Проверяю и распаковываю…", "Verifying and unpacking…"))
         fresh = Path(tmp) / "out"
         fresh.mkdir()
         _extract(archive, fresh)
         if target.exists():
             if running():
-                raise InstallError("LibreHardwareMonitor сейчас запущен. Закройте его и попробуйте ещё раз.")
+                raise InstallError(tr("LibreHardwareMonitor сейчас запущен. Закройте его и попробуйте ещё раз.",
+                                      "LibreHardwareMonitor is running. Close it and try again."))
             shutil.rmtree(target)
         shutil.move(str(fresh), target)
     # Пусть LHM сворачивается в трей, а не висит окном поверх всего.
@@ -431,12 +457,14 @@ def install(progress=lambda _t: None) -> str:
 def uninstall() -> None:
     """Удаляет скачанный WhySlow LibreHardwareMonitor (откат из журнала)."""
     if running():
-        raise InstallError("LibreHardwareMonitor сейчас запущен. Закройте его (значок в трее) и повторите.")
+        raise InstallError(tr("LibreHardwareMonitor сейчас запущен. Закройте его (значок в трее) и повторите.",
+                              "LibreHardwareMonitor is running. Close it (tray icon) and try again."))
     _reader.lib.close()
     shutil.rmtree(install_dir(), ignore_errors=True)
     recheck()
     if install_dir().exists():
-        raise InstallError(f"Часть файлов занята, удалите папку вручную после перезапуска WhySlow: {install_dir()}")
+        raise InstallError(tr(f"Часть файлов занята, удалите папку вручную после перезапуска WhySlow: {install_dir()}",
+                              f"Some files are in use; delete the folder manually after restarting WhySlow: {install_dir()}"))
 
 
 def launch() -> bool:

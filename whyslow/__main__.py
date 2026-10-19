@@ -5,7 +5,7 @@ def selfcheck() -> int:
     """Проверка после обновления: все модули импортируются. Печатает версию."""
     import importlib
     from . import __version__
-    names = ["util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
+    names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
              "lhm", "journal", "settings", "net", "online", "updater", "cli"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
@@ -19,6 +19,12 @@ def selfcheck() -> int:
 
 
 def main() -> int:
+    if "--lang" in sys.argv:  # --lang en / --lang ru: язык только на этот запуск
+        from . import i18n
+        i = sys.argv.index("--lang")
+        code = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        if code in i18n.LANGS:
+            i18n.set_lang(code, save=False)
     if "--version" in sys.argv:
         from . import __version__
         print(__version__)

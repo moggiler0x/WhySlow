@@ -2,8 +2,10 @@
 
 Если программы нет в базе, WhySlow сам выясняет, что это:
   1. читает сведения из самого файла (издатель, описание, название продукта);
-  2. ищет статью в Википедии (сначала русской, потом английской).
-Ключи API не нужны. Найденное кешируется на диске, чтобы не ходить в сеть снова.
+  2. ищет статью в Википедии (на русском интерфейсе — сначала русской, потом английской;
+     на английском — только английской).
+Ключи API не нужны. Найденное кешируется на диске (отдельно для каждого языка),
+чтобы не ходить в сеть снова.
 Вердикт «можно отключить» по таким данным не ставится — это только пояснение.
 """
 
@@ -19,7 +21,8 @@ import urllib.parse
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from . import net
+from . import i18n, net
+from .i18n import tr
 from .util import IS_MAC, IS_WINDOWS, app_dir
 
 TTL_FOUND = 30 * 86400    # найденное описание перепроверяем раз в месяц
@@ -49,7 +52,7 @@ class Info:
         if self.summary:
             parts.append(self.summary)
         if self.publisher and self.publisher.lower() not in self.summary.lower():
-            parts.append(f"Издатель: {self.publisher}.")
+            parts.append(tr(f"Издатель: {self.publisher}.", f"Publisher: {self.publisher}."))
         return " ".join(parts)
 
 
@@ -174,7 +177,7 @@ def _first_sentences(text: str, n: int = 2, limit: int = 420) -> str:
 def wikipedia(query: str, timeout: float = 6) -> Info | None:
     if not query.strip():
         return None
-    for lang in ("ru", "en"):
+    for lang in (("en",) if i18n.lang() == "en" else ("ru", "en")):
         params = {
             "action": "query", "format": "json", "formatversion": "2", "redirects": "1",
             "generator": "search", "gsrsearch": query, "gsrlimit": "3", "gsrnamespace": "0",
@@ -188,7 +191,7 @@ def wikipedia(query: str, timeout: float = 6) -> Info | None:
             if "disambiguation" in page.get("pageprops", {}) or not extract or not _relevant(title, query):
                 continue
             return Info(summary=_first_sentences(extract), title=title, url=page.get("fullurl", ""),
-                        source="Википедия")
+                        source=tr("Википедия", "Wikipedia"))
     return None
 
 
@@ -207,7 +210,8 @@ def _load_cache() -> dict:
 
 
 def _key(name: str) -> str:
-    return name.strip().lower()
+    """Ключ кеша с языком: описания на русском и английском хранятся отдельно."""
+    return f"{i18n.lang()}:{name.strip().lower()}"
 
 
 def cached(name: str) -> tuple[bool, Info | None]:
@@ -258,11 +262,11 @@ def describe(name: str, path: str = "", timeout: float = 6) -> Info | None:
         product = finfo.get("product", "")
         desc = finfo["description"]
         summary = desc if not product or product.lower() in desc.lower() else f"{desc} ({product})"
-        info = Info(summary=summary.rstrip(".") + ".", title=product or desc, source="сведения о файле")
+        info = Info(summary=summary.rstrip(".") + ".", title=product or desc, source=tr("сведения о файле", "file details"))
     if info is not None:
         info.publisher = publisher
     elif publisher:
-        info = Info(publisher=publisher, source="сведения о файле")
+        info = Info(publisher=publisher, source=tr("сведения о файле", "file details"))
     if not offline:  # без сети не запоминаем: в следующий раз спросим Википедию снова
         _store(name, info)
     return info
@@ -271,10 +275,11 @@ def describe(name: str, path: str = "", timeout: float = 6) -> Info | None:
 def as_html(info: Info | None, muted: str) -> str:
     """Короткий блок для окна с пометкой, что данные не проверены."""
     if info is None:
-        return f"<span style='color:{muted}'>В интернете описание не нашлось.</span>"
-    link = f" <a href='{info.url}'>подробнее</a>" if info.url else ""
-    return (f"{_esc(info.text)}{link}<br><span style='color:{muted}'>Источник: {info.source}. "
-            "Из интернета, не проверено базой WhySlow.</span>")
+        return f"<span style='color:{muted}'>{tr('В интернете описание не нашлось.', 'No description found online.')}</span>"
+    link = f" <a href='{info.url}'>{tr('подробнее', 'more')}</a>" if info.url else ""
+    note = tr(f"Источник: {info.source}. Из интернета, не проверено базой WhySlow.",
+              f"Source: {info.source}. From the internet, not verified by the WhySlow database.")
+    return f"{_esc(info.text)}{link}<br><span style='color:{muted}'>{note}</span>"
 
 
 def _esc(text: str) -> str:

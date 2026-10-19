@@ -1,11 +1,13 @@
 {
- "version": 2,
+ "version": 3,
  "updated": "2026-10-19",
  "entries": [
   {
    "id": "miner",
    "title": "Майнер",
+   "title_en": "Crypto miner",
    "category": "Угроза",
+   "category_en": "Threat",
    "verdict": "bad",
    "match": [
     "xmrig",
@@ -16,12 +18,15 @@
     "lolminer",
     "\\bminer\\.exe"
    ],
-   "note": "Майнит криптовалюту на вашем железе — отсюда 100% загрузки CPU/GPU. Удалите и проверьте систему антивирусом."
+   "note": "Майнит криптовалюту на вашем железе — отсюда 100% загрузки CPU/GPU. Удалите и проверьте систему антивирусом.",
+   "note_en": "Mines cryptocurrency on your hardware — hence 100% CPU/GPU load. Remove it and scan the system with an antivirus."
   },
   {
    "id": "mailru",
    "title": "Mail.ru Агент / Спутник / Амиго",
+   "title_en": "Mail.ru Agent / Sputnik / Amigo",
    "category": "Нежелательное ПО",
+   "category_en": "Unwanted software",
    "verdict": "bad",
    "match": [
     "amigo",
@@ -30,12 +35,15 @@
     "guard\\s*mail",
     "mailruupdater"
    ],
-   "note": "Ставится «в нагрузку» к другим программам, грузит систему и меняет поиск. Смело удаляйте."
+   "note": "Ставится «в нагрузку» к другим программам, грузит систему и меняет поиск. Смело удаляйте.",
+   "note_en": "Gets bundled with other installers, loads the system and hijacks search. Remove without hesitation."
   },
   {
    "id": "pup_cleaners",
    "title": "«Ускорители» и «оптимизаторы»",
+   "title_en": "“Boosters” and “optimizers”",
    "category": "Нежелательное ПО",
+   "category_en": "Unwanted software",
    "verdict": "bad",
    "match": [
     "advanced\\s*systemcare",
@@ -47,75 +55,96 @@
     "auslogics",
     "systweak"
    ],
-   "note": "Программы вида Driver Booster/Advanced SystemCare/Reimage сами тормозят систему и показывают рекламу."
+   "note": "Программы вида Driver Booster/Advanced SystemCare/Reimage сами тормозят систему и показывают рекламу.",
+   "note_en": "Programs like Driver Booster/Advanced SystemCare/Reimage slow the system down themselves and show ads."
   },
   {
    "id": "opera_assistant",
    "title": "Opera Browser Assistant",
+   "title_en": "Opera Browser Assistant",
    "category": "Нежелательное ПО",
+   "category_en": "Unwanted software",
    "verdict": "bad",
    "match": [
     "browser_assistant",
     "opera.*assistant"
    ],
-   "note": "Помощник Opera висит в фоне даже когда браузер закрыт. Пользе ноль."
+   "note": "Помощник Opera висит в фоне даже когда браузер закрыт. Пользе ноль.",
+   "note_en": "Opera's helper hangs in the background even when the browser is closed. Zero benefit."
   },
   {
    "id": "win_security",
    "title": "Безопасность Windows",
+   "title_en": "Windows Security",
    "category": "Система",
+   "category_en": "System",
    "verdict": "keep",
    "match": [
     "securityhealth",
     "windows\\s*defender",
     "msmpeng"
    ],
-   "note": "Значок и служба встроенного антивируса. Отключать нельзя."
+   "note": "Значок и служба встроенного антивируса. Отключать нельзя.",
+   "note_en": "Tray icon and service of the built-in antivirus. Don't disable it."
   },
   {
    "id": "win_services_core",
    "title": "Служба Windows",
+   "title_en": "Windows service",
    "category": "Система",
+   "category_en": "System",
    "verdict": "keep",
    "match": [
     "\\b(wuauserv|usosvc|bits|cryptsvc|trustedinstaller|winmgmt|eventlog|rpcss|rpceptmapper|dcomlaunch|brokerinfrastructure|systemeventsbroker|schedule|plugplay|power|profsvc|usermanager|gpsvc|lsm|samss|dhcp|dnscache|nsi|nlasvc|netprofm|wlansvc|lanmanworkstation|lanmanserver|mpssvc|bfe|windefend|wdnissvc|wscsvc|sppsvc|audiosrv|audioendpointbuilder|themes|fontcache|sens|shellhwdetection|staterepository|coremessagingregistrar|tokenbroker|w32time|wpnservice|cdpsvc|cdpusersvc_\\w+|wpnuserservice_\\w+|onesyncsvc_\\w+|cbdhsvc_\\w+)$"
    ],
-   "note": "Встроенная служба Windows: обновления, сеть, звук, вход в систему и т.п. Без неё что-то перестанет работать — не трогайте."
+   "note": "Встроенная служба Windows: обновления, сеть, звук, вход в систему и т.п. Без неё что-то перестанет работать — не трогайте.",
+   "note_en": "A built-in Windows service: updates, network, sound, sign-in and so on. Without it something will stop working — leave it alone."
   },
   {
    "id": "win_telemetry",
    "title": "Телеметрия Windows",
+   "title_en": "Windows telemetry",
    "category": "Телеметрия",
+   "category_en": "Telemetry",
    "verdict": "safe",
    "match": [
     "\\b(diagtrack|dmwappushservice)$"
    ],
-   "note": "Отправляет в Microsoft данные о работе системы. На работу Windows не влияет, отключать безопасно."
+   "note": "Отправляет в Microsoft данные о работе системы. На работу Windows не влияет, отключать безопасно.",
+   "note_en": "Sends system usage data to Microsoft. Doesn't affect how Windows works; safe to disable."
   },
   {
    "id": "win_sysmain",
    "title": "SysMain (Superfetch)",
+   "title_en": "SysMain (Superfetch)",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "\\bsysmain$"
    ],
-   "note": "Заранее подгружает в память частые программы. На HDD ускоряет их запуск, но может держать диск на 100% — тогда отключите. На SSD пользы почти нет."
+   "note": "Заранее подгружает в память частые программы. На HDD ускоряет их запуск, но может держать диск на 100% — тогда отключите. На SSD пользы почти нет.",
+   "note_en": "Preloads frequently used apps into memory. On an HDD it speeds up launches but can keep the disk at 100% — then disable it. On an SSD it barely helps."
   },
   {
    "id": "win_search",
    "title": "Поиск Windows",
+   "title_en": "Windows Search",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "\\bwsearch$"
    ],
-   "note": "Индексирует файлы для быстрого поиска в Пуске и Проводнике. Если поиском не пользуетесь или он грузит диск — отключите, поиск останется, но станет медленнее."
+   "note": "Индексирует файлы для быстрого поиска в Пуске и Проводнике. Если поиском не пользуетесь или он грузит диск — отключите, поиск останется, но станет медленнее.",
+   "note_en": "Indexes files for fast search in Start and Explorer. If you don't use search or it loads the disk, disable it: search still works, just slower."
   },
   {
    "id": "antivirus",
    "title": "Антивирус",
+   "title_en": "Antivirus",
    "category": "Безопасность",
+   "category_en": "Security",
    "verdict": "keep",
    "match": [
     "kaspersky",
@@ -131,12 +160,15 @@
     "norton",
     "360\\s*total"
    ],
-   "note": "Антивирус должен стартовать вместе с системой."
+   "note": "Антивирус должен стартовать вместе с системой.",
+   "note_en": "An antivirus should start with the system."
   },
   {
    "id": "audio_drivers",
    "title": "Аудиодрайвер",
+   "title_en": "Audio driver",
    "category": "Драйвер",
+   "category_en": "Driver",
    "verdict": "keep",
    "match": [
     "realtek",
@@ -147,12 +179,15 @@
     "waves\\s*maxx",
     "dolby"
    ],
-   "note": "Управление звуком (Realtek и т.п.). Без него могут пропасть эффекты и переключение наушников."
+   "note": "Управление звуком (Realtek и т.п.). Без него могут пропасть эффекты и переключение наушников.",
+   "note_en": "Sound control (Realtek etc.). Without it, effects and headphone switching may stop working."
   },
   {
    "id": "gpu_driver",
    "title": "Видеодрайвер",
+   "title_en": "Graphics driver",
    "category": "Драйвер",
+   "category_en": "Driver",
    "verdict": "keep",
    "match": [
     "igfx",
@@ -163,12 +198,15 @@
     "nvdisplay",
     "nvcontainer"
    ],
-   "note": "Компоненты видеодрайвера. Не отключайте — могут сломаться настройки экрана."
+   "note": "Компоненты видеодрайвера. Не отключайте — могут сломаться настройки экрана.",
+   "note_en": "Graphics driver components. Don't disable — display settings may break."
   },
   {
    "id": "touchpad",
    "title": "Тачпад/клавиатура ноутбука",
+   "title_en": "Laptop touchpad/keyboard",
    "category": "Драйвер",
+   "category_en": "Driver",
    "verdict": "keep",
    "match": [
     "synaptics",
@@ -179,22 +217,28 @@
     "lenovo.*(hotkey|vantage)",
     "hp\\s*hotkey"
    ],
-   "note": "Жесты тачпада и горячие клавиши ноутбука."
+   "note": "Жесты тачпада и горячие клавиши ноутбука.",
+   "note_en": "Touchpad gestures and laptop hotkeys."
   },
   {
    "id": "ctfmon",
    "title": "Языковая панель",
+   "title_en": "Language bar",
    "category": "Система",
+   "category_en": "System",
    "verdict": "keep",
    "match": [
     "ctfmon"
    ],
-   "note": "Переключение раскладки и ввод текста."
+   "note": "Переключение раскладки и ввод текста.",
+   "note_en": "Keyboard layout switching and text input."
   },
   {
    "id": "linux_core",
    "title": "Компонент рабочего стола",
+   "title_en": "Desktop component",
    "category": "Система",
+   "category_en": "System",
    "verdict": "keep",
    "match": [
     "gnome-keyring",
@@ -218,32 +262,41 @@
     "systemd-",
     "user-dirs"
    ],
-   "note": "Часть окружения рабочего стола Linux — без него что-то перестанет работать (звук, сеть, пароли, раскладка)."
+   "note": "Часть окружения рабочего стола Linux — без него что-то перестанет работать (звук, сеть, пароли, раскладка).",
+   "note_en": "Part of the Linux desktop environment — without it something stops working (sound, network, passwords, keyboard layout)."
   },
   {
    "id": "linux_services_core",
    "title": "Системная служба",
+   "title_en": "System service",
    "category": "Система",
+   "category_en": "System",
    "verdict": "keep",
    "match": [
     "^(ssh|sshd|cron|rsyslog|udisks2|upower|accounts-daemon|gdm|sddm|lightdm|apparmor|ufw|snapd|wpa_supplicant|thermald|power-profiles-daemon|unattended-upgrades|getty@|console-setup|keyboard-setup|setvtrgb|irqbalance|switcheroo-control|fwupd)[\\.\\s]"
    ],
-   "note": "Базовая служба Linux. Отключение может сломать загрузку, сеть или вход."
+   "note": "Базовая служба Linux. Отключение может сломать загрузку, сеть или вход.",
+   "note_en": "A core Linux service. Disabling it may break boot, networking or sign-in."
   },
   {
    "id": "onedrive",
    "title": "OneDrive",
+   "title_en": "OneDrive",
    "category": "Облако",
+   "category_en": "Cloud",
    "verdict": "optional",
    "match": [
     "onedrive"
    ],
-   "note": "Синхронизация файлов с облаком Microsoft. Если не пользуетесь — отключайте, при синхронизации сильно грузит диск."
+   "note": "Синхронизация файлов с облаком Microsoft. Если не пользуетесь — отключайте, при синхронизации сильно грузит диск.",
+   "note_en": "Syncs files with Microsoft's cloud. If you don't use it, disable it: syncing loads the disk heavily."
   },
   {
    "id": "gdrive",
    "title": "Google Drive / Dropbox / Яндекс Диск",
+   "title_en": "Google Drive / Dropbox / Yandex Disk",
    "category": "Облако",
+   "category_en": "Cloud",
    "verdict": "optional",
    "match": [
     "google\\s*drive",
@@ -252,12 +305,15 @@
     "yandex\\s*disk",
     "yandexdisk"
    ],
-   "note": "Облачная синхронизация. Нужна, только если вы держите там файлы."
+   "note": "Облачная синхронизация. Нужна, только если вы держите там файлы.",
+   "note_en": "Cloud sync. Only needed if you keep files there."
   },
   {
    "id": "vpn",
    "title": "VPN-клиент",
+   "title_en": "VPN client",
    "category": "VPN",
+   "category_en": "VPN",
    "verdict": "optional",
    "match": [
     "nordvpn",
@@ -284,24 +340,30 @@
     "kaspersky\\s*vpn",
     "planet\\s*vpn"
    ],
-   "note": "Если VPN нужен не всегда — уберите из автозагрузки. Кривые VPN после закрытия оставляют включённый прокси, и интернет «ломается» — WhySlow это проверяет на вкладке «Обзор»."
+   "note": "Если VPN нужен не всегда — уберите из автозагрузки. Кривые VPN после закрытия оставляют включённый прокси, и интернет «ломается» — WhySlow это проверяет на вкладке «Обзор».",
+   "note_en": "If you don't always need the VPN, remove it from startup. Buggy VPNs leave the proxy on after closing and the internet “breaks” — WhySlow checks for this on the Overview tab."
   },
   {
    "id": "remote_access",
    "title": "Удалённый доступ",
+   "title_en": "Remote access",
    "category": "Сеть",
+   "category_en": "Network",
    "verdict": "optional",
    "match": [
     "teamviewer",
     "anydesk",
     "rustdesk"
    ],
-   "note": "Позволяет подключаться к этому компьютеру удалённо. Если так не делаете — отключите: заодно безопаснее."
+   "note": "Позволяет подключаться к этому компьютеру удалённо. Если так не делаете — отключите: заодно безопаснее.",
+   "note_en": "Lets others connect to this computer remotely. If you don't do that, disable it — it's also safer."
   },
   {
    "id": "gaming_peripherals",
    "title": "ПО для мыши/клавиатуры",
+   "title_en": "Mouse/keyboard software",
    "category": "Периферия",
+   "category_en": "Peripherals",
    "verdict": "optional",
    "match": [
     "lghub",
@@ -317,12 +379,15 @@
     "armoury\\s*crate",
     "\\baura\\b"
    ],
-   "note": "Нужно для подсветки и макросов. Если настроили один раз — часто можно отключить: профиль хранится в самом устройстве."
+   "note": "Нужно для подсветки и макросов. Если настроили один раз — часто можно отключить: профиль хранится в самом устройстве.",
+   "note_en": "Needed for lighting and macros. If you set it up once, you can often disable it: the profile is stored on the device itself."
   },
   {
    "id": "overlay",
    "title": "Мониторинг FPS / разгон",
+   "title_en": "FPS monitoring / overclocking",
    "category": "Игры",
+   "category_en": "Games",
    "verdict": "optional",
    "match": [
     "afterburner",
@@ -330,12 +395,15 @@
     "rivatuner",
     "fpsmonitor"
    ],
-   "note": "MSI Afterburner, RivaTuner и т.п. Нужны, если вы правда смотрите FPS или держите разгон."
+   "note": "MSI Afterburner, RivaTuner и т.п. Нужны, если вы правда смотрите FPS или держите разгон.",
+   "note_en": "MSI Afterburner, RivaTuner and similar. Needed only if you actually watch FPS or keep an overclock."
   },
   {
    "id": "nvidia_extra",
    "title": "NVIDIA App / GeForce Experience",
+   "title_en": "NVIDIA App / GeForce Experience",
    "category": "Драйвер",
+   "category_en": "Driver",
    "verdict": "optional",
    "match": [
     "geforce\\s*experience",
@@ -344,12 +412,15 @@
     "nvidia\\s*share",
     "nvsphelper"
    ],
-   "note": "Оверлей и обновления драйверов. Сам драйвер работает и без них."
+   "note": "Оверлей и обновления драйверов. Сам драйвер работает и без них.",
+   "note_en": "Overlay and driver updates. The driver itself works without them."
   },
   {
    "id": "bluetooth",
    "title": "Bluetooth",
+   "title_en": "Bluetooth",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "blueman",
@@ -357,12 +428,15 @@
     "btdevicemanager",
     "\\bbthserv$"
    ],
-   "note": "Если Bluetooth не используете — можно отключить."
+   "note": "Если Bluetooth не используете — можно отключить.",
+   "note_en": "If you don't use Bluetooth, you can disable it."
   },
   {
    "id": "printing",
    "title": "Печать (CUPS)",
+   "title_en": "Printing (CUPS)",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "^cups",
@@ -371,22 +445,28 @@
     "print-applet",
     "\\bspooler$"
    ],
-   "note": "Служба печати. Нет принтера — можно отключить."
+   "note": "Служба печати. Нет принтера — можно отключить.",
+   "note_en": "The print service. No printer — you can disable it."
   },
   {
    "id": "avahi",
    "title": "Avahi (поиск устройств в сети)",
+   "title_en": "Avahi (network device discovery)",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "avahi"
    ],
-   "note": "Ищет принтеры и устройства в локальной сети. Дома обычно не нужен."
+   "note": "Ищет принтеры и устройства в локальной сети. Дома обычно не нужен.",
+   "note_en": "Finds printers and devices on the local network. Usually not needed at home."
   },
   {
    "id": "dev_servers",
    "title": "Сервер разработчика",
+   "title_en": "Developer server",
    "category": "Разработка",
+   "category_en": "Development",
    "verdict": "optional",
    "match": [
     "docker",
@@ -400,12 +480,15 @@
     "mongod",
     "redis"
    ],
-   "note": "Docker, базы данных, веб-серверы. Если вы не разработчик — скорее всего поставились случайно и жрут память."
+   "note": "Docker, базы данных, веб-серверы. Если вы не разработчик — скорее всего поставились случайно и жрут память.",
+   "note_en": "Docker, databases, web servers. If you're not a developer, they were probably installed by accident and eat memory."
   },
   {
    "id": "tracker",
    "title": "Индексатор файлов",
+   "title_en": "File indexer",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "tracker-miner",
@@ -414,76 +497,97 @@
     "searchindexer",
     "localsearch"
    ],
-   "note": "Индексирует файлы для поиска. На слабых ПК грузит диск сразу после включения."
+   "note": "Индексирует файлы для поиска. На слабых ПК грузит диск сразу после включения.",
+   "note_en": "Indexes files for search. On weak PCs it loads the disk right after boot."
   },
   {
    "id": "snap_integration",
    "title": "Snap интеграция",
+   "title_en": "Snap integration",
    "category": "Система",
+   "category_en": "System",
    "verdict": "optional",
    "match": [
     "snapd-desktop-integration"
    ],
-   "note": "Интеграция snap-приложений с рабочим столом."
+   "note": "Интеграция snap-приложений с рабочим столом.",
+   "note_en": "Integrates snap apps with the desktop."
   },
   {
    "id": "discord",
    "title": "Discord",
+   "title_en": "Discord",
    "category": "Мессенджер",
+   "category_en": "Messenger",
    "verdict": "safe",
    "match": [
     "discord"
    ],
-   "note": "Мессенджер. Запустите вручную, когда понадобится."
+   "note": "Мессенджер. Запустите вручную, когда понадобится.",
+   "note_en": "Messenger. Start it manually when you need it."
   },
   {
    "id": "telegram",
    "title": "Telegram",
+   "title_en": "Telegram",
    "category": "Мессенджер",
+   "category_en": "Messenger",
    "verdict": "safe",
    "match": [
     "telegram"
    ],
-   "note": "Мессенджер. Можно убрать из автозагрузки, если не нужен сразу."
+   "note": "Мессенджер. Можно убрать из автозагрузки, если не нужен сразу.",
+   "note_en": "Messenger. Can be removed from startup if you don't need it right away."
   },
   {
    "id": "whatsapp",
    "title": "WhatsApp / Viber / Skype",
+   "title_en": "WhatsApp / Viber / Skype",
    "category": "Мессенджер",
+   "category_en": "Messenger",
    "verdict": "safe",
    "match": [
     "whatsapp",
     "viber",
     "skype"
    ],
-   "note": "Мессенджер."
+   "note": "Мессенджер.",
+   "note_en": "Messenger."
   },
   {
    "id": "zoom",
    "title": "Zoom / Teams",
+   "title_en": "Zoom / Teams",
    "category": "Мессенджер",
+   "category_en": "Messenger",
    "verdict": "safe",
    "match": [
     "zoom",
     "teams",
     "msteams"
    ],
-   "note": "Нужен только во время звонков."
+   "note": "Нужен только во время звонков.",
+   "note_en": "Only needed during calls."
   },
   {
    "id": "steam",
    "title": "Steam",
+   "title_en": "Steam",
    "category": "Игры",
+   "category_en": "Games",
    "verdict": "safe",
    "match": [
     "steam"
    ],
-   "note": "Сам запустится, когда откроете игру. В автозагрузке только ест память и качает обновления."
+   "note": "Сам запустится, когда откроете игру. В автозагрузке только ест память и качает обновления.",
+   "note_en": "Starts by itself when you open a game. In startup it only eats memory and downloads updates."
   },
   {
    "id": "launchers",
    "title": "Игровой лаунчер",
+   "title_en": "Game launcher",
    "category": "Игры",
+   "category_en": "Games",
    "verdict": "safe",
    "match": [
     "epicgames",
@@ -504,23 +608,29 @@
     "vk\\s*play",
     "gamecenter"
    ],
-   "note": "Epic, EA, Ubisoft, Battle.net, GOG, Riot — всё запускается вручную."
+   "note": "Epic, EA, Ubisoft, Battle.net, GOG, Riot — всё запускается вручную.",
+   "note_en": "Epic, EA, Ubisoft, Battle.net, GOG, Riot — all can be started manually."
   },
   {
    "id": "spotify",
    "title": "Spotify / Яндекс Музыка",
+   "title_en": "Spotify / Yandex Music",
    "category": "Медиа",
+   "category_en": "Media",
    "verdict": "safe",
    "match": [
     "spotify",
     "yandex.*music"
    ],
-   "note": "Музыка не нужна в автозагрузке."
+   "note": "Музыка не нужна в автозагрузке.",
+   "note_en": "Music doesn't need to be in startup."
   },
   {
    "id": "torrent",
    "title": "Торрент-клиент",
+   "title_en": "Torrent client",
    "category": "Сеть",
+   "category_en": "Network",
    "verdict": "safe",
    "match": [
     "utorrent",
@@ -530,12 +640,15 @@
     "mediaget",
     "tixati"
    ],
-   "note": "Раздаёт в фоне и грузит сеть и диск. Запускайте, когда качаете."
+   "note": "Раздаёт в фоне и грузит сеть и диск. Запускайте, когда качаете.",
+   "note_en": "Seeds in the background and loads the network and disk. Start it when you download."
   },
   {
    "id": "browsers",
    "title": "Браузер (фоновый запуск)",
+   "title_en": "Browser (background launch)",
    "category": "Браузер",
+   "category_en": "Browser",
    "verdict": "safe",
    "match": [
     "yandex(?!.*(disk|music))",
@@ -548,12 +661,15 @@
     "brave",
     "vivaldi"
    ],
-   "note": "Браузеру незачем стартовать до того, как вы его открыли."
+   "note": "Браузеру незачем стартовать до того, как вы его открыли.",
+   "note_en": "A browser has no reason to start before you open it."
   },
   {
    "id": "updaters",
    "title": "Программа обновления",
+   "title_en": "Updater",
    "category": "Обновления",
+   "category_en": "Updates",
    "verdict": "safe",
    "match": [
     "jusched",
@@ -574,24 +690,30 @@
     "googleupdater",
     "\\bgupdatem?$"
    ],
-   "note": "Проверяет обновления. Программа обновится сама при следующем запуске."
+   "note": "Проверяет обновления. Программа обновится сама при следующем запуске.",
+   "note_en": "Checks for updates. The program will update itself next time it starts."
   },
   {
    "id": "adobe_cc",
    "title": "Adobe Creative Cloud",
+   "title_en": "Adobe Creative Cloud",
    "category": "Работа",
+   "category_en": "Work",
    "verdict": "safe",
    "match": [
     "creative\\s*cloud",
     "adobe\\s*desktop\\s*service",
     "cclibrary"
    ],
-   "note": "Нужен только при запуске Adobe-программ, они сами его поднимут."
+   "note": "Нужен только при запуске Adobe-программ, они сами его поднимут.",
+   "note_en": "Only needed when running Adobe apps — they start it themselves."
   },
   {
    "id": "wallpaper",
    "title": "Wallpaper Engine / живые обои",
+   "title_en": "Wallpaper Engine / live wallpapers",
    "category": "Медиа",
+   "category_en": "Media",
    "verdict": "safe",
    "match": [
     "wallpaper\\s*engine",
@@ -599,38 +721,48 @@
     "wallpaper64",
     "lively"
    ],
-   "note": "Живые обои отнимают ресурсы видеокарты. Отключите, если ПК тормозит."
+   "note": "Живые обои отнимают ресурсы видеокарты. Отключите, если ПК тормозит.",
+   "note_en": "Live wallpapers take GPU resources. Disable them if the PC is slow."
   },
   {
    "id": "evolution",
    "title": "Evolution (календарь/почта GNOME)",
+   "title_en": "Evolution (GNOME calendar/mail)",
    "category": "Система",
+   "category_en": "System",
    "verdict": "safe",
    "match": [
     "evolution-alarm",
     "evolution-data"
    ],
-   "note": "Напоминания календаря Evolution. Не пользуетесь — отключайте."
+   "note": "Напоминания календаря Evolution. Не пользуетесь — отключайте.",
+   "note_en": "Evolution calendar reminders. If you don't use it, disable it."
   },
   {
    "id": "orca",
    "title": "Orca (экранный диктор)",
+   "title_en": "Orca (screen reader)",
    "category": "Система",
+   "category_en": "System",
    "verdict": "safe",
    "match": [
     "\\borca\\b"
    ],
-   "note": "Нужен только людям с нарушениями зрения."
+   "note": "Нужен только людям с нарушениями зрения.",
+   "note_en": "Only needed by people with visual impairments."
   },
   {
    "id": "modem",
    "title": "ModemManager",
+   "title_en": "ModemManager",
    "category": "Система",
+   "category_en": "System",
    "verdict": "safe",
    "match": [
     "modemmanager"
    ],
-   "note": "Управляет 3G/4G модемами. Нет модема — не нужен."
+   "note": "Управляет 3G/4G модемами. Нет модема — не нужен.",
+   "note_en": "Manages 3G/4G modems. No modem — not needed."
   }
  ]
 }

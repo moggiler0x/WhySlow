@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import journal
+from .i18n import tr
 from .knowledge import KnowledgeBase, Verdict
 from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, is_admin, run
 
@@ -63,19 +64,23 @@ def set_enabled(item: StartupItem, enabled: bool, log: bool = True) -> None:
         "launchctl": _mac_launchctl_set_enabled, "mac_login": _mac_login_set_enabled,
     }.get(item.kind)
     if not handler:
-        raise ActionError("Этот тип автозагрузки пока не поддерживается")
+        raise ActionError(tr("Этот тип автозагрузки пока не поддерживается", "This startup type is not supported yet"))
     if not item.can_toggle:
-        raise ActionError("Эту запись можно только удалить: Windows не умеет её отключать")
+        raise ActionError(tr("Эту запись можно только удалить: Windows не умеет её отключать",
+                              "This entry can only be deleted: Windows can't disable it"))
     handler(item, enabled)
     if log:
-        verb = "Включено" if enabled else "Отключено"
-        journal.add("startup_toggle", f"{verb} в автозагрузке: {item.name}",
+        if enabled:
+            title = tr(f"Включено в автозагрузке: {item.name}", f"Enabled at startup: {item.name}")
+        else:
+            title = tr(f"Отключено в автозагрузке: {item.name}", f"Disabled at startup: {item.name}")
+        journal.add("startup_toggle", title,
                     {"name": item.name, "kind": item.kind, "meta": item.meta, "enabled": enabled})
 
 
 def delete(item: StartupItem) -> None:
     if not item.can_delete:
-        raise ActionError("Этот элемент нельзя удалить, только отключить")
+        raise ActionError(tr("Этот элемент нельзя удалить, только отключить", "This item can't be deleted, only disabled"))
     if item.kind == "win_reg":
         data = _win_delete_value(item)
     else:  # файл: переносим в резервную папку, а не удаляем насовсем
@@ -84,9 +89,9 @@ def delete(item: StartupItem) -> None:
         try:
             shutil.move(str(src), dst)
         except OSError as e:
-            raise ActionError(f"Не удалось переместить файл: {e}") from e
+            raise ActionError(tr(f"Не удалось переместить файл: {e}", f"Could not move the file: {e}")) from e
         data = {"from": str(src), "to": str(dst)}
-    journal.add("startup_delete", f"Удалено из автозагрузки: {item.name}",
+    journal.add("startup_delete", tr(f"Удалено из автозагрузки: {item.name}", f"Removed from startup: {item.name}"),
                 {"name": item.name, "kind": item.kind, "meta": item.meta, "backup": data})
 
 
@@ -114,16 +119,21 @@ _APPROVED = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved
 def _win_sources():
     import winreg
     return [
-        (winreg.HKEY_CURRENT_USER, "HKCU", _RUN, "Run", "Реестр (пользователь)"),
-        (winreg.HKEY_LOCAL_MACHINE, "HKLM", _RUN, "Run", "Реестр (все пользователи)"),
+        (winreg.HKEY_CURRENT_USER, "HKCU", _RUN, "Run", tr("Реестр (пользователь)", "Registry (user)")),
+        (winreg.HKEY_LOCAL_MACHINE, "HKLM", _RUN, "Run", tr("Реестр (все пользователи)", "Registry (all users)")),
         (winreg.HKEY_LOCAL_MACHINE, "HKLM", r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
-         "Run32", "Реестр (все, 32-бит)"),
+         "Run32", tr("Реестр (все, 32-бит)", "Registry (all, 32-bit)")),
         # RunOnce: запускается один раз при следующем входе и сам себя стирает
-        (winreg.HKEY_CURRENT_USER, "HKCU", _RUNONCE, "RunOnce", "Реестр, один раз (пользователь)"),
-        (winreg.HKEY_LOCAL_MACHINE, "HKLM", _RUNONCE, "RunOnce", "Реестр, один раз (все)"),
+        (winreg.HKEY_CURRENT_USER, "HKCU", _RUNONCE, "RunOnce", tr("Реестр, один раз (пользователь)", "Registry, run once (user)")),
+        (winreg.HKEY_LOCAL_MACHINE, "HKLM", _RUNONCE, "RunOnce", tr("Реестр, один раз (все)", "Registry, run once (all)")),
         (winreg.HKEY_LOCAL_MACHINE, "HKLM", r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce",
-         "RunOnce", "Реестр, один раз (все, 32-бит)"),
+         "RunOnce", tr("Реестр, один раз (все, 32-бит)", "Registry, run once (all, 32-bit)")),
     ]
+
+
+def _need_admin() -> str:
+    return tr("Нужны права администратора: запустите WhySlow от имени администратора",
+              "Administrator rights required: run WhySlow as administrator")
 
 
 def _hive(name: str):
@@ -166,9 +176,9 @@ def _win_list() -> list[StartupItem]:
                     can_delete=True, can_toggle=not once, needs_admin=hname == "HKLM"))
     folders = [
         ("HKCU", Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs\Startup",
-         "Папка «Автозагрузка»"),
+         tr("Папка «Автозагрузка»", "Startup folder")),
         ("HKLM", Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / r"Microsoft\Windows\Start Menu\Programs\StartUp",
-         "Папка «Автозагрузка» (все)"),
+         tr("Папка «Автозагрузка» (все)", "Startup folder (all users)")),
     ]
     for hname, folder, label in folders:
         if not folder.is_dir():
@@ -198,7 +208,7 @@ def _win_set_enabled(item: StartupItem, enabled: bool) -> None:
                                 winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
             winreg.SetValueEx(k, m["value"], 0, winreg.REG_BINARY, data)
     except PermissionError as e:
-        raise ActionError("Нужны права администратора: запустите WhySlow от имени администратора") from e
+        raise ActionError(_need_admin()) from e
 
 
 def _win_delete_value(item: StartupItem) -> dict:
@@ -210,9 +220,9 @@ def _win_delete_value(item: StartupItem) -> dict:
             value, vtype = winreg.QueryValueEx(k, m["value"])
             winreg.DeleteValue(k, m["value"])
     except PermissionError as e:
-        raise ActionError("Нужны права администратора: запустите WhySlow от имени администратора") from e
+        raise ActionError(_need_admin()) from e
     except OSError as e:
-        raise ActionError(f"Не удалось удалить: {e}") from e
+        raise ActionError(tr(f"Не удалось удалить: {e}", f"Could not delete: {e}")) from e
     return {"hive": m["hive"], "path": m["path"], "value": m["value"], "data": value, "type": vtype}
 
 
@@ -250,8 +260,8 @@ def _win_fail(code: int, out: str, what: str) -> None:
     if code == 0:
         return
     if not is_admin():
-        raise ActionError("Нужны права администратора: запустите WhySlow от имени администратора")
-    raise ActionError(f"{what} не сработал: {out.strip()[:300]}")
+        raise ActionError(_need_admin())
+    raise ActionError(tr(f"{what} не сработал: {out.strip()[:300]}", f"{what} failed: {out.strip()[:300]}"))
 
 
 # Задания, которые стартуют при входе в систему или при загрузке
@@ -280,7 +290,8 @@ def _win_tasks_list() -> list[StartupItem]:
         user = (t.get("User") or "").lower()
         items.append(StartupItem(
             name=name, command=t.get("Exec") or tn,
-            source="Планировщик (при загрузке)" if t.get("Boot") else "Планировщик (при входе)",
+            source=tr("Планировщик (при загрузке)", "Task Scheduler (at boot)") if t.get("Boot")
+            else tr("Планировщик (при входе)", "Task Scheduler (at logon)"),
             enabled=t.get("State") != "Disabled", kind="win_task",
             meta={"key": tn, "tn": tn},
             needs_admin=not user or user.rsplit("\\", 1)[-1] != me,
@@ -315,7 +326,8 @@ def _win_services_list() -> list[StartupItem]:
         low = path.lower().replace("/", "\\")
         items.append(StartupItem(
             name=s.get("DisplayName") or name, command=path,
-            source="Служба (отложенный запуск)" if start == "delayed-auto" else "Служба",
+            source=tr("Служба (отложенный запуск)", "Service (delayed start)") if start == "delayed-auto"
+            else tr("Служба", "Service"),
             enabled=auto, kind="win_service",
             meta={"key": name, "service": name, "start": start},
             needs_admin=True,
@@ -402,7 +414,8 @@ def _xdg_list() -> list[StartupItem]:
         items.append(StartupItem(
             name=keys.get("Name", fname.removesuffix(".desktop")),
             command=keys.get("Exec", ""),
-            source="Автозапуск (пользователь)" if is_user and not is_override else "Автозапуск (система)",
+            source=tr("Автозапуск (пользователь)", "Autostart (user)") if is_user and not is_override
+            else tr("Автозапуск (система)", "Autostart (system)"),
             enabled=_desktop_enabled(keys), kind="xdg",
             meta={"file": str(path), "fname": fname},
             can_delete=is_user and not is_override))
@@ -423,7 +436,7 @@ def _xdg_set_enabled(item: StartupItem, enabled: bool) -> None:
         shutil.copy(system_file, user_file)
         _write_desktop_key(user_file, _OVERRIDE_KEY, "true")
     if not user_file.exists():
-        raise ActionError("Файл автозапуска не найден")
+        raise ActionError(tr("Файл автозапуска не найден", "Autostart file not found"))
     keys = _read_desktop(user_file)
     _write_desktop_key(user_file, "Hidden", None if enabled else "true")
     if "X-GNOME-Autostart-enabled" in keys or enabled:
@@ -452,7 +465,8 @@ def _systemd_list() -> list[StartupItem]:
         for unit, on in [(u, True) for u in enabled] + [(u, False) for u in disabled]:
             items.append(StartupItem(
                 name=unit.removesuffix(".service"), command=unit,
-                source="Служба (пользователь)" if scope == "user" else "Служба (система)",
+                source=tr("Служба (пользователь)", "Service (user)") if scope == "user"
+                else tr("Служба (система)", "Service (system)"),
                 enabled=on, kind="systemd", meta={"unit": unit, "scope": scope},
                 needs_admin=scope == "system", system=True))
     return items
@@ -468,7 +482,7 @@ def _systemd_set_enabled(item: StartupItem, enabled: bool) -> None:
         cmd = ["pkexec", "systemctl", verb, item.meta["unit"]]  # спросит пароль
     code, out = run(cmd, timeout=120)
     if code != 0:
-        raise ActionError(f"systemctl {verb} не сработал: {out.strip()[:300]}")
+        raise ActionError(tr(f"systemctl {verb} не сработал: {out.strip()[:300]}", f"systemctl {verb} failed: {out.strip()[:300]}"))
 
 
 # ------------------------------------------------------------------ macOS ---
@@ -509,10 +523,11 @@ def _mac_list() -> list[StartupItem]:
     items = _mac_login_list()
     gui = f"gui/{os.getuid()}"
     off = {gui: _mac_disabled_labels(gui), "system": _mac_disabled_labels("system")}
-    sources = [(Path.home() / "Library/LaunchAgents", "Агент (пользователь)", None),
-               (_MAC_DISABLED, "Агент (пользователь)", None),
-               (Path("/Library/LaunchAgents"), "Агент (все пользователи)", gui),
-               (Path("/Library/LaunchDaemons"), "Фоновая служба (система)", "system")]
+    user_agent = tr("Агент (пользователь)", "Agent (user)")
+    sources = [(Path.home() / "Library/LaunchAgents", user_agent, None),
+               (_MAC_DISABLED, user_agent, None),
+               (Path("/Library/LaunchAgents"), tr("Агент (все пользователи)", "Agent (all users)"), gui),
+               (Path("/Library/LaunchDaemons"), tr("Фоновая служба (система)", "Background daemon (system)"), "system")]
     for folder, label, domain in sources:
         if not folder.is_dir():
             continue
@@ -560,9 +575,10 @@ def _mac_launchctl_set_enabled(item: StartupItem, enabled: bool) -> None:
         code, out = run(["osascript", "-e",
                          f"do shell script {_as_quote(cmd)} with administrator privileges"], timeout=180)
         if code != 0 and "-128" in out:
-            raise ActionError("Отменено: macOS не получила пароль администратора")
+            raise ActionError(tr("Отменено: macOS не получила пароль администратора",
+                                  "Cancelled: macOS did not receive the administrator password"))
     if code != 0:
-        raise ActionError(f"launchctl {verb} не сработал: {out.strip()[:300]}")
+        raise ActionError(tr(f"launchctl {verb} не сработал: {out.strip()[:300]}", f"launchctl {verb} failed: {out.strip()[:300]}"))
 
 
 def _sh_quote(s: str) -> str:
@@ -601,14 +617,16 @@ def _mac_login_list() -> list[StartupItem]:
         except ValueError:
             data = []
     elif "-1743" in out or "not allowed" in out.lower():
-        last_error = ("macOS не разрешила прочитать объекты входа. Разрешите WhySlow (или Терминалу) управлять "
-                      "System Events: Настройки → Конфиденциальность и безопасность → Автоматизация.")
+        last_error = tr("macOS не разрешила прочитать объекты входа. Разрешите WhySlow (или Терминалу) управлять "
+                        "System Events: Настройки → Конфиденциальность и безопасность → Автоматизация.",
+                        "macOS did not allow reading login items. Allow WhySlow (or Terminal) to control "
+                        "System Events: System Settings → Privacy & Security → Automation.")
     items, seen = [], set()
     for d in data if isinstance(data, list) else []:
         path = d.get("path") or ""
         seen.add(path)
         items.append(StartupItem(
-            name=d.get("name") or Path(path).stem, command=path, source="Объект входа", enabled=True,
+            name=d.get("name") or Path(path).stem, command=path, source=tr("Объект входа", "Login item"), enabled=True,
             kind="mac_login", meta={"key": path, "path": path, "hidden": bool(d.get("hidden"))}))
     # Плюс объекты, которые убрали мы: чтобы их можно было включить обратно
     for e in journal.load():
@@ -617,7 +635,7 @@ def _mac_login_list() -> list[StartupItem]:
                 and not dd["enabled"] and dd["meta"]["path"] not in seen:
             seen.add(dd["meta"]["path"])
             items.append(StartupItem(
-                name=dd["name"], command=dd["meta"]["path"], source="Объект входа", enabled=False,
+                name=dd["name"], command=dd["meta"]["path"], source=tr("Объект входа", "Login item"), enabled=False,
                 kind="mac_login", meta=dd["meta"]))
     return items
 
@@ -637,6 +655,9 @@ def _mac_login_set_enabled(item: StartupItem, enabled: bool) -> None:
     code, out = _jxa(script)
     if code != 0:
         if "-1743" in out or "not allowed" in out.lower():
-            raise ActionError("macOS не разрешила менять объекты входа. Разрешите WhySlow управлять System Events: "
-                              "Настройки → Конфиденциальность и безопасность → Автоматизация.")
-        raise ActionError(f"Не удалось изменить объекты входа: {out.strip()[:300]}")
+            raise ActionError(tr("macOS не разрешила менять объекты входа. Разрешите WhySlow управлять System Events: "
+                                 "Настройки → Конфиденциальность и безопасность → Автоматизация.",
+                                 "macOS did not allow changing login items. Allow WhySlow to control System Events: "
+                                 "System Settings → Privacy & Security → Automation."))
+        raise ActionError(tr(f"Не удалось изменить объекты входа: {out.strip()[:300]}",
+                             f"Could not change login items: {out.strip()[:300]}"))

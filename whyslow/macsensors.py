@@ -16,6 +16,7 @@ import re
 import threading
 from ctypes import byref, c_char_p, c_double, c_int32, c_int64, c_long, c_uint32, c_void_p
 
+from .i18n import tr
 from .util import IS_MAC, run
 
 _UTF8 = 0x08000100
@@ -127,10 +128,10 @@ def raw_temperatures() -> dict[str, float]:
 
 # Как сгруппировать сырые датчики в понятные строки. Порядок важен: первое совпадение.
 _GROUPS = [
-    ("Процессор", re.compile(r"^(PMU2? tdie|pACC|eACC|CPU)", re.I)),
-    ("Видеоядро", re.compile(r"^GPU", re.I)),
-    ("Накопитель", re.compile(r"NAND|SSD", re.I)),
-    ("Аккумулятор", re.compile(r"battery|gas gauge", re.I)),
+    (tr("Процессор", "CPU"), re.compile(r"^(PMU2? tdie|pACC|eACC|CPU)", re.I)),
+    (tr("Видеоядро", "GPU"), re.compile(r"^GPU", re.I)),
+    (tr("Накопитель", "Storage"), re.compile(r"NAND|SSD", re.I)),
+    (tr("Аккумулятор", "Battery"), re.compile(r"battery|gas gauge", re.I)),
 ]
 
 
