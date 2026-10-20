@@ -101,7 +101,9 @@ def _mac_bundle_info(path: str) -> dict:
             try:
                 with open(parent / "Contents" / "Info.plist", "rb") as f:
                     pl = plistlib.load(f)
-            except (OSError, ValueError, plistlib.InvalidFileException):
+            except Exception:  # битый XML — ExpatError, она не наследует ValueError
+                return {}
+            if not isinstance(pl, dict):
                 return {}
             out = {"product": pl.get("CFBundleDisplayName") or pl.get("CFBundleName") or parent.stem}
             ident = str(pl.get("CFBundleIdentifier", ""))

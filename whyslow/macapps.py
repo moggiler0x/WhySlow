@@ -57,6 +57,17 @@ class Group:
     system: bool = False
 
 
+def read_plist(path) -> dict:
+    """plist как словарь; битый или чужой формат — пустой словарь. Программы кладут в бандлы
+    что угодно: plistlib на кривом XML бросает ExpatError, которая не наследует ValueError."""
+    try:
+        with open(path, "rb") as f:
+            data = plistlib.load(f)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _info(app: Path) -> dict:
     """Info.plist приложения, в том числе программ для iPhone и iPad, запущенных на Mac."""
     cands = [app / "Contents/Info.plist", app / "WrappedBundle/Info.plist"]
@@ -64,11 +75,9 @@ def _info(app: Path) -> dict:
     if wrapper.is_dir():
         cands += [p / "Info.plist" for p in wrapper.glob("*.app")]
     for p in cands:
-        try:
-            with open(p, "rb") as f:
-                return plistlib.load(f)
-        except (OSError, ValueError, plistlib.InvalidFileException):
-            continue
+        info = read_plist(p)
+        if info:
+            return info
     return {}
 
 
@@ -112,11 +121,7 @@ def _last_used(apps: list[App]) -> None:
 
 def _container_id(path: str) -> str:
     """Контейнеры программ для iPhone и iPad названы UUID; настоящий id — в служебном файле."""
-    try:
-        with open(os.path.join(path, ".com.apple.containermanagerd.metadata.plist"), "rb") as f:
-            return str(plistlib.load(f).get("MCMMetadataIdentifier") or "")
-    except (OSError, ValueError, plistlib.InvalidFileException):
-        return ""
+    return str(read_plist(os.path.join(path, ".com.apple.containermanagerd.metadata.plist")).get("MCMMetadataIdentifier") or "")
 
 
 def _vendor(bid: str) -> str:

@@ -10,7 +10,6 @@ macOS удалит сама. Удаление только после подтв
 from __future__ import annotations
 
 import os
-import plistlib
 import shutil
 import stat
 import time
@@ -287,14 +286,11 @@ def _scan_apps(cat: Category, exclude: set[str]) -> Category:
 
 def _item_note(cat: Category, path: str) -> str:
     if cat.key == "ios_backups":
-        try:
-            with open(os.path.join(path, "Info.plist"), "rb") as f:
-                info = plistlib.load(f)
-            name = info.get("Device Name") or info.get("Display Name") or ""
-            when = info.get("Last Backup Date")
-            return f"{name} · {when:%d.%m.%Y}" if when else name
-        except (OSError, ValueError, plistlib.InvalidFileException):
-            return ""
+        from .macapps import read_plist
+        info = read_plist(os.path.join(path, "Info.plist"))
+        name = str(info.get("Device Name") or info.get("Display Name") or "")
+        when = info.get("Last Backup Date")
+        return f"{name} · {when:%d.%m.%Y}" if hasattr(when, "strftime") else name
     return ""
 
 
