@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, macapps, macstorage, online, optimize, settings, updater
+from . import checks, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -125,4 +125,33 @@ def update() -> int:
     except updater.UpdateError as e:
         print(e)
         return 1
+    return 0
+
+
+def check_passwords(path: str) -> int:
+    """Проверка выгрузки менеджера паролей по базе утечек. Сами пароли не печатаются."""
+    try:
+        vault = passwords.load(path)
+    except passwords.VaultError:
+        print(tr("Это не похоже на выгрузку менеджера паролей: в файле нет колонки с паролями.",
+                 "This doesn't look like a password manager export: there is no password column."))
+        return 1
+    print(tr(f"Паролей в файле: {len(vault.entries)}. Проверяю по базе утечек (на сервер уходят только 5 символов хеша)…",
+             f"Passwords in the file: {len(vault.entries)}. Checking against the breach database "
+             "(only 5 hash characters are sent)…"))
+    try:
+        passwords.check(vault)
+    except OSError as e:
+        print(tr(f"Не удалось связаться с api.pwnedpasswords.com: {e}", f"Could not reach api.pwnedpasswords.com: {e}"))
+        return 1
+    leaked = sorted(vault.leaked, key=lambda e: -(e.leaks or 0))
+    if not leaked:
+        print(tr("Утёкших паролей нет.", "No leaked passwords."))
+        return 0
+    print(tr(f"\nВ утечках: {len(leaked)} из {len(vault.entries)}. Смените эти пароли на сайтах:",
+             f"\nLeaked: {len(leaked)} of {len(vault.entries)}. Change these passwords on the sites:"))
+    for e in leaked:
+        print(f"  {e.leaks:>10}  {e.site}  {e.username}")
+    print(tr("\nНовые пароли и файл для импорта в менеджер — в окне, вкладка «Пароли».",
+             "\nNew passwords and a file to import into the manager are in the window, Passwords tab."))
     return 0

@@ -7,7 +7,7 @@ def selfcheck() -> int:
     import importlib
     from . import __version__
     names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
-             "lhm", "macapps", "macstorage", "journal", "optimize", "settings", "net", "online", "updater", "cli"]
+             "lhm", "macapps", "macstorage", "journal", "passwords", "optimize", "settings", "net", "online", "updater", "cli"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
         names.append("gui")
@@ -45,6 +45,13 @@ def main() -> int:
     if "--storage" in sys.argv:
         from .cli import storage
         return storage()
+    if "--passwords" in sys.argv:  # --passwords выгрузка.csv: проверка паролей по базе утечек
+        from .cli import check_passwords
+        i = sys.argv.index("--passwords")
+        if i + 1 >= len(sys.argv):
+            print("--passwords FILE.csv")
+            return 2
+        return check_passwords(sys.argv[i + 1])
     if "--cli" in sys.argv:
         from .cli import main as cli_main
         return cli_main()
