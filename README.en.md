@@ -79,7 +79,8 @@ categories, sorted by size:
 |---|---|
 | App caches (`~/Library/Caches`), app logs, simulator caches, Xcode DerivedData | safe to delete |
 | “Install macOS…” installers, Xcode device support, Mail attachments, Trash | safe to delete |
-| iPhone and iPad backups, Xcode archives, simulators, Docker, app data | important, keep |
+| iPhone and iPad backups, Xcode archives, simulators, Docker | important, keep |
+| App data (Application Support, Containers, Group Containers) | depends, per app |
 | Local Time Machine snapshots, system caches and logs, downloaded macOS updates, swap | removed automatically |
 
 Each category explains what it is and what deleting it means, and lists its folders with size and date
@@ -89,6 +90,18 @@ Each category explains what it is and what deleting it means, and lists its fold
 * for important categories the confirmation lists exactly what will go and asks you to double-check;
 * Time Machine snapshots are deleted with `tmutil`; macOS asks for an administrator password;
 * WhySlow doesn't delete Docker data or simulators itself; it tells you where to do it properly.
+
+**App data** is split by app: one row per app, with its size and when you last opened it. WhySlow matches the
+folders against installed apps and labels them:
+
+* **removed app leftovers**: the app is gone but its data stayed, safe to delete;
+* **unused for N months**: you haven't opened the app for over half a year (say, a game you stopped playing);
+  delete its data, and on a separate row the app itself;
+* **in use** and **apps by the same developer**: can be deleted, but the app loses its settings and sign-in;
+* **app not found**: couldn't tell whose folder it is, check yourself;
+* **system**: macOS data, can't be deleted.
+
+Along with an app's folders, its settings (`Preferences`), saved windows and cookies go to the Trash.
 
 **Auto-clean** is a switch at the bottom of the tab, off by default. When on, WhySlow deletes files older than 7 days
 from the safe categories (app caches and logs, Xcode DerivedData, simulator caches) every day, week or month, your choice.
@@ -218,7 +231,7 @@ No window, right in the terminal (from source; on macOS and Linux the app works 
 ```bash
 python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
-python3 -m whyslow --storage   # macOS: what “System Data” is made of (changes nothing)
+python3 -m whyslow --storage   # macOS: what “System Data” is made of and which app data can go (changes nothing)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
 python3 -m whyslow --cli --lang en   # language for this run: en or ru
@@ -349,6 +362,7 @@ whyslow/
   processes.py   processes grouped by program
   junk.py        finding and removing junk
   macstorage.py  macOS “System Data”: categories, deleting to the Trash, auto-clean
+  macapps.py     Mac app data by app: installed or not, when last opened
   network.py     system proxy check
   sysinfo.py     hardware info, integrated GPU load
   lhm.py         Windows temperatures via LibreHardwareMonitor

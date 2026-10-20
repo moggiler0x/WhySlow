@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, macstorage, online, optimize, settings, updater
+from . import checks, knowledge, macapps, macstorage, online, optimize, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -90,6 +90,11 @@ def storage() -> int:
         size = human_size(c.size) if c.size_known else tr(f"{len(c.items)} шт.", f"{len(c.items)} items")
         mark = tr("  (не всё доступно)", "  (partly measured)") if c.denied and c.fda else ""
         print(f"  {size:>10}  {c.title:<36} {macstorage.level_label(c.level)}{mark}")
+    apps = [it for c in cats if c.key == "apps" for it in c.items if it.level in (macapps.OLD, macapps.LEFTOVER)]
+    if apps:
+        print(tr("\nДанные программ, которые можно удалить:", "\nApp data that can be removed:"))
+        for it in apps:
+            print(f"  {human_size(it.size):>10}  {it.name:<36} {it.tag}")
     print(tr(f"\nВсего: {human_size(sum(c.size for c in cats))}. Удалить выбранное можно в окне, вкладка «Хранилище».",
              f"\nTotal: {human_size(sum(c.size for c in cats))}. Delete selected items in the window, Storage tab."))
     print(tr("Автоочистка: ", "Auto-clean: ") + (tr("включена. ", "on. ") if settings.get("mac_autoclean") else tr("выключена. ", "off. "))

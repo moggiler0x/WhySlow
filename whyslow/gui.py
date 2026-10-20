@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, checks, journal, junk, knowledge, lhm, macstorage, network, online, optimize, settings, startup, sysinfo, updater,
+    __version__, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, settings, startup, sysinfo, updater,
 )
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
@@ -97,7 +97,7 @@ QToolTip {{ background: {C['panel2']}; color: {C['text']}; border: 1px solid {C[
 QTabWidget::pane {{ border: 1px solid {LINE}; border-radius: 20px; background: rgba(9, 8, 18, 215); }}
 QFrame#nav {{ background: {GLASS}; border: 1px solid {LINE}; border-radius: {nav}px; }}
 QTabBar {{ background: transparent; }}
-QTabBar::tab {{ background: transparent; color: rgba(255, 255, 255, 190); padding: {px(7)}px {px(13)}px;
+QTabBar::tab {{ background: transparent; color: rgba(255, 255, 255, 190); padding: {px(7)}px {px(10)}px;
                margin: {px(3)}px 1px; border: none; border-radius: {tab}px; font-size: {pt(10)}; }}
 QTabBar::tab:selected {{ color: white; background: rgba(255, 255, 255, 28); }}
 QTabBar::tab:hover:!selected {{ color: white; background: rgba(255, 255, 255, 14); }}
@@ -2017,7 +2017,12 @@ class StorageTab(QWidget):
     """Из чего состоят «Системные данные» macOS. Считается при первом открытии вкладки:
     обход Library занимает время, поэтому отдельно от общей проверки."""
 
-    LEVEL_COLORS = {macstorage.KEEP: C["info"], macstorage.SAFE: C["ok"], macstorage.AUTO: C["muted"]}
+    LEVEL_COLORS = {macstorage.KEEP: C["info"], macstorage.SAFE: C["ok"], macstorage.AUTO: C["muted"],
+                    macstorage.MIXED: C["accent2"]}
+    # пометки отдельных программ в «Данных программ»
+    ITEM_COLORS = {macapps.SYSTEM: C["muted"], macapps.USED: C["info"], macapps.UNKNOWN: C["warn"],
+                   macapps.OLD: C["ok"], macapps.LEFTOVER: C["ok"], macapps.APP: C["warn"]}
+    RISKY = {macapps.USED, macapps.UNKNOWN, macapps.APP}  # просить проверить ещё раз
 
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -2073,8 +2078,9 @@ class StorageTab(QWidget):
         hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.table.setSortingEnabled(True)
+        self.table.setWordWrap(False)
         self.table.itemSelectionChanged.connect(self.on_select)
-        body.addWidget(self.table, 5)
+        body.addWidget(self.table, 4)
 
         side = QVBoxLayout()
         side.setSpacing(px(6))
@@ -2085,11 +2091,13 @@ class StorageTab(QWidget):
         self.cat_note = muted()
         self.cat_note.setTextFormat(Qt.RichText)
         side.addWidget(self.cat_note)
-        self.items = make_table([tr("Что", "What"), tr("Размер", "Size"), tr("Изменено", "Modified")])
+        self.items = make_table([tr("Что", "What"), tr("Размер", "Size"), tr("Изменено", "Modified"), tr("Пометка", "Label")])
         ih = self.items.horizontalHeader()
         ih.setSectionResizeMode(0, QHeaderView.Stretch)
         ih.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         ih.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        ih.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.items.setWordWrap(False)
         self.items.itemChanged.connect(self.on_check)
         side.addWidget(self.items, 1)
         pick = QHBoxLayout()
@@ -2103,7 +2111,7 @@ class StorageTab(QWidget):
         pick.addWidget(self.b_none)
         pick.addStretch()
         side.addLayout(pick)
-        body.addLayout(side, 6)
+        body.addLayout(side, 7)
         lay.addLayout(body, 1)
 
         auto = QFrame()
@@ -2200,7 +2208,9 @@ class StorageTab(QWidget):
         self.table.setSortingEnabled(True)
         self.table.sortItems(1, Qt.DescendingOrder)
         total = sum(c.size for c in cats)
-        free = sum(c.size for c in cats if c.level == macstorage.SAFE)
+        free = sum(c.size for c in cats if c.level == macstorage.SAFE) + \
+            sum(it.size for c in cats if c.level == macstorage.MIXED for it in c.items
+                if it.level in (macapps.OLD, macapps.LEFTOVER))
         self.title.setText(accent(tr(f"Системные данные: найдено {human_size(total)}", f"System Data: {human_size(total)} found")))
         self.state.setText(tr(f"Можно удалить до {human_size(free)}", f"Up to {human_size(free)} can be deleted"))
         row = next((r for r in range(self.table.rowCount())
@@ -2230,6 +2240,11 @@ class StorageTab(QWidget):
         self.cat_title.setText(f"{_esc(c.title)}  <span style='color:{color}; font-size:{pt(9.5)}; font-weight:400'>"
                                f"· {_esc(macstorage.level_label(c.level))}</span>")
         note = _esc(c.note)
+        if c.key == "apps":
+            note += "<br>" + _esc(tr(f"Зелёное можно удалить: остатки удалённых программ и то, что не открывали "
+                                     f"больше {macapps.OLD_DAYS // 30} месяцев. Голубое используется, жёлтое проверьте сами.",
+                                     f"Green can go: leftovers of removed apps and apps unused for over "
+                                     f"{macapps.OLD_DAYS // 30} months. Blue is in use, yellow: check yourself."))
         if c.advice:
             note += "<br>→ " + _esc(c.advice)
         elif not c.deletable:
@@ -2244,13 +2259,17 @@ class StorageTab(QWidget):
         self.items.setRowCount(len(c.items))
         for r, it in enumerate(c.items):
             name = QTableWidgetItem(it.name + (f"  ·  {it.note}" if it.note and it.note != it.name else ""))
-            name.setToolTip(it.path)
-            if c.deletable:
+            name.setToolTip("\n".join(it.targets))
+            if c.deletable and it.deletable:
                 name.setFlags(name.flags() | Qt.ItemIsUserCheckable)
                 name.setCheckState(Qt.Checked if self.checked.get((c.key, it.path)) else Qt.Unchecked)
             size = NumItem(human_size(it.size) if c.size_known else "—", it.size)
             when = QTableWidgetItem(time.strftime("%d.%m.%Y", time.localtime(it.mtime)) if it.mtime else "")
-            for col, cell in enumerate([name, size, when]):
+            tag = QTableWidgetItem(it.tag)
+            tag.setForeground(QColor(self.ITEM_COLORS.get(it.level, C["muted"])))
+            if it.level == macapps.SYSTEM:
+                name.setForeground(QColor(C["muted"]))
+            for col, cell in enumerate([name, size, when, tag]):
                 self.items.setItem(r, col, cell)
         if not c.items:
             self.items.setRowCount(1)
@@ -2259,6 +2278,10 @@ class StorageTab(QWidget):
             self.items.setItem(0, 0, empty)
         for b in (self.b_all, self.b_none):
             b.setVisible(c.deletable and bool(c.items))
+        self.b_all.setText(tr("Отметить остатки и давно не открытое", "Check leftovers and long-unused")
+                           if c.key == "apps" else tr("Отметить всё", "Check all"))
+        self.items.horizontalHeaderItem(2).setText(tr("Открывали", "Last opened") if c.key == "apps" else tr("Изменено", "Modified"))
+        self.items.setColumnHidden(3, c.key != "apps")
         self.items.blockSignals(False)
 
     def on_check(self, cell: QTableWidgetItem):
@@ -2273,12 +2296,15 @@ class StorageTab(QWidget):
         if not c:
             return
         for it in c.items:
-            self.checked[(c.key, it.path)] = on
+            # в данных программ «всё» — только остатки и давно не запускавшееся, без самих программ
+            if c.key != "apps" or it.level in (macapps.OLD, macapps.LEFTOVER) or not on:
+                self.checked[(c.key, it.path)] = on
         self.on_select()
         self.update_count()
 
     def chosen(self) -> list[tuple[macstorage.Category, macstorage.Item]]:
-        return [(c, it) for c in self.cats if c.deletable for it in c.items if self.checked.get((c.key, it.path))]
+        return [(c, it) for c in self.cats if c.deletable for it in c.items
+                if it.deletable and self.checked.get((c.key, it.path))]
 
     def update_count(self):
         chosen = self.chosen()
@@ -2302,8 +2328,10 @@ class StorageTab(QWidget):
                 continue
             size = human_size(sum(it.size for it in mine)) if c.size_known else tr(f"{len(mine)} шт.", f"{len(mine)}")
             lines.append(f"• {c.title} ({macstorage.level_label(c.level).lower()}): {size}")
-            if c.level == macstorage.KEEP:
-                important.append(f"• {c.title}: " + ", ".join((it.note or it.name) for it in mine[:5]))
+            risky = mine if c.level == macstorage.KEEP else [it for it in mine if it.level in self.RISKY]
+            if risky:
+                important.append(f"• {c.title}: " + ", ".join(f"{it.note or it.name}" + (f" ({it.tag.lower()})" if it.tag else "")
+                                                           for it in risky[:5]))
         text = tr("Будет удалено:\n", "To be deleted:\n") + "\n".join(lines)
         if important:
             text += tr("\n\nЭто важные данные, проверьте ещё раз:\n", "\n\nThis is important data, double-check:\n") + "\n".join(important)
