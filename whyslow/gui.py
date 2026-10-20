@@ -21,12 +21,13 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
-    QComboBox, QFileDialog, QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QComboBox, QFileDialog, QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
     QSizePolicy, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from . import (
-    __version__, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, settings, startup, sysinfo, updater,
+    __version__, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
+    settings, startup, sysinfo, updater,
 )
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
@@ -2956,6 +2957,344 @@ class PasswordsTab(QWidget):
 
 # ----------------------------------------------------------------- Журнал ---
 
+class ReinstallTab(QWidget):
+    """Переустановка системы одной кнопкой: копия выбранных папок на другой диск, потом окно
+    переустановки самой ОС. WhySlow ничего не стирает — стирает ОС после своего подтверждения."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.folders: list[reinstall.Folder] = []
+        self.boxes: list[QCheckBox] = []
+        self.sizes: list[QLabel] = []
+        self.busy = False
+        self.started = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        title = QLabel(accent(tr("Переустановка системы", "Reinstall the system")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("Одна кнопка: WhySlow скопирует выбранные папки на другой диск и откроет штатное окно "
+                               "переустановки. Окно системы спросит ещё раз — до этого ничего не стирается.",
+                               "One button: WhySlow copies the chosen folders to another disk and opens the system's "
+                               "own reinstall window. That window asks once more; nothing is erased before that.")))
+
+        mode_row = QHBoxLayout()
+        self.r_keep = QRadioButton(tr("С сохранением файлов", "Keep files"))
+        self.r_erase = QRadioButton(tr("Стереть всё", "Erase everything"))
+        self.r_keep.setChecked(True)
+        for r in (self.r_keep, self.r_erase):
+            r.toggled.connect(self.update_state)
+            mode_row.addWidget(r)
+        mode_row.addStretch()
+        lay.addLayout(mode_row)
+        self.mode_note = muted()
+        lay.addWidget(self.mode_note)
+
+        self.box = QGroupBox(tr("Что сохранить", "What to keep"))
+        self.box_lay = QGridLayout(self.box)
+        self.box_lay.setVerticalSpacing(px(8))
+        self.box_lay.setHorizontalSpacing(px(14))
+        lay.addWidget(self.box)
+        add_row = QHBoxLayout()
+        b_add = QPushButton(tr("Добавить папку…", "Add folder…"))
+        b_add.clicked.connect(self.add_folder)
+        add_row.addWidget(b_add)
+        add_row.addStretch()
+        lay.addLayout(add_row)
+
+        dest = QGroupBox(tr("Куда сложить копию", "Where to put the backup"))
+        dl = QVBoxLayout(dest)
+        drow = QHBoxLayout()
+        self.dest_box = QComboBox()
+        self.dest_box.currentIndexChanged.connect(self.update_state)
+        drow.addWidget(self.dest_box, 1)
+        b_pick = QPushButton(tr("Выбрать папку…", "Choose folder…"))
+        b_pick.clicked.connect(self.pick_dest)
+        drow.addWidget(b_pick)
+        b_ref = QPushButton(tr("Обновить", "Refresh"))
+        b_ref.clicked.connect(self.load_drives)
+        drow.addWidget(b_ref)
+        dl.addLayout(drow)
+        self.dest_note = muted()
+        dl.addWidget(self.dest_note)
+        lay.addWidget(dest)
+
+        self.bar = QProgressBar()
+        self.bar.setTextVisible(False)
+        self.bar.hide()
+        lay.addWidget(self.bar)
+        self.status = muted()
+        lay.addWidget(self.status)
+        lay.addStretch()
+
+        row = QHBoxLayout()
+        self.b_go = QPushButton()
+        self.b_go.setObjectName("primary")
+        self.b_go.clicked.connect(self.go)
+        row.addWidget(self.b_go)
+        self.b_copy = QPushButton(tr("Только сделать копию", "Back up only"))
+        self.b_copy.clicked.connect(lambda: self.go(copy_only=True))
+        row.addWidget(self.b_copy)
+        row.addStretch()
+        self.b_restore = QPushButton(tr("Вернуть из копии…", "Restore from backup…"))
+        self.b_restore.clicked.connect(self.restore)
+        row.addWidget(self.b_restore)
+        lay.addLayout(row)
+        self.update_state()
+
+    def activate(self):
+        if self.started:
+            return
+        self.started = True
+        self.set_folders(reinstall.default_folders())
+        self.load_drives()
+
+    def mode(self) -> str:
+        return reinstall.ERASE if self.r_erase.isChecked() else reinstall.KEEP
+
+    def set_folders(self, folders):
+        self.folders = folders
+        SystemTab._clear(self.box_lay)
+        self.boxes, self.sizes = [], []
+        for i, f in enumerate(folders):
+            cb = QCheckBox(f.title)
+            cb.setChecked(True)
+            cb.toggled.connect(self.update_state)
+            path = muted(reinstall.short_path(f.path))
+            size = QLabel(tr("считаю…", "measuring…") if f.size < 0 else human_size(f.size))
+            size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.boxes.append(cb)
+            self.sizes.append(size)
+            self.box_lay.addWidget(cb, i, 0)
+            self.box_lay.addWidget(path, i, 1)
+            self.box_lay.addWidget(size, i, 2)
+        self.box_lay.setColumnStretch(1, 1)
+        if not folders:
+            self.box_lay.addWidget(muted(tr("Папок не найдено — добавьте свои.", "No folders found: add your own.")), 0, 0)
+        todo = [f for f in folders if f.size < 0]
+        if todo:
+            run_async(lambda _p: [reinstall.measure(f) for f in todo], lambda _r: self.show_sizes(), lambda _e: None)
+        self.update_state()
+
+    def show_sizes(self):
+        for f, lab in zip(self.folders, self.sizes):
+            if f.size >= 0:
+                lab.setText(human_size(f.size) + tr(f"  ·  {f.files} файлов", f"  ·  {f.files} files"))
+        self.update_state()
+
+    def add_folder(self):
+        d = QFileDialog.getExistingDirectory(self, tr("Какую папку сохранить", "Folder to keep"), str(Path.home()))
+        if not d or any(f.path == Path(d) for f in self.folders):
+            return
+        checked = [b.isChecked() for b in self.boxes]
+        self.set_folders(self.folders + [reinstall.Folder(Path(d).name or d, Path(d), preset=False)])
+        for b, c in zip(self.boxes, checked):
+            b.setChecked(c)
+
+    def load_drives(self):
+        cur = self.dest_box.currentData()
+        self.dest_box.blockSignals(True)
+        self.dest_box.clear()
+        for d in reinstall.drives():
+            self.dest_box.addItem(d.title, str(d.path))
+        if cur and self.dest_box.findData(cur) < 0:
+            self.dest_box.addItem(cur, cur)
+        if not self.dest_box.count():
+            self.dest_box.addItem(tr("Подключите внешний диск или флешку", "Connect an external disk or USB drive"), "")
+        self.dest_box.setCurrentIndex(max(self.dest_box.findData(cur), 0) if cur else 0)
+        self.dest_box.blockSignals(False)
+        self.update_state()
+
+    def pick_dest(self):
+        d = QFileDialog.getExistingDirectory(self, tr("Куда сложить копию", "Where to put the backup"), "")
+        if not d:
+            return
+        if self.dest_box.findData(d) < 0:
+            self.dest_box.addItem(d, d)
+        self.dest_box.setCurrentIndex(self.dest_box.findData(d))
+
+    def chosen(self):
+        return [f for f, b in zip(self.folders, self.boxes) if b.isChecked()]
+
+    def dest_problem(self) -> str:
+        dest = self.dest_box.currentData()
+        if not dest:
+            return tr("Нужен диск для копии: другой внутренний, внешний или флешка.",
+                      "A disk for the backup is needed: another internal one, external or USB.")
+        return reinstall.check_target(Path(dest), self.chosen())
+
+    def update_state(self):
+        mode = self.mode()
+        self.mode_note.setText(reinstall.what_happens(mode))
+        chosen = self.chosen()
+        need = sum(max(f.size, 0) for f in chosen)
+        problem = self.dest_problem() if chosen else ""
+        self.dest_note.setText(f"<span style='color:{C['warn']}'>{_esc(problem)}</span>" if problem else
+                               (tr(f"Скопируется {human_size(need)}.", f"{human_size(need)} will be copied.") if chosen
+                                else tr("Ничего не выбрано — копия не нужна.", "Nothing chosen: no backup needed.")))
+        if not reinstall.supported():
+            self.b_go.setText(tr("Переустановка — установщиком дистрибутива", "Reinstall with your distro's installer"))
+        elif IS_MAC and mode == reinstall.KEEP:
+            self.b_go.setText(tr("Переустановить macOS", "Reinstall macOS"))
+        else:
+            self.b_go.setText(tr("Переустановить систему", "Reinstall the system"))
+        measuring = any(f.size < 0 for f in chosen)
+        self.b_go.setEnabled(reinstall.supported() and not self.busy and not problem and not measuring)
+        self.b_copy.setEnabled(bool(chosen) and not self.busy and not problem and not measuring)
+        self.b_restore.setEnabled(not self.busy)
+
+    def ask(self, copy_only: bool) -> bool:
+        """Подтверждение с галочкой «я понимаю» — кнопка «Да» не нажимается, пока галочки нет."""
+        mode, chosen = self.mode(), self.chosen()
+        dest = self.dest_box.currentData()
+        if chosen:
+            names = "\n".join(f"• {f.title} — {human_size(max(f.size, 0))}" for f in chosen)
+            saved = tr(f"Сначала скопируются в {dest}:\n{names}", f"First copied to {dest}:\n{names}")
+        else:
+            saved = tr("Ничего не копируется.", "Nothing is copied.")
+        if copy_only:
+            return confirm(self, tr("Сделать копию?", "Make a backup?"), saved)
+        text = reinstall.what_happens(mode) + "\n\n" + saved
+        if not chosen and not (IS_MAC and mode == reinstall.KEEP):
+            text += tr("\n\nКопии не будет: всё на системном диске пропадёт.",
+                       "\n\nThere will be no backup: everything on the system disk will be lost.")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(tr("Переустановить систему?", "Reinstall the system?"))
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        yes = box.button(QMessageBox.Yes)
+        yes.setText(tr("Да, переустановить", "Yes, reinstall"))
+        box.button(QMessageBox.Cancel).setText(tr("Отмена", "Cancel"))
+        box.setDefaultButton(QMessageBox.Cancel)
+        cb = QCheckBox(tr("Я понимаю, что программы и настройки будут удалены", "I understand apps and settings will be removed")
+                       if not (IS_MAC and mode == reinstall.KEEP) else
+                       tr("Я понимаю, что Mac перезагрузится и будет недоступен до конца установки",
+                          "I understand the Mac restarts and is unavailable until setup finishes"))
+        box.setCheckBox(cb)
+        yes.setEnabled(False)
+        cb.toggled.connect(yes.setEnabled)
+        return box.exec() == QMessageBox.Yes
+
+    def go(self, copy_only: bool = False):
+        if self.busy or not self.ask(copy_only):
+            return
+        mode, chosen = self.mode(), self.chosen()
+        dest = Path(self.dest_box.currentData()) if chosen else None
+        self.set_busy(True)
+
+        def work(p):
+            last = [0.0]
+
+            def step(done, total, name):
+                if time.monotonic() - last[0] > 0.2:
+                    last[0] = time.monotonic()
+                    p(f"{done}\t{total}\t{name}")
+            return reinstall.backup(chosen, dest, step) if chosen else None
+
+        def copied(res):
+            self.set_busy(False)
+            if res:
+                journal.add("backup", tr(f"Копия папок перед переустановкой: {res.path}",
+                                         f"Folder backup before reinstall: {res.path}"),
+                            {"path": str(res.path)}, undoable=False)
+                self.main.journal_tab.reload()
+                msg = tr(f"Скопировано {res.copied} файлов ({human_size(res.size)}) в {res.path}.",
+                         f"Copied {res.copied} files ({human_size(res.size)}) to {res.path}.")
+                if res.failed:
+                    msg += tr(f"\nНе скопировалось файлов: {len(res.failed)} (нет доступа или заняты). "
+                              f"Список — в {reinstall.MANIFEST} в папке копии.",
+                              f"\nFiles not copied: {len(res.failed)} (no access or in use). "
+                              f"The list is in {reinstall.MANIFEST} in the backup folder.")
+                self.status.setText(msg)
+                if copy_only:
+                    QMessageBox.information(self, tr("Готово", "Done"), msg)
+                    return
+                if res.failed and not confirm(self, tr("Не всё скопировалось", "Not everything was copied"),
+                                              msg + tr("\n\nВсё равно перейти к переустановке?", "\n\nGo on to reinstall anyway?"),
+                                              danger=True):
+                    return
+            self.start_os(mode)
+
+        run_async(work, copied, self.failed, self.on_progress)
+
+    def start_os(self, mode: str):
+        self.set_busy(True)
+        self.status.setText(tr("Открываю окно переустановки…", "Opening the reinstall window…"))
+
+        def done(hint):
+            self.set_busy(False)
+            journal.add("reinstall", tr("Открыто окно переустановки системы", "System reinstall window opened"),
+                        {"mode": mode}, undoable=False)
+            self.main.journal_tab.reload()
+            self.status.setText(hint)
+            QMessageBox.information(self, tr("Дальше — в окне системы", "Continue in the system window"), hint)
+
+        run_async(lambda p: reinstall.launch(mode, p), done, self.failed, self.status.setText)
+
+    def restore(self):
+        d = QFileDialog.getExistingDirectory(self, tr("Папка копии WhySlow", "WhySlow backup folder"), "")
+        if not d:
+            return
+        try:
+            data = reinstall.read_manifest(Path(d))
+        except reinstall.ReinstallError as e:
+            QMessageBox.warning(self, tr("Не получилось", "Failed"), str(e))
+            return
+        names = "\n".join(f"• {it.get('title')} → {it.get('source')}" for it in data["items"])
+        if not confirm(self, tr("Вернуть файлы?", "Restore files?"),
+                       tr(f"Копия от {data.get('created')}:\n{names}\n\nУже существующие файлы не перезаписываются.",
+                          f"Backup from {data.get('created')}:\n{names}\n\nExisting files are not overwritten.")):
+            return
+        self.set_busy(True)
+
+        def work(p):
+            last = [0.0]
+
+            def step(done, total, name):
+                if time.monotonic() - last[0] > 0.2:
+                    last[0] = time.monotonic()
+                    p(f"{done}\t{total}\t{name}")
+            return reinstall.restore(Path(d), step)
+
+        def done(r):
+            self.set_busy(False)
+            copied, skipped, failed = r
+            msg = tr(f"Возвращено файлов: {copied}. Уже были на месте: {skipped}.",
+                     f"Files restored: {copied}. Already in place: {skipped}.")
+            if failed:
+                msg += tr(f" Ошибок: {failed}.", f" Errors: {failed}.")
+            self.status.setText(msg)
+            QMessageBox.information(self, tr("Готово", "Done"), msg)
+
+        run_async(work, done, self.failed, self.on_progress)
+
+    def on_progress(self, text: str):
+        parts = text.split("\t")
+        if len(parts) != 3:
+            self.status.setText(text)
+            return
+        done, total, name = int(parts[0]), int(parts[1]), parts[2]
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(int(done * 1000 / total) if total else 0)
+        self.status.setText(tr(f"Копирую «{name}»: {human_size(done)} из {human_size(total)}",
+                               f"Copying “{name}”: {human_size(done)} of {human_size(total)}"))
+
+    def failed(self, msg: str):
+        self.set_busy(False)
+        self.status.setText(msg)
+        QMessageBox.warning(self, tr("Не получилось", "Failed"), msg)
+
+    def set_busy(self, busy: bool):
+        self.busy = busy
+        self.bar.setVisible(busy)
+        if busy:
+            self.bar.setRange(0, 0)
+        self.update_state()
+
+
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -3205,15 +3544,17 @@ class MainWindow(QMainWindow):
         self.journal_tab = JournalTab(self)
         self.optimize_tab = OptimizeTab(self)
         self.passwords_tab = PasswordsTab(self)
+        self.reinstall_tab = ReinstallTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
-                         "passwords": self.passwords_tab, "journal": self.journal_tab}
+                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
-                 (self.passwords_tab, tr("Пароли", "Passwords")), (self.journal_tab, tr("Журнал", "Journal"))]
+                 (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
+                 (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
             pages.insert(6, (self.storage_tab, tr("Хранилище", "Storage")))
@@ -3366,6 +3707,8 @@ class MainWindow(QMainWindow):
             self.procs_tab.refresh()
         elif cur is self.storage_tab:
             self.storage_tab.activate()
+        elif cur is self.reinstall_tab:
+            self.reinstall_tab.activate()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():
