@@ -20,6 +20,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Tabs](#tabs)
   * [One-click optimization](#one-click-optimization)
   * [macOS System Data](#macos-system-data)
+  * [Reinstalling the system](#reinstalling-the-system)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -53,6 +54,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict |
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day |
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
+| **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
 ### One-click optimization
@@ -110,6 +112,31 @@ It runs while WhySlow is open; every run shows on the tab and in the Journal.
 **Full Disk Access.** Without it macOS hides iPhone backups, Mail, the Trash and some app data. WhySlow notices and
 shows how to grant it: System Settings → Privacy & Security → Full Disk Access → turn on WhySlow (or Terminal if you
 run from source) and restart the app. The **Open Settings** button opens that page directly.
+
+### Reinstalling the system
+
+The **Reinstall** tab reinstalls the system with one button. WhySlow itself erases nothing: it starts the operating
+system's own mechanism, and that window asks for confirmation once more.
+
+1. Pick a mode: **Keep files** or **Erase everything**.
+2. Tick what to keep: Desktop, Documents, Downloads, Pictures, Music, Videos or any folder of your own
+   (“Add folder…”). Each folder's size is measured right away.
+3. Choose where the backup goes: another internal disk, an external disk or a USB drive. The system disk can't be
+   chosen, since the backup would be wiped along with it. There must be enough free space.
+4. Press “Reinstall the system” and confirm by ticking “I understand…”. WhySlow copies the folders and opens the OS window.
+
+| System | What opens |
+|---|---|
+| Windows | “Reset this PC”. Choose “Remove everything” for a clean Windows; the chosen folders come back from the backup. “Keep my files” keeps all your personal files. Don't turn on “Remove files from all drives” if the backup is on another internal drive |
+| macOS, keep files | The macOS installer of the same version (if missing, WhySlow downloads it with `softwareupdate`, several gigabytes). macOS is installed on top: files, apps and settings stay; the backup is just in case |
+| macOS, erase everything | “Erase All Content and Settings” (macOS 12 or later on Apple Silicon or with a T2 chip). If it isn't available, WhySlow explains how to do it from Recovery |
+| Linux | Backup only: there's no common way to reinstall, use your distribution's installer |
+
+The backup folder has `restore.bat` (Windows) or `restore.command` (macOS), which put the files back even without
+WhySlow. Or install WhySlow again and press “Restore from backup…”. Existing files are never overwritten on restore.
+Files that couldn't be copied (no access, in use) are listed in `whyslow-backup.json`, and WhySlow asks whether to go
+on with the reinstall without them. Programs and browser passwords aren't part of the backup: install the programs
+again, and turn on sync in your browser.
 
 ### Problems it finds
 
@@ -356,6 +383,7 @@ whyslow/
   cli.py         text mode
   checks.py      diagnostics → list of findings
   optimize.py    optimization plan from scan results, and applying it
+  reinstall.py   backup of the chosen folders and starting the OS's own reinstall
   knowledge.py   knowledge base: loading, updating from GitHub, matching
   online.py      describing unknown programs: file details and Wikipedia
   startup.py     startup items on Windows / Linux / macOS
