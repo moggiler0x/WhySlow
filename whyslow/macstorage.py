@@ -21,13 +21,14 @@ from . import journal, junk, settings
 from .i18n import tr
 from .util import IS_MAC, human_size, run
 
-KEEP, SAFE, AUTO = "keep", "safe", "auto"
+KEEP, SAFE, AUTO, MIXED = "keep", "safe", "auto", "mixed"
 
 
 def level_label(level: str) -> str:
     return {KEEP: tr("Важное, не трогать", "Important, keep"),
             SAFE: tr("Можно удалить", "Safe to delete"),
-            AUTO: tr("Удалится само", "Removed automatically")}[level]
+            AUTO: tr("Удалится само", "Removed automatically"),
+            MIXED: tr("Смотря что", "Depends")}[level]
 
 
 @dataclass
@@ -37,6 +38,14 @@ class Item:
     size: int = 0
     mtime: float = 0
     note: str = ""
+    paths: list[str] = field(default_factory=list)  # что удалять; пусто — сам path
+    level: str = ""          # своя пометка пункта (данные программ), иначе как у категории
+    tag: str = ""            # её текст
+    deletable: bool = True
+
+    @property
+    def targets(self) -> list[str]:
+        return self.paths or [self.path]
 
 
 @dataclass
@@ -143,11 +152,14 @@ def categories() -> list[Category]:
                  tr("Копии вложений, которые вы открывали. Сами письма и вложения остаются в Почте.",
                     "Copies of attachments you opened. The emails and attachments stay in Mail."),
                  SAFE, [mail_dl], fda=True),
-        Category("app_data", tr("Данные программ", "App data"),
-                 tr("Настройки, базы и документы программ. Удаляйте только вместе с самой программой.",
-                    "Settings, databases and documents of apps. Only delete together with the app itself."),
-                 KEEP, [lib / "Application Support", lib / "Containers", lib / "Group Containers"], method="", fda=True,
-                 exclude=[backups, docker, mail_dl]),
+        Category("apps", tr("Данные программ", "App data"),
+                 tr("Настройки, базы и скачанное программами, по программам. Данные удалённых и давно не запускавшихся "
+                    "программ можно убрать; у используемых программ после удаления сбросятся настройки и вход. "
+                    "Кеши программ — в своей категории.",
+                    "Settings, databases and downloads, grouped by app. Data of removed apps and apps you haven't "
+                    "opened in a long time can go; apps you use will lose their settings and sign-in. "
+                    "App caches are a separate category."),
+                 MIXED, [lib], fda=True, exclude=[backups.parent, docker, mail_dl]),
         Category("trash", tr("Корзина", "Trash"),
                  tr("Файлы, которые вы уже удалили. Место освобождается только после очистки Корзины.",
                     "Files you already deleted. The space is only freed once the Trash is emptied."),
@@ -219,6 +231,8 @@ def scan(cat: Category) -> Category:
         cat.size = 0
         return cat
     exclude = {str(e) for e in cat.exclude}
+    if cat.key == "apps":
+        return _scan_apps(cat, exclude)
     for root in cat.paths:
         if cat.key == "installers":
             names = _children(root) or []
@@ -239,6 +253,35 @@ def scan(cat: Category) -> Category:
                 cat.items.append(Item(p, os.path.basename(p), size, mtime, _item_note(cat, p)))
     cat.items.sort(key=lambda i: -i.size)
     cat.size = sum(i.size for i in cat.items)
+    return cat
+
+
+def _scan_apps(cat: Category, exclude: set[str]) -> Category:
+    """Данные программ: строка на программу, с пометкой по тому, установлена ли она и давно ли её открывали."""
+    from . import macapps
+    lib = cat.paths[0]
+    if _children(lib / "Containers") is None:
+        cat.denied = True
+    for g in macapps.groups(lib, exclude):
+        size = newest = 0
+        for p in g.paths:
+            sz, mt, denied = du(p, exclude)
+            size += sz
+            newest = max(newest, mt)
+            cat.denied |= denied
+        if not size:
+            continue
+        level, tag = macapps.classify(g, newest)
+        used = g.app.last_used if g.app else 0
+        cat.items.append(Item(g.paths[0], g.title, size, used or newest, "", list(g.paths),
+                              level, tag, deletable=level != macapps.SYSTEM))
+        if level == macapps.OLD and g.app and not g.app.path.startswith("/System/"):
+            # давно не запускали — можно убрать и саму программу
+            sz, mt, _ = du(g.app.path)
+            cat.items.append(Item(g.app.path, tr(f"{g.title} — сама программа", f"{g.title}: the app itself"), sz,
+                                  used, "", [], macapps.APP, tr("Удалить и программу", "Remove the app too")))
+    cat.items.sort(key=lambda i: -i.size)
+    cat.size = sum(i.size for i in cat.items if i.level != macapps.APP)  # программы не входят в «Системные данные»
     return cat
 
 
@@ -365,9 +408,14 @@ def delete(chosen: list[tuple[Category, Item]], progress=lambda _t: None) -> tup
     for cat, it in chosen:
         if cat.method == "trash":
             progress(tr(f"В Корзину: {it.name}", f"To Trash: {it.name}"))
-            dest = _to_trash(it.path)
-            if dest:
-                moved.append([it.path, dest])
+            ok = True
+            for path in it.targets:
+                dest = _to_trash(path)
+                if dest:
+                    moved.append([path, dest])
+                else:
+                    ok = False
+            if ok:
                 done += 1
                 freed += it.size
             else:
