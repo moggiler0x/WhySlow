@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, reinstall, settings, startup, sysinfo, updater,
+    __version__, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
+    settings, startup, sysinfo, updater,
 )
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
@@ -2629,6 +2630,331 @@ class OptimizeTab(QWidget):
         run_async(lambda progress: optimize.apply(chosen, progress), done, failed, self.state.setText)
 
 
+# ---------------------------------------------------------------- Пароли ---
+
+class PasswordsTab(QWidget):
+    """Пароли из выгрузки менеджера паролей: какие нашлись в утечках и замена на новые.
+    Новый пароль попадает в файл для импорта только после «Я сменил пароль на сайте»."""
+
+    CLEAR_CLIPBOARD_MS = 60_000
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.vault: passwords.Vault | None = None
+        self.shown: list[passwords.Entry] = []
+        self.saved: Path | None = None
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+
+        head = QHBoxLayout()
+        head.setSpacing(px(14))
+        text = QVBoxLayout()
+        text.setSpacing(px(4))
+        self.title = QLabel(accent(tr("Пароли в утечках", "Leaked passwords")))
+        self.title.setObjectName("h1")
+        text.addWidget(self.title)
+        text.addWidget(muted(tr(
+            "Выгрузите пароли из менеджера в CSV и откройте файл здесь. WhySlow проверит каждый пароль по базе утечек "
+            "Have I Been Pwned. Сами пароли не покидают компьютер: на сервер уходят только первые 5 символов "
+            "их хеша SHA-1.",
+            "Export your passwords from the password manager to CSV and open the file here. WhySlow checks every "
+            "password against the Have I Been Pwned breach database. Passwords never leave your computer: only the "
+            "first 5 characters of their SHA-1 hash are sent.")))
+        how = muted(tr(
+            "<b>Где взять файл:</b> Chrome и Edge — Настройки → Пароли → Экспорт; Firefox — about:logins → ⋯ → "
+            "Экспорт; Safari и «Пароли» macOS — Файл → Экспортировать; Bitwarden, 1Password, KeePass, LastPass — "
+            "экспорт в CSV.",
+            "<b>Where to get the file:</b> Chrome and Edge — Settings → Passwords → Export; Firefox — about:logins → "
+            "⋯ → Export; Safari and macOS Passwords — File → Export; Bitwarden, 1Password, KeePass, LastPass — "
+            "CSV export."))
+        how.setTextFormat(Qt.RichText)
+        text.addWidget(how)
+        head.addLayout(text, 1)
+        self.b_open = QPushButton(tr("Открыть файл…", "Open file…"))
+        self.b_open.setObjectName("primary")
+        self.b_open.setCursor(Qt.PointingHandCursor)
+        self.b_open.clicked.connect(self.open_file)
+        head.addWidget(self.b_open, 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+
+        body = QHBoxLayout()
+        body.setSpacing(px(14))
+        self.table = make_table([tr("Сайт", "Site"), tr("Логин", "Login"), tr("В утечках", "In breaches"),
+                                 tr("Статус", "Status")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.setWordWrap(False)
+        self.table.itemSelectionChanged.connect(self.on_select)
+        body.addWidget(self.table, 5)
+
+        side = QFrame()
+        side.setObjectName("card")
+        sl = QVBoxLayout(side)
+        sl.setContentsMargins(px(14), px(12), px(14), px(12))
+        sl.setSpacing(px(8))
+        self.e_title = QLabel()
+        self.e_title.setTextFormat(Qt.PlainText)
+        self.e_title.setStyleSheet(f"font-size: {pt(12)}; font-weight: 600;")
+        self.e_title.setWordWrap(True)
+        sl.addWidget(self.e_title)
+        self.e_note = muted()
+        self.e_note.setTextFormat(Qt.RichText)
+        sl.addWidget(self.e_note)
+        self.new_pw = QLabel()
+        self.new_pw.setTextFormat(Qt.PlainText)
+        self.new_pw.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.new_pw.setStyleSheet(f"font-family: Consolas, Menlo, 'DejaVu Sans Mono', monospace; font-size: {pt(12)}; "
+                                  f"padding: {px(8)}px; border: 1px solid {LINE2}; border-radius: {px(8)}px;")
+        sl.addWidget(self.new_pw)
+        self.cb_symbols = QCheckBox(tr("Со спецсимволами", "With symbols"))
+        self.cb_symbols.setChecked(True)
+        self.cb_symbols.toggled.connect(lambda _on: self.regenerate())
+        sl.addWidget(self.cb_symbols)
+        r1 = QHBoxLayout()
+        self.b_regen = QPushButton(tr("Другой пароль", "Another one"))
+        self.b_regen.clicked.connect(self.regenerate)
+        self.b_copy = QPushButton(tr("Скопировать", "Copy"))
+        self.b_copy.clicked.connect(self.copy)
+        r1.addWidget(self.b_regen)
+        r1.addWidget(self.b_copy)
+        r1.addStretch()
+        sl.addLayout(r1)
+        self.b_site = QPushButton(tr("Открыть страницу смены пароля", "Open the password change page"))
+        self.b_site.clicked.connect(self.open_site)
+        sl.addWidget(self.b_site)
+        self.b_done = QPushButton(tr("Я сменил пароль на сайте", "I changed it on the site"))
+        self.b_done.setObjectName("primary")
+        self.b_done.setCursor(Qt.PointingHandCursor)
+        self.b_done.clicked.connect(self.mark_changed)
+        sl.addWidget(self.b_done)
+        sl.addStretch()
+        body.addWidget(side, 3)
+        lay.addLayout(body, 1)
+
+        row = QHBoxLayout()
+        self.state = muted()
+        row.addWidget(self.state, 1)
+        self.b_wipe = QPushButton(tr("Удалить файлы с паролями", "Delete password files"))
+        self.b_wipe.clicked.connect(self.wipe)
+        row.addWidget(self.b_wipe)
+        self.b_save = QPushButton(tr("Сохранить файл для импорта", "Save file for import"))
+        self.b_save.setObjectName("primary")
+        self.b_save.setCursor(Qt.PointingHandCursor)
+        self.b_save.clicked.connect(self.save)
+        row.addWidget(self.b_save)
+        lay.addLayout(row)
+        self.refill()
+
+    # --- загрузка и проверка ---
+
+    def open_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, tr("Выгрузка паролей", "Password export"), str(Path.home()),
+                                              tr("Файлы CSV (*.csv);;Все файлы (*)", "CSV files (*.csv);;All files (*)"))
+        if path:
+            self.load(path)
+
+    def load(self, path: str):
+        if self.vault and self.vault.changed and not confirm(
+                self, tr("Открыть другой файл?", "Open another file?"),
+                tr("Новые пароли, которые вы уже сменили на сайтах, ещё не сохранены в файл для импорта. "
+                   "Открыть другой файл и потерять их?",
+                   "New passwords you already changed on sites are not saved to an import file yet. "
+                   "Open another file and lose them?"), danger=True):
+            return
+        try:
+            vault = passwords.load(path)
+        except passwords.VaultError:
+            QMessageBox.warning(self, tr("Не получилось", "Failed"),
+                                tr("Это не похоже на выгрузку менеджера паролей: в файле нет колонки с паролями.",
+                                   "This doesn't look like a password manager export: there is no password column."))
+            return
+        self.vault, self.saved = vault, None
+        self.refill()
+        self.b_open.setEnabled(False)
+        self.state.setText(tr("Проверяю пароли…", "Checking passwords…"))
+
+        def done(_r):
+            self.b_open.setEnabled(True)
+            self.refill()
+
+        def failed(_e):
+            self.b_open.setEnabled(True)
+            self.refill()
+            QMessageBox.warning(self, tr("Не получилось", "Failed"),
+                                tr("Не удалось связаться с базой утечек (api.pwnedpasswords.com). "
+                                   "Проверьте подключение к интернету и откройте файл ещё раз.",
+                                   "Could not reach the breach database (api.pwnedpasswords.com). "
+                                   "Check your internet connection and open the file again."))
+
+        run_async(lambda p: passwords.check(vault, p), done, failed,
+                  lambda t: self.state.setText(tr(f"Проверяю пароли… {t}", f"Checking passwords… {t}")))
+
+    def refill(self):
+        v = self.vault
+        entries = v.entries if v else []
+        # Утёкшие сверху, самые частые первыми
+        self.shown = sorted(entries, key=lambda e: (-(e.leaks or 0), e.site.lower()))
+        self.table.setRowCount(len(self.shown))
+        for r, e in enumerate(self.shown):
+            if e.leaks is None:
+                leaks, status, color = "…", tr("проверяется", "checking"), C["muted"]
+            elif e.changed:
+                leaks, status, color = f"{e.leaks:,}".replace(",", "\u202f"), tr("заменён", "replaced"), C["ok"]
+            elif e.leaks:
+                leaks, status, color = f"{e.leaks:,}".replace(",", "\u202f"), tr("утёк, сменить", "leaked, change it"), C["bad"]
+            else:
+                leaks, status, color = "0", tr("не найден", "not found"), C["muted"]
+            st = QTableWidgetItem(status)
+            st.setForeground(QColor(color))
+            for c, it in enumerate([QTableWidgetItem(e.site), QTableWidgetItem(e.username), NumItem(leaks, e.leaks or 0), st]):
+                self.table.setItem(r, c, it)
+        checked = [e for e in entries if e.leaks is not None]
+        if not v:
+            self.title.setText(accent(tr("Пароли в утечках", "Leaked passwords")))
+            self.state.setText("")
+        elif len(checked) == len(entries):
+            n = len(v.leaked)
+            self.title.setText(accent(tr(f"В утечках: {n} из {len(entries)}", f"Leaked: {n} of {len(entries)}") if n
+                                      else tr("Утёкших паролей нет", "No leaked passwords")))
+            self.state.setText(tr(f"Файл: {v.path.name}. Заменено: {len(v.changed)} из {n}.",
+                                  f"File: {v.path.name}. Replaced: {len(v.changed)} of {n}.") if n
+                               else tr(f"Файл: {v.path.name}.", f"File: {v.path.name}."))
+        self.b_save.setEnabled(bool(v and v.changed))
+        self.b_wipe.setEnabled(bool(v))
+        self.on_select()
+
+    # --- одна запись ---
+
+    def current(self) -> passwords.Entry | None:
+        rows = self.table.selectionModel().selectedRows()
+        return self.shown[rows[0].row()] if rows else None
+
+    def on_select(self):
+        e = self.current()
+        actionable = bool(e and e.leaked)
+        for w in (self.new_pw, self.cb_symbols, self.b_regen, self.b_copy, self.b_site, self.b_done):
+            w.setVisible(actionable)
+        if not e:
+            self.e_title.setText(tr("Выберите пароль в списке", "Pick a password in the list") if self.vault else "")
+            self.e_note.setText("")
+            return
+        self.e_title.setText(e.site + (f" · {e.username}" if e.username else ""))
+        if not e.leaked:
+            self.e_note.setText(tr("Этот пароль не найден в известных утечках.", "This password is not in known breaches.")
+                                if e.leaks == 0 else "")
+            return
+        if not e.new_password:
+            e.new_password = passwords.generate(symbols=self.cb_symbols.isChecked())
+        self.new_pw.setText(e.new_password)
+        if e.changed:
+            self.e_note.setText(tr("Пароль сменён на сайте. Новый пароль попадёт в файл для импорта.",
+                                   "Changed on the site. The new password goes into the import file."))
+        else:
+            n = f"{e.leaks:,}".replace(",", "\u202f")
+            self.e_note.setText(tr(
+                f"Пароль встречается в утечках <b>{n}</b> раз — его знают те, кто подбирает пароли.<br><br>"
+                "1. Скопируйте новый пароль.<br>2. Откройте сайт и смените пароль там.<br>"
+                "3. Нажмите «Я сменил пароль на сайте».<br><br>"
+                "В менеджере пароль поменяется, когда вы импортируете файл. Пока пароль не сменён на сайте, "
+                "менять его в менеджере нельзя: вы не сможете войти.",
+                f"This password appears in breaches <b>{n}</b> times — attackers try it first.<br><br>"
+                "1. Copy the new password.<br>2. Open the site and change the password there.<br>"
+                "3. Press “I changed it on the site”.<br><br>"
+                "The manager is updated when you import the file. Until the site has the new password, "
+                "the manager must keep the old one, or you won't be able to sign in."))
+        for w in (self.cb_symbols, self.b_regen, self.b_done):
+            w.setEnabled(not e.changed)
+        self.b_site.setEnabled(bool(passwords.change_url(e.url)))
+
+    def regenerate(self):
+        e = self.current()
+        if e and e.leaked and not e.changed:
+            e.new_password = passwords.generate(symbols=self.cb_symbols.isChecked())
+            self.on_select()
+
+    def copy(self):
+        e = self.current()
+        if not (e and e.new_password):
+            return
+        cb = QApplication.clipboard()
+        pw = e.new_password
+        cb.setText(pw)
+        # Через минуту убираем пароль из буфера обмена, если там всё ещё он
+        QTimer.singleShot(self.CLEAR_CLIPBOARD_MS, lambda: cb.text() == pw and cb.clear())
+        self.main.status(tr("Новый пароль скопирован, через минуту буфер обмена очистится",
+                            "New password copied; the clipboard is cleared in a minute"))
+
+    def open_site(self):
+        e = self.current()
+        url = passwords.change_url(e.url) if e else ""
+        if url:
+            webbrowser.open(url)
+
+    def mark_changed(self):
+        e = self.current()
+        if not (e and e.leaked) or e.changed:
+            return
+        if not confirm(self, tr("Пароль сменён на сайте?", "Changed on the site?"),
+                       tr(f"Вы сменили пароль на {e.site} на новый, показанный в WhySlow, и вошли с ним?\n\n"
+                          "Он будет записан в файл для импорта в менеджер паролей.",
+                          f"Did you change the password on {e.site} to the new one shown in WhySlow and sign in with it?\n\n"
+                          "It will be written to the file for importing into your password manager.")):
+            return
+        e.changed = True
+        self.refill()
+
+    # --- файлы ---
+
+    def save(self):
+        v = self.vault
+        if not (v and v.changed):
+            return
+        default = v.path.with_name(v.path.stem + "-new.csv")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Файл для импорта", "Import file"), str(default),
+                                              tr("Файлы CSV (*.csv)", "CSV files (*.csv)"))
+        if not path:
+            return
+        try:
+            n = passwords.export(v, path)
+        except OSError as ex:
+            QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
+            return
+        self.saved = Path(path)
+        QMessageBox.information(self, tr("Файл сохранён", "File saved"), tr(
+            f"В файле {n} новых паролей. Импортируйте его в тот же менеджер паролей, из которого делали выгрузку: "
+            "он заменит старые пароли у этих сайтов. Если менеджер создаст копии записей, удалите старые.\n\n"
+            "После импорта удалите оба файла кнопкой «Удалить файлы с паролями»: в них пароли открытым текстом.",
+            f"The file has {n} new passwords. Import it into the same password manager you exported from: "
+            "it replaces the old passwords for these sites. If the manager creates duplicate entries, delete the old ones.\n\n"
+            "After importing, delete both files with “Delete password files”: they hold passwords in plain text."))
+
+    def wipe(self):
+        v = self.vault
+        if not v:
+            return
+        files = [p for p in (v.path, self.saved) if p and p.exists()]
+        unsaved = bool(v.changed) and not self.saved
+        text = "\n".join(f"• {p}" for p in files) or tr("(файлов уже нет)", "(the files are already gone)")
+        if not confirm(self, tr("Удалить файлы с паролями?", "Delete password files?"),
+                       tr(f"Будут удалены без Корзины:\n{text}\n\n", f"These will be deleted, bypassing the Trash:\n{text}\n\n")
+                       + (tr("Новые пароли ещё не сохранены в файл для импорта — они пропадут.\n\n",
+                             "New passwords are not saved to an import file yet — they will be lost.\n\n") if unsaved else "")
+                       + tr("Сначала убедитесь, что импортировали новые пароли в менеджер.",
+                            "Make sure you have imported the new passwords into your manager first."), danger=True):
+            return
+        left = [p for p in files if not passwords.wipe(p)]
+        if left:
+            QMessageBox.warning(self, tr("Не получилось", "Failed"),
+                                tr("Не удалось удалить:\n", "Could not delete:\n") + "\n".join(str(p) for p in left))
+        self.vault, self.saved = None, None
+        self.refill()
+
+
 # ----------------------------------------------------------------- Журнал ---
 
 class ReinstallTab(QWidget):
@@ -3217,15 +3543,17 @@ class MainWindow(QMainWindow):
         self.junk_tab = JunkTab(self)
         self.journal_tab = JournalTab(self)
         self.optimize_tab = OptimizeTab(self)
+        self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
-                         "reinstall": self.reinstall_tab, "journal": self.journal_tab}
+                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
-                 (self.junk_tab, tr("Очистка", "Cleanup")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
+                 (self.junk_tab, tr("Очистка", "Cleanup")),
+                 (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
                  (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab

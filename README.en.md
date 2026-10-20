@@ -21,6 +21,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [One-click optimization](#one-click-optimization)
   * [macOS System Data](#macos-system-data)
   * [Reinstalling the system](#reinstalling-the-system)
+  * [Leaked passwords](#leaked-passwords)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -55,6 +56,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day |
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
+| **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
 ### One-click optimization
@@ -137,6 +139,22 @@ WhySlow. Or install WhySlow again and press “Restore from backup…”. Existi
 Files that couldn't be copied (no access, in use) are listed in `whyslow-backup.json`, and WhySlow asks whether to go
 on with the reinstall without them. Programs and browser passwords aren't part of the backup: install the programs
 again, and turn on sync in your browser.
+### Leaked passwords
+
+The **Passwords** tab finds passwords that already appear in data breaches and helps replace them.
+
+1. Export your passwords to CSV: Chrome and Edge (Settings → Passwords → Export), Firefox (about:logins → ⋯ → Export),
+   Safari and macOS Passwords (File → Export), Bitwarden, 1Password, KeePass, LastPass.
+2. Open the file in WhySlow. Each password is checked against [Have I Been Pwned](https://haveibeenpwned.com/Passwords).
+   Passwords never leave your computer: only the first 5 characters of the SHA-1 hash are sent, matching happens locally.
+3. For a leaked password WhySlow suggests a new random one (20 characters, symbols optional) and opens the site's
+   password change page. Change it there and press “I changed it on the site”.
+4. “Save file for import” writes a file in the same manager's format with only the new passwords. Import it back into
+   the manager and the old passwords are replaced.
+5. “Delete password files” overwrites and deletes the export and the import file: they hold passwords in plain text.
+
+The manager is updated only after the site is. Changing a password only in the manager would leave you with a
+password the site doesn't accept.
 
 ### Problems it finds
 
@@ -258,6 +276,7 @@ No window, right in the terminal (from source; on macOS and Linux the app works 
 ```bash
 python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
+python3 -m whyslow --passwords export.csv   # which passwords from your manager are in breaches (changes nothing)
 python3 -m whyslow --storage   # macOS: what “System Data” is made of and which app data can go (changes nothing)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
@@ -395,6 +414,7 @@ whyslow/
   sysinfo.py     hardware info, integrated GPU load
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
+  passwords.py   breach check for passwords, new passwords, import file
   journal.py     change journal for rollback
   updater.py     updating the program from GitHub
   settings.py    settings (language, updates, auto-clean on Mac)
