@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
+from . import checks, forecast, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -155,3 +155,43 @@ def check_passwords(path: str) -> int:
     print(tr("\nНовые пароли и файл для импорта в менеджер — в окне, вкладка «Пароли».",
              "\nNew passwords and a file to import into the manager are in the window, Passwords tab."))
     return 0
+
+
+def outlook() -> int:
+    """python -m whyslow --forecast: надолго ли хватит железа и что обновлять первым."""
+    db, msg = forecast.update(timeout=4)
+    print(msg)
+    print(tr("Определяю железо…", "Detecting hardware…"))
+    fc = forecast.estimate(forecast.hardware(), db)
+    wid = settings.get("forecast_profile")
+    print("\n" + forecast.summary(fc) + "\n")
+    for w in fc.workloads:
+        by = forecast.kind_label(w.by) if w.years < forecast.MAX_YEARS else ""
+        print(f"  {forecast.years_text(w.years):<18} {forecast.until_text(fc.now, w.years):<10} {w.title}"
+              + (f"  ({by})" if by else ""))
+    print("\n" + forecast.headline(fc, wid))
+    for a in forecast.advice(fc, wid, db):
+        print("  • " + a.text)
+    for line in [fc.os_text] + fc.notes + fc.market + [forecast.disclaimer()]:
+        if line:
+            print("\n" + line)
+    return 0
+
+
+def license_cmd(key: str = "") -> int:
+    """Состояние подписки; с ключом — активирует его."""
+    from . import license
+    if key:
+        try:
+            license.enter_key(key)
+        except license.LicenseError as e:
+            print(tr(f"Ключ не принят: {e}", f"Key not accepted: {e}"))
+            return 1
+    else:
+        license.refresh()
+    st = license.status()
+    print(license.status_text(st))
+    if st.error:
+        print(st.error)
+    print(tr(f"Код этого компьютера: {st.device}", f"This computer's code: {st.device}"))
+    return 0 if st.active else 1

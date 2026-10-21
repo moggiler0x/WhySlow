@@ -1,0 +1,24 @@
+# Сервер активации подписки WhySlow (Cloudflare Workers, бесплатный тариф).
+# Как развернуть — server/README.md.
+name = "whyslow-license"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# База ключей. id появится после «npx wrangler kv namespace create LICENSES» — впишите его сюда.
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "REPLACE_WITH_KV_ID"
+
+[vars]
+# Открытый ключ — тот же, что PUBLIC_KEY в whyslow/license.py
+PUBLIC_KEY = ""
+# Telegram-бот (необязательно): ваш числовой id в Telegram и контакт для покупателей
+OWNER_CHAT_ID = ""
+OWNER_CONTACT = ""
+
+# Секреты задаются командой «npx wrangler secret put ИМЯ», не здесь:
+#   PRIVATE_KEY      — вывод «python owner/keys.py server-secret»
+#   ADMIN_TOKEN      — длинный случайный пароль для owner/keys.py
+#   TG_TOKEN         — токен бота от @BotFather (если нужен бот)
+#   TG_SECRET        — случайная строка, защищает адрес бота от чужих запросов
+#   PAYMENT_TOKEN    — токен платёжного провайдера из @BotFather → Payments (если нужна оплата в боте)
