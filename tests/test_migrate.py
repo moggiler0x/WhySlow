@@ -1,8 +1,10 @@
 import json
+from pathlib import Path
 
 import pytest
 
-from whyslow import journal, migrate, reinstall
+from whyslow import journal, reinstall
+from whyslow.premium import migrate
 
 
 @pytest.fixture
@@ -30,11 +32,17 @@ def test_no_license_module_means_locked(monkeypatch):
     real = builtins.__import__
 
     def fake(name, globals=None, locals=None, fromlist=(), level=0):
-        if level == 1 and fromlist and "license" in fromlist:
+        if level == 2 and fromlist and "license" in fromlist:
             raise ImportError
         return real(name, globals, locals, fromlist, level)
     monkeypatch.setattr(builtins, "__import__", fake)
     assert migrate.premium() is False
+
+
+def test_gui_does_not_import_the_paid_module():
+    """Код вкладки должен приходить только через замок (в релизе он зашифрован)."""
+    src = (Path(migrate.__file__).parents[1] / "gui.py").read_text(encoding="utf-8")
+    assert "migrate" not in src.split("class MainWindow")[0].split("from .i18n")[0]
 
 
 def test_junk_rules():
@@ -109,7 +117,7 @@ def test_export_and_import_roundtrip(home, tmp_path):
         assert (done, failed) == (1, [])
         assert json.loads(targets[0]["targets"][0][1].read_text()) == {"old": 1}
         entry = next(e for e in journal.load() if e["kind"] == "move_settings")
-        migrate.undo(entry)
+        reinstall.undo_moves(entry)
         assert json.loads(targets[0]["targets"][0][1].read_text()) == {"new": 1}
 
     copied, skipped, errors = migrate.restore_files(root)

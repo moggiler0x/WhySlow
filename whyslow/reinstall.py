@@ -477,3 +477,27 @@ def what_happens(mode: str) -> str:
                "The chosen folders are copied to another disk first.")
     return tr("В Linux WhySlow только скопирует выбранные папки, переустановку запустите установщиком дистрибутива.",
               "On Linux WhySlow only backs up the chosen folders; reinstall with your distribution's installer.")
+
+
+# ----------------------------------------------------- откат переезда ---
+
+def undo_moves(entry: dict) -> None:
+    """Откат переноса настроек при переезде на новый ПК: убирает перенесённое и возвращает то, что было.
+    Лежит здесь, а не в платном модуле, чтобы откат работал и после окончания подписки."""
+    problems = []
+    for dst, old in reversed(entry["data"]["moves"]):
+        d = Path(dst)
+        try:
+            if d.is_dir() and not d.is_symlink():
+                shutil.rmtree(d)
+            elif d.exists() or d.is_symlink():
+                d.unlink()
+            if old:
+                if Path(old).exists():
+                    shutil.move(old, dst)
+                else:
+                    problems.append(d.name)
+        except OSError:
+            problems.append(d.name)
+    if problems:
+        raise OSError(tr("Не вернулось: ", "Not restored: ") + ", ".join(problems))

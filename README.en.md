@@ -449,7 +449,7 @@ whyslow/
   checks.py      diagnostics → list of findings
   optimize.py    optimization plan from scan results, and applying it
   reinstall.py   backup of the chosen folders and starting the OS's own reinstall
-  migrate.py     moving to a new PC: program list, app settings and files into a package and back
+  premium/migrate.py  moving to a new PC: program list, app settings and files into a package and back
   knowledge.py   knowledge base: loading, updating from GitHub, matching
   online.py      describing unknown programs: file details and Wikipedia
   startup.py     startup items on Windows / Linux / macOS
