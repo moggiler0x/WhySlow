@@ -334,9 +334,10 @@ def explain_result(snap: Snapshot, data: dict, kb=None) -> Report | None:
     for r in rows:
         if r.key in ("boot_s", "idle_cpu", "ram_used_pct", "startup") and r.diff_pct and r.diff_pct >= 20:
             if r.key == "boot_s":
-                headline = tr(f"У похожих ПК система грузится на {r.diff_pct:.0f}% быстрее "
+                faster = (r.mine - r.median) / r.mine * 100  # «на сколько быстрее» — от вашего времени
+                headline = tr(f"У похожих ПК система грузится на {faster:.0f}% быстрее "
                               f"({_fmt(r.median, r.unit)} против ваших {_fmt(r.mine, r.unit)}).",
-                              f"Similar PCs boot {r.diff_pct:.0f}% faster "
+                              f"Similar PCs boot {faster:.0f}% faster "
                               f"({_fmt(r.median, r.unit)} vs your {_fmt(r.mine, r.unit)}).")
             else:
                 headline = tr(f"{r.title}: у вас {_fmt(r.mine, r.unit)}, у похожих ПК обычно {_fmt(r.median, r.unit)}.",

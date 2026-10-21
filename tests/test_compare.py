@@ -61,7 +61,7 @@ def test_explain_names_programs_rare_on_fast_pcs():
             "programs": {"steam": {"all": 0.8, "fast": 0.9}, "edge_update": {"all": 0.5, "fast": 0.1},
                          "defender": {"all": 0.1, "fast": 0.0}}}
     r = compare.explain_result(snap, data, kb)
-    assert "50%" in r.headline
+    assert "на 33% быстрее" in r.headline
     assert [s.id for s in r.suspects] == ["edge_update"]
     boot = next(x for x in r.rows if x.key == "boot_s")
     assert boot.text() == "на 50% хуже"

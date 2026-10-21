@@ -1,6 +1,6 @@
 # Сервер сравнения с похожими ПК
 
-Модуль `src/compare.js` живёт в том же Cloudflare Worker, что и проверка подписки.
+Модуль `src/compare.js` (клиент — `whyslow/premium/compare.py`) живёт в том же Cloudflare Worker, что и проверка подписки.
 
 ## Подключение
 
@@ -20,7 +20,7 @@
    database_id = "<id>"
    ```
 
-3. В роутере `src/index.js`:
+3. В роутере `src/index.js` (обёртку с `requireLicense` для `/compare` добавляет модуль подписки):
 
    ```js
    import { handleCompare, handleCompareForget } from "./compare.js";
