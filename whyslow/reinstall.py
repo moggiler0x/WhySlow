@@ -96,13 +96,16 @@ def default_folders() -> list[Folder]:
     return out
 
 
-def measure(folder: Folder, stop=lambda: False) -> Folder:
+def measure(folder: Folder, stop=lambda: False, skip=None) -> Folder:
+    """Размер и число файлов папки. skip(name, is_dir) — что не считать (мусор при переезде)."""
     size = files = 0
     for root, dirs, names in os.walk(folder.path, onerror=lambda e: None):
         if stop():
             break
-        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d)) and not (skip and skip(d, True))]
         for n in names:
+            if skip and skip(n, False):
+                continue
             try:
                 st = os.lstat(os.path.join(root, n))
             except OSError:
@@ -208,6 +211,13 @@ def backup(folders: list[Folder], dest: Path, progress=lambda done, total, name:
         raise ReinstallError(why)
     root = _unique(dest, time.strftime("WhySlow-%Y-%m-%d-%H%M"))
     root.mkdir(parents=True)
+    return copy_folders(folders, root, progress, stop)
+
+
+def copy_folders(folders: list[Folder], root: Path, progress=lambda done, total, name: None, stop=lambda: False,
+                 skip=None) -> Backup:
+    """Копирует папки в готовую папку root, кладёт рядом манифест и скрипт возврата.
+    skip(folder, name, is_dir) — что пропустить. Этим же пользуется переезд на новый ПК."""
     res = Backup(root)
     total = sum(max(f.size, 0) for f in folders)
     items = []
@@ -218,11 +228,13 @@ def backup(folders: list[Folder], dest: Path, progress=lambda done, total, name:
         for src_dir, dirs, names in os.walk(f.path, onerror=lambda e: res.failed.append(str(e.filename))):
             if stop():
                 raise ReinstallError(tr("Копирование остановлено.", "Copying stopped."))
-            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(src_dir, d))]
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(src_dir, d)) and not (skip and skip(f, d, True))]
             rel = os.path.relpath(src_dir, f.path)
             out_dir = target if rel == "." else target / rel
             out_dir.mkdir(parents=True, exist_ok=True)
             for name in names:
+                if skip and skip(f, name, False):
+                    continue
                 src = os.path.join(src_dir, name)
                 try:
                     shutil.copy2(src, out_dir / name, follow_symlinks=False)
@@ -237,10 +249,14 @@ def backup(folders: list[Folder], dest: Path, progress=lambda done, total, name:
                 progress(res.size, total, f.title)
         items.append({"title": f.title, "dir": target.name, "source": _portable(f.path), "files": n, "size": size})
     (root / MANIFEST).write_text(json.dumps({
-        "created": time.strftime("%Y-%m-%d %H:%M:%S"), "os": "windows" if IS_WINDOWS else "mac" if IS_MAC else "linux",
+        "created": time.strftime("%Y-%m-%d %H:%M:%S"), "os": os_name(),
         "items": items, "failed": res.failed[:500]}, ensure_ascii=False, indent=1), encoding="utf-8")
     _write_restore_script(root, items)
     return res
+
+
+def os_name() -> str:
+    return "windows" if IS_WINDOWS else "mac" if IS_MAC else "linux"
 
 
 def _portable(p: Path) -> str:

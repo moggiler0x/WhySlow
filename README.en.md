@@ -21,6 +21,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [One-click optimization](#one-click-optimization)
   * [macOS System Data](#macos-system-data)
   * [Reinstalling the system](#reinstalling-the-system)
+  * [Moving to a new PC](#moving-to-a-new-pc)
   * [Leaked passwords](#leaked-passwords)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
@@ -56,6 +57,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day. Finds large files in a chosen folder and moves them to the Trash |
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
+| **Move** | Move to a new PC with one button: programs, their settings and your files, without junk (subscription) |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
 | **History** | When and why the computer was slow: WhySlow records long load spikes in the background, can live in the tray and start with the system |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
@@ -139,7 +141,26 @@ The backup folder has `restore.bat` (Windows) or `restore.command` (macOS), whic
 WhySlow. Or install WhySlow again and press “Restore from backup…”. Existing files are never overwritten on restore.
 Files that couldn't be copied (no access, in use) are listed in `whyslow-backup.json`, and WhySlow asks whether to go
 on with the reinstall without them. Programs and browser passwords aren't part of the backup: install the programs
-again, and turn on sync in your browser.
+again, and turn on sync in your browser, or use the **Move** tab below, which takes programs and settings too.
+
+### Moving to a new PC
+
+The **Move** tab (subscription) moves your setup to a new computer with one button, without the junk that has piled
+up over the years.
+
+1. **On the old PC** pick “This is the old PC: pack”. WhySlow lists installed programs and how each one installs
+   again (winget on Windows; Homebrew and the App Store on macOS; Flatpak on Linux; VS Code extensions everywhere),
+   finds settings of known apps (VS Code, Git, Chrome / Yandex Browser / Edge bookmarks, OBS, Notepad++, Windows
+   Terminal, PowerShell, zsh / bash, iTerm2, fonts; SSH keys only if you tick them) and your folders.
+2. Untick what you don't need and choose a USB, external or network drive. Caches, temporary files, `node_modules`,
+   `Thumbs.db` and old installers in Downloads are left out. Nothing changes on the old computer.
+3. **On the new PC** pick “This is the new PC: unpack” → “Open package…” and choose the `WhySlow-Move-…` folder.
+   Ticked programs install themselves, settings go in place (the ones already there are backed up and can be
+   restored from **Journal**), files go back to their folders without overwriting existing ones.
+
+The package works without WhySlow too: `install.bat` / `install.command` installs the programs, `files/restore.bat` /
+`restore.command` brings back the files, and `programs.txt` lists what to download by hand. Settings move between
+Windows and macOS where the app keeps the same files (VS Code, Git, bookmarks, OBS).
 ### Leaked passwords
 
 The **Passwords** tab finds passwords that already appear in data breaches and helps replace them.
@@ -409,6 +430,7 @@ whyslow/
   checks.py      diagnostics → list of findings
   optimize.py    optimization plan from scan results, and applying it
   reinstall.py   backup of the chosen folders and starting the OS's own reinstall
+  migrate.py     moving to a new PC: program list, app settings and files into a package and back
   knowledge.py   knowledge base: loading, updating from GitHub, matching
   online.py      describing unknown programs: file details and Wikipedia
   startup.py     startup items on Windows / Linux / macOS
