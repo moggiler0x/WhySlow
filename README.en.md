@@ -26,6 +26,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
+* [Subscription](#subscription)
 * [Install and run](#install-and-run)
   * [Download](#download)
   * [Windows](#windows)
@@ -231,6 +232,24 @@ Each check answers its own question and offers a fix where possible:
 | Stale proxy | ✅ + fix | ✅ GNOME + fix, environment variables | — |
 | Cleanup | Temp, all browsers and profiles, shader cache, dumps, updates, recycle bin | cache, thumbnails, /tmp, trash | cache, logs, trash |
 | “System Data” by category, auto-clean | — | — | ✅ |
+
+## Subscription
+
+WhySlow's core features are free. Paid features are unlocked with a subscription:
+
+| Plan | Price | Devices |
+|---|---|---|
+| Solo | 200 ₽ per month | 1 computer |
+| All devices | 800 ₽ per month | up to 10 of your devices |
+
+To subscribe, click "★ Subscription" at the bottom of the window, pay, and paste the key you receive into the "Key" field.
+A key is either a short code `WS-XXXX-XXXX-XXXX-XXXX` (checked online once a day, works offline for up to a week)
+or a long `WS1....` string issued for "This computer's code" (works offline). To move a code to another computer,
+use "Turn off on this computer".
+
+Text mode: `python -m whyslow --license` shows the status, `python -m whyslow --license KEY` enters a key.
+
+Paid-feature code is encrypted in the build: without a subscription key it cannot be read or run, so removing the check from the open source is pointless. How keys and protection work: [server/README.md](server/README.md) (in Russian).
 
 ## Install and run
 
@@ -459,12 +478,19 @@ whyslow/
   macsensors.py  Mac temperatures and GPU load without admin rights
   passwords.py   breach check for passwords, new passwords, import file
   journal.py     change journal for rollback
+  license.py     subscription: key checks (Ed25519), device code, online activation
+  license_ui.py  Subscription window and lock on paid tabs
+  seal.py        encrypts paid modules (unreadable and unrunnable without a subscription key)
+  premium/       paid-feature code; encrypted in release builds (<feature>.wsl)
   updater.py     updating the program from GitHub
   settings.py    settings (language, updates, auto-clean on Mac)
   i18n.py        interface language: Russian and English
   data/known.json
   data/icon.png  window icon
 tests/           tests (python -m pytest tests)
+owner/keys.py    issuing subscription keys (owner only)
+owner/seal.py    encrypting paid modules before a build (owner only)
+server/          key activation server and Telegram bot (Cloudflare Workers)
 packaging/
   build.py       builds the ready-made app for the current OS (PyInstaller)
   make_icon.py   draws the app icon
