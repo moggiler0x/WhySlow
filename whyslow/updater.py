@@ -328,16 +328,23 @@ def _install_app(rel: Release, progress) -> dict:
     url, digest = rel.assets[name]
     tmp = Path(tempfile.mkdtemp(prefix="whyslow-update-"))
     try:
-        progress(tr(f"Скачиваю {rel.tag}…", f"Downloading {rel.tag}…"))
         file = tmp / name
-        try:
-            _download(url, file)
-        except Exception as e:
-            raise UpdateError(tr(f"Не удалось скачать обновление: {net.explain(e)}",
-                                 f"Could not download the update: {net.explain(e)}")) from e
-        if digest.startswith("sha256:") and _sha256(file) != digest[7:]:
-            raise UpdateError(tr("Скачанный файл повреждён (не сходится контрольная сумма). Ничего не менял.",
-                                 "The downloaded file is damaged (checksum mismatch). Nothing was changed."))
+        for attempt in range(2):
+            progress(tr(f"Скачиваю {rel.tag}…", f"Downloading {rel.tag}…"))
+            try:
+                _download(url, file)
+            except Exception as e:
+                raise UpdateError(tr(f"Не удалось скачать обновление: {net.explain(e)}",
+                                     f"Could not download the update: {net.explain(e)}")) from e
+            if not digest.startswith("sha256:") or _sha256(file) == digest[7:]:
+                break
+            # Сборку в релизе могли перезалить, пока окно было открыто: сумма от старого файла.
+            # Берём свежие ссылку и сумму и качаем ещё раз.
+            fresh = _fresh_asset(rel, name) if attempt == 0 else None
+            if not fresh or fresh == (url, digest):
+                raise UpdateError(tr("Скачанный файл повреждён (не сходится контрольная сумма). Ничего не менял.",
+                                     "The downloaded file is damaged (checksum mismatch). Nothing was changed."))
+            url, digest = fresh
         new = _unpack_dmg(file, tmp) if name.endswith(".dmg") else file
         if not IS_WINDOWS:
             _binary(new).chmod(0o755)
@@ -369,6 +376,15 @@ def _install_app(rel: Release, progress) -> dict:
                 "old_version": __version__}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _fresh_asset(rel: Release, name: str) -> tuple[str, str] | None:
+    """Ссылка и сумма сборки этого же релиза, заново спрошенные у GitHub."""
+    try:
+        now = latest()
+    except UpdateError:
+        return None
+    return now.assets.get(name) if now and now.tag == rel.tag else None
 
 
 def _sha256(path: Path) -> str:

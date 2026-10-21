@@ -24,8 +24,12 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Библиотеки Qt для Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q libegl1 libgl1 libxkbcommon0 libfontconfig1
       - name: Зависимости
-        run: python -m pip install psutil certifi pytest
+        # PySide6 нужен платным модулям whyslow/premium: окно и логика там в одном файле
+        run: python -m pip install -r requirements.txt pytest
       - name: Тесты
         run: python -m pytest -q tests
 
