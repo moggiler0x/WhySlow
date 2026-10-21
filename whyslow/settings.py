@@ -9,6 +9,9 @@ DEFAULTS = {
     "mac_autoclean": False,  # macOS: сама чистить безопасные «Системные данные»
     "mac_autoclean_days": 7, # раз во сколько дней
     "mac_autoclean_last": 0, # когда чистила в последний раз (time.time())
+    "background": True,      # при закрытии окна оставаться в трее и записывать тормоза
+    "watch": True,           # записывать тормоза, пока WhySlow открыт
+    "tray_hint_shown": False,  # подсказку «я в трее» показываем один раз
 }
 
 

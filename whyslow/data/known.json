@@ -88,6 +88,19 @@
    "note_en": "Tray icon and service of the built-in antivirus. Don't disable it."
   },
   {
+   "id": "whyslow",
+   "title": "WhySlow",
+   "title_en": "WhySlow",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "optional",
+   "match": [
+    "whyslow"
+   ],
+   "note": "Это сам WhySlow: в фоне записывает, когда и из-за чего тормозил компьютер. Если запись не нужна — выключите на вкладке «История».",
+   "note_en": "This is WhySlow itself: it records in the background when and why the computer was slow. If you don't need that, turn it off on the History tab."
+  },
+  {
    "id": "win_core",
    "title": "Ядро Windows",
    "title_en": "Windows core",

@@ -22,12 +22,12 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
     QComboBox, QFileDialog, QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QSizePolicy, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QMenu, QSizePolicy, QSystemTrayIcon, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from . import (
     __version__, bigfiles, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
-    settings, startup, sysinfo, updater,
+    settings, startup, sysinfo, updater, watch,
 )
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
@@ -3461,6 +3461,118 @@ class ReinstallTab(QWidget):
         self.update_state()
 
 
+class HistoryTab(QWidget):
+    """Когда и из-за чего тормозил компьютер — по записи в фоне."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.episodes: list[watch.Episode] = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        lay.addWidget(muted(tr(f"Пока WhySlow открыт или свёрнут в трей, он замечает, когда процессор загружен больше "
+                               f"{watch.CPU_HIGH:.0f}% или память занята больше {watch.RAM_HIGH:.0f}% дольше "
+                               f"{watch.MIN_SECONDS} секунд, и запоминает, кто в это время грузил систему.",
+                               f"While WhySlow is open or in the tray, it notices when the CPU is above "
+                               f"{watch.CPU_HIGH:.0f}% or memory above {watch.RAM_HIGH:.0f}% for more than "
+                               f"{watch.MIN_SECONDS} seconds, and remembers what was loading the system.")))
+        opts = QGridLayout()
+        opts.setHorizontalSpacing(px(12))
+        self.sw_watch = Switch(settings.get("watch"))
+        self.sw_watch.clicked.connect(lambda: self._toggle("watch", self.sw_watch))
+        self.sw_bg = Switch(settings.get("background"))
+        self.sw_bg.clicked.connect(lambda: self._toggle("background", self.sw_bg))
+        self.sw_self = Switch(False)
+        self.sw_self.clicked.connect(self._toggle_selfstart)
+        rows = [(self.sw_watch, tr("Записывать тормоза", "Record slowdowns")),
+                (self.sw_bg, tr("При закрытии окна оставаться в трее и продолжать запись",
+                                "Stay in the tray when the window is closed and keep recording")),
+                (self.sw_self, tr("Запускать WhySlow вместе с системой (сразу в трей)",
+                                  "Start WhySlow with the system (straight to the tray)"))]
+        for i, (sw, text) in enumerate(rows):
+            opts.addWidget(sw, i, 0)
+            opts.addWidget(QLabel(text), i, 1)
+        opts.setColumnStretch(1, 1)
+        lay.addLayout(opts)
+        self.table = make_table([tr("Когда", "When"), tr("Сколько", "How long"), tr("Что", "What"),
+                                 tr("Кто грузил", "Who was loading it")])
+        hh = self.table.horizontalHeader()
+        for i in (0, 1, 2):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.itemSelectionChanged.connect(self.on_select)
+        lay.addWidget(self.table, 1)
+        self.detail = muted("")
+        self.detail.setTextFormat(Qt.RichText)
+        lay.addWidget(self.detail)
+        row = QHBoxLayout()
+        row.addStretch()
+        self.b_clear = QPushButton(tr("Очистить историю", "Clear history"))
+        self.b_clear.clicked.connect(self.clear)
+        row.addWidget(self.b_clear)
+        lay.addLayout(row)
+        self.reload()
+
+    def activate(self):
+        run_async(lambda _p: watch.selfstart_enabled(), self.sw_self.setChecked, lambda _e: None)
+
+    def _toggle(self, key: str, sw: Switch):
+        on = not settings.get(key)
+        settings.set(key, on)
+        sw.setChecked(on)
+
+    def _toggle_selfstart(self):
+        on = not self.sw_self.isChecked()
+        try:
+            watch.set_selfstart(on)
+        except OSError as e:
+            _show_error(str(e))
+            return
+        self.sw_self.setChecked(on)
+        self.main.status(tr("WhySlow будет запускаться вместе с системой", "WhySlow will start with the system") if on
+                         else tr("WhySlow больше не запускается вместе с системой", "WhySlow no longer starts with the system"))
+
+    def reload(self):
+        self.episodes = watch.load()
+        self.table.setRowCount(len(self.episodes))
+        what = {"cpu": tr("процессор", "CPU"), "ram": tr("память", "memory"), "cpu+ram": tr("процессор и память", "CPU and memory")}
+        for r, e in enumerate(self.episodes):
+            who = ", ".join(c[0] for c in e.culprits[:3])
+            took = human_duration(e.duration) if e.duration >= 60 else tr(f"{e.duration:.0f} с", f"{e.duration:.0f} s")
+            cells = [time.strftime("%d.%m %H:%M", time.localtime(e.start)), took,
+                     what.get(e.kind, e.kind), who]
+            for c, text in enumerate(cells):
+                self.table.setItem(r, c, QTableWidgetItem(text))
+        if not self.episodes:
+            self.detail.setText(tr("Тормозов пока не записано. Оставьте WhySlow открытым или в трее — когда компьютер "
+                                   "начнёт тормозить, здесь появится, кто виноват.",
+                                   "No slowdowns recorded yet. Keep WhySlow open or in the tray — when the computer "
+                                   "slows down, the culprit will show up here."))
+        self.b_clear.setEnabled(bool(self.episodes))
+
+    def on_select(self):
+        rows = self.table.selectionModel().selectedRows()
+        if not rows or rows[0].row() >= len(self.episodes):
+            return
+        e = self.episodes[rows[0].row()]
+        lines = [tr(f"Пик: процессор {e.peak_cpu:.0f}%, память {e.peak_ram:.0f}%.",
+                    f"Peak: CPU {e.peak_cpu:.0f}%, memory {e.peak_ram:.0f}%.")]
+        for name, cpu, mem in e.culprits:
+            v = self.main.kb.lookup(name)
+            note = f" — {_esc(v.note)}" if v.verdict != "unknown" else ""
+            lines.append(f"<b>{_esc(name)}</b>: {tr('до', 'up to')} {cpu:.0f}% {tr('ЦП', 'CPU')}, "
+                         f"{human_size(mem)}{note}")
+        self.detail.setText("<br>".join(lines))
+
+    def clear(self):
+        if confirm(self, tr("Очистить историю?", "Clear history?"),
+                   tr("Все записанные эпизоды тормозов будут удалены.", "All recorded slowdowns will be deleted.")):
+            watch.clear()
+            self.reload()
+            self.detail.setText("")
+
+
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -3708,19 +3820,21 @@ class MainWindow(QMainWindow):
         self.procs_tab = ProcessesTab(self)
         self.junk_tab = JunkTab(self)
         self.journal_tab = JournalTab(self)
+        self.history_tab = HistoryTab(self)
         self.optimize_tab = OptimizeTab(self)
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
-                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab}
+                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
+                         "history": self.history_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
-                 (self.journal_tab, tr("Журнал", "Journal"))]
+                 (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
             pages.insert(6, (self.storage_tab, tr("Хранилище", "Storage")))
@@ -3748,12 +3862,17 @@ class MainWindow(QMainWindow):
             b_admin.clicked.connect(self.restart_as_admin)
             sb.addPermanentWidget(b_admin)
         self.show_db()
+        self.recorder = watch.Recorder()
+        self._quitting = False
+        self.tray = self._make_tray()
         self.sampler = Sampler(lambda: self.kb)
         self.sampler.stats.connect(self.on_stats)
         self.sampler.procs.connect(self.on_procs)
         self.sampler.start()
+        QApplication.instance().aboutToQuit.connect(self._stop_sampler)
         QTimer.singleShot(200, self.update_db)
-        QTimer.singleShot(400, self.scan)
+        if "--tray" not in sys.argv:  # при запуске вместе с системой не грузим её проверкой
+            QTimer.singleShot(400, self.scan)
         QTimer.singleShot(1500, self.check_updates)
         if IS_MAC:  # автоочистка по расписанию: проверяем при запуске и раз в час
             QTimer.singleShot(30000, self.autoclean_if_due)
@@ -3766,18 +3885,82 @@ class MainWindow(QMainWindow):
             self.hist[k].append(s[k])
         self.hist["cpu"].append(s["cpu"])
         self.hist["ram"].append(s["ram"][2])
+        if settings.get("watch"):
+            ep = self.recorder.feed(s["cpu"], s["ram"][2])
+            if ep:
+                self.on_episode(ep)
+        if not self.isVisible():
+            return  # в трее рисовать нечего
         self.overview.on_stats(s, self.hist)
         self.overview.hero.calm = s["cpu"] >= 70
         self.system_tab.on_stats(s, self.hist)
 
     def on_procs(self, groups):
+        self.recorder.feed_procs(groups)
+        if not self.isVisible():
+            return
         self.overview.on_procs(groups)
         self.procs_tab.on_procs(groups)
 
+    def on_episode(self, ep):
+        try:
+            watch.save(ep)
+        except OSError:
+            return
+        self.history_tab.reload()
+        if self.tray and not self.isVisible():
+            self.tray.showMessage(tr("Компьютер тормозил", "The computer was slow"),
+                                  ep.headline(), QSystemTrayIcon.Warning, 8000)
+
+    def _make_tray(self):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return None
+        tray = QSystemTrayIcon(QApplication.windowIcon(), self)
+        tray.setToolTip("WhySlow")
+        menu = QMenu()
+        menu.addAction(tr("Открыть WhySlow", "Open WhySlow"), self.show_window)
+        menu.addAction(tr("История тормозов", "Slowdown history"), lambda: (self.show_window(), self.go("history")))
+        menu.addSeparator()
+        menu.addAction(tr("Выход", "Quit"), self.quit_app)
+        tray.setContextMenu(menu)
+        self._tray_menu = menu
+        tray.activated.connect(lambda reason: reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick)
+                               and not IS_MAC and self.show_window())
+        tray.messageClicked.connect(lambda: (self.show_window(), self.go("history")))
+        tray.show()
+        return tray
+
+    def show_window(self):
+        self.show()
+        self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self):
+        self._quitting = True
+        self.close()
+
     def closeEvent(self, e):
+        if self.tray and settings.get("background") and settings.get("watch") and not self._quitting:
+            e.ignore()
+            self.hide()
+            if not settings.get("tray_hint_shown"):
+                settings.set("tray_hint_shown", True)
+                self.tray.showMessage("WhySlow", tr("Продолжаю записывать тормоза в фоне. Выйти совсем — через значок "
+                                                    "в трее. Выключить — на вкладке «История».",
+                                                    "Still recording slowdowns in the background. To quit, use the "
+                                                    "tray icon. To turn this off, see the History tab."),
+                                      QSystemTrayIcon.Information, 8000)
+            return
+        self._stop_sampler()
+        if self.tray:
+            self.tray.hide()
+        super().closeEvent(e)
+        QApplication.quit()
+
+    def _stop_sampler(self):
         self.sampler.stop()
         self.sampler.wait(3000)
-        super().closeEvent(e)
 
     def status(self, text: str):
         self.statusBar().showMessage(text, 8000)
@@ -3853,6 +4036,7 @@ class MainWindow(QMainWindow):
             _show_error(tr(f"Не удалось перезапустить: {e}. Запустите WhySlow заново вручную.",
                            f"Couldn't restart: {e}. Please start WhySlow again manually."))
             return
+        self._quitting = True
         self.close()
         QApplication.quit()
 
@@ -3875,6 +4059,8 @@ class MainWindow(QMainWindow):
             self.storage_tab.activate()
         elif cur is self.reinstall_tab:
             self.reinstall_tab.activate()
+        elif cur is self.history_tab:
+            self.history_tab.activate()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():
@@ -3964,6 +4150,8 @@ def main() -> int:
     f.setPointSizeF(10 * SCALE)
     app.setFont(f)
     app.setStyleSheet(build_style())
+    app.setQuitOnLastWindowClosed(False)  # окно может прятаться в трей; выходим сами в closeEvent
     w = MainWindow()
-    w.show()
+    if "--tray" not in sys.argv or not w.tray:
+        w.show()
     return app.exec()
