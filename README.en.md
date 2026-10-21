@@ -471,8 +471,9 @@ whyslow/
   power.py       power saving mode and battery wear
   bigfiles.py    finding large files and moving them to the Trash
   watch.py       recording slowdowns in the background, starting with the system
-  xray.py        freeze X-ray: last minute of samples, culprit analysis, hotkey
-  gamemode.py    game mode: game detection, plan, restore, report and FPS measuring
+  gamerestore.py undoing game mode after a crash (works without a subscription too)
+  premium/xray.py      freeze X-ray: last minute of samples, culprit analysis, hotkey
+  premium/gamemode.py  game mode: game detection, plan, restore, report and FPS measuring
   sysinfo.py     hardware info, integrated GPU load
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights

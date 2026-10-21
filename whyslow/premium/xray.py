@@ -19,8 +19,8 @@ from pathlib import Path
 
 import psutil
 
-from .i18n import tr
-from .util import IS_MAC, IS_WINDOWS, app_dir, human_size, read_json, write_json
+from ..i18n import tr
+from ..util import IS_MAC, IS_WINDOWS, app_dir, human_size, read_json, write_json
 
 WINDOW = 60          # сколько секунд замеров держать в памяти
 LOOKBACK = 20        # сколько из них разбирать перед нажатием
@@ -414,3 +414,260 @@ class WinHotkey(threading.Thread):
         if self._tid:
             import ctypes
             ctypes.windll.user32.PostThreadMessageW(self._tid, self.WM_QUIT, 0, 0)
+
+
+# ------------------------------------------------------------------ окно ---
+
+from PySide6.QtCore import QObject, Qt, QTimer, Signal  # noqa: E402
+from PySide6.QtGui import QAction, QKeySequence, QShortcut  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication, QFrame, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton, QScrollArea, QTableWidgetItem,
+    QVBoxLayout, QWidget,
+)
+
+from .. import gui, license, settings  # noqa: E402
+from ..gui import C, Sparkline, Switch, _esc, accent, by_os, confirm, make_table, muted, pt, px  # noqa: E402
+
+class XRayTab(QWidget):
+    """Снимки «одной лагающей секунды»: что было за 20 секунд до нажатия и кто виноват."""
+
+    KIND = {"stall": "⏸", "cpu": "▲", "core": "▲", "ram": "▣", "disk": "◉", "net": "⇅", "driver": "⚙",
+            "thermal": "♨", "gpu": "▦", "none": "✓"}
+
+    def __init__(self, main, ctl: "_XRay"):
+        super().__init__()
+        self.main, self.ctl = main, ctl
+        self.shots: list[Shot] = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        head = QHBoxLayout()
+        text = QVBoxLayout()
+        title = QLabel(accent(tr("Рентген фриза", "Freeze X-ray")))
+        title.setObjectName("h1")
+        text.addWidget(title)
+        hot = by_os(tr(f"Нажмите {HOTKEY} в момент подвисания — даже в игре и при свёрнутом WhySlow.",
+                       f"Press {HOTKEY} the moment things freeze — even in a game with WhySlow minimized."),
+                    tr(f"В момент подвисания выберите «Снять рентген» в значке WhySlow в строке меню "
+                       f"(или {HOTKEY}, когда окно WhySlow активно).",
+                       f"When things freeze, pick “Take X-ray” from the WhySlow menu bar icon "
+                       f"(or {HOTKEY} while the WhySlow window is active)."),
+                    tr(f"В момент подвисания выберите «Снять рентген» в значке WhySlow в трее "
+                       f"(или {HOTKEY}, когда окно WhySlow активно).",
+                       f"When things freeze, pick “Take X-ray” from the WhySlow tray icon "
+                       f"(or {HOTKEY} while the WhySlow window is active)."))
+        text.addWidget(muted(hot + " " + tr(
+            f"WhySlow сохранит, что происходило последние {LOOKBACK} секунд, и покажет, кто съел эту секунду: "
+            "программа, драйвер, диск, сеть или перегрев. Ничего в системе не меняется.",
+            f"WhySlow saves what happened in the last {LOOKBACK} seconds and shows who ate that second: "
+            "an app, a driver, the disk, the network or overheating. Nothing in the system is changed.")))
+        head.addLayout(text, 1)
+        self.b_shot = QPushButton(tr("Снять рентген сейчас", "Take X-ray now"))
+        self.b_shot.setObjectName("primary")
+        self.b_shot.setCursor(Qt.PointingHandCursor)
+        self.b_shot.clicked.connect(lambda: self.ctl.take("button"))
+        head.addWidget(self.b_shot, 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+        opts = QHBoxLayout()
+        self.sw_auto = Switch(settings.get("xray_auto"))
+        self.sw_auto.clicked.connect(self._toggle_auto)
+        opts.addWidget(self.sw_auto)
+        opts.addWidget(QLabel(tr("Снимать самому, когда система замерла целиком", "Take one automatically when the whole system freezes")))
+        opts.addStretch()
+        lay.addLayout(opts)
+        self.table = make_table([tr("Когда", "When"), tr("Как", "How"), tr("Главный подозреваемый", "Main suspect")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.itemSelectionChanged.connect(self.on_select)
+        self.table.setMaximumHeight(px(200))
+        lay.addWidget(self.table)
+        self.chart = Sparkline([C["accent"], C["warn"], C["info"]], 100, 70, axis=True,
+                               names=[tr("ЦП", "CPU"), tr("Память", "Memory"), tr("Диск, % от пика", "Disk, % of peak")])
+        lay.addWidget(self.chart)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.detail = QWidget()
+        self.detail_lay = QVBoxLayout(self.detail)
+        self.detail_lay.setContentsMargins(0, 0, px(6), 0)
+        self.detail_lay.setSpacing(px(8))
+        self.scroll.setWidget(self.detail)
+        lay.addWidget(self.scroll, 1)
+        row = QHBoxLayout()
+        self.state = muted("")
+        row.addWidget(self.state, 1)
+        self.b_clear = QPushButton(tr("Удалить снимки", "Delete snapshots"))
+        self.b_clear.clicked.connect(self.clear)
+        row.addWidget(self.b_clear)
+        lay.addLayout(row)
+        self.reload()
+
+    def _toggle_auto(self):
+        on = not settings.get("xray_auto")
+        settings.set("xray_auto", on)
+        self.sw_auto.setChecked(on)
+
+    def busy(self, on: bool):
+        self.b_shot.setEnabled(not on)
+        self.state.setText(tr("Снимаю рентген…", "Taking an X-ray…") if on else "")
+
+    def reload(self, select_first: bool = False):
+        self.shots = load()
+        how = {"hotkey": tr("клавишей", "hotkey"), "button": tr("кнопкой", "button"), "auto": tr("сам", "auto")}
+        self.table.setRowCount(len(self.shots))
+        for r, s in enumerate(self.shots):
+            cells = [time.strftime("%d.%m %H:%M:%S", time.localtime(s.time)), how.get(s.reason, s.reason), s.headline()]
+            for c, text in enumerate(cells):
+                self.table.setItem(r, c, QTableWidgetItem(text))
+        self.b_clear.setEnabled(bool(self.shots))
+        if select_first and self.shots:
+            self.table.selectRow(0)
+        elif not self.shots:
+            self._clear()
+            self.detail_lay.addWidget(muted(tr("Снимков пока нет. Когда что-то подвиснет — нажмите горячую клавишу "
+                                               "или кнопку выше.",
+                                               "No snapshots yet. When something freezes, press the hotkey or the button above.")))
+            self.detail_lay.addStretch()
+            self.chart.set_series([], [], [])
+
+    def _clear(self):
+        while self.detail_lay.count():
+            w = self.detail_lay.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+
+    def on_select(self):
+        rows = self.table.selectionModel().selectedRows()
+        if not rows or rows[0].row() >= len(self.shots):
+            return
+        s = self.shots[rows[0].row()]
+        frames = s.frames
+        peak = max((f["disk_r"] + f["disk_w"] for f in frames), default=0) or 1
+        self.chart.n = max(len(frames), 2)
+        self.chart.set_series([f["cpu"] for f in frames], [f["ram"] for f in frames],
+                              [(f["disk_r"] + f["disk_w"]) / peak * 100 for f in frames])
+        self._clear()
+        for i, d in enumerate(s.suspects):
+            self.detail_lay.addWidget(self._card(d, first=i == 0))
+        self.detail_lay.addStretch()
+
+    def _card(self, d: dict, first: bool) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        v = QVBoxLayout(card)
+        v.setContentsMargins(px(16), px(10), px(14), px(10))
+        v.setSpacing(px(3))
+        color = C["bad"] if first and d["kind"] != "none" else (C["ok"] if d["kind"] == "none" else C["warn"])
+        t = QLabel(f"<span style='color:{color}'>{self.KIND.get(d['kind'], '•')}</span>&nbsp; {_esc(d['title'])}")
+        t.setWordWrap(True)
+        t.setStyleSheet(f"font-weight: 700; font-size: {pt(11.5 if first else 10.5)};")
+        v.addWidget(t)
+        detail = d.get("detail", "")
+        if d.get("who"):
+            kb = self.main.kb.lookup(d["who"])
+            if kb.verdict != "unknown":
+                detail += f" {d['who']}: {kb.note}"
+        if detail:
+            v.addWidget(muted(detail))
+        if d.get("advice"):
+            v.addWidget(muted("→ " + d["advice"]))
+        return card
+
+    def clear(self):
+        if confirm(self, tr("Удалить снимки?", "Delete snapshots?"),
+                   tr("Все сохранённые рентгены будут удалены.", "All saved X-rays will be deleted.")):
+            clear()
+            self.reload()
+
+
+# ---------------------------------------------------------- Игровой режим ---
+
+
+class _XRay(QObject):
+    """Фоновая часть: держит последнюю минуту замеров, ловит горячую клавишу и замирания."""
+
+    hotkey_pressed = Signal()  # из потока WinHotkey — в поток окна
+
+    def __init__(self, main):
+        super().__init__(main)
+        self.main = main
+        self.tab: XRayTab | None = None
+        self.buf = Buffer()
+        self.busy = False
+        self.hotkey = None
+        self.hotkey_pressed.connect(lambda: self.take("hotkey"))
+        if IS_WINDOWS:  # по всей системе, даже поверх игры
+            self.hotkey = WinHotkey(self.hotkey_pressed.emit)
+            self.hotkey.start()
+        sc = QShortcut(QKeySequence("Ctrl+Alt+X"), main)  # на Mac это ⌘⌥X
+        sc.setContext(Qt.ApplicationShortcut)
+        sc.activated.connect(lambda: self.take("hotkey"))
+        QTimer.singleShot(0, self._attach)  # Sampler и трей создаются в MainWindow позже вкладок
+
+    def _attach(self):
+        self.main.sampler.stats.connect(self.on_stats)
+        self.main.sampler.procs.connect(self.buf.feed_procs)
+        QApplication.instance().aboutToQuit.connect(self.quit)
+        menu = getattr(self.main, "_tray_menu", None)
+        if menu:
+            act = QAction(tr("Снять рентген фриза", "Take a freeze X-ray"), menu)
+            act.triggered.connect(lambda: self.take("hotkey"))
+            acts = menu.actions()
+            menu.insertAction(acts[2] if len(acts) > 2 else None, act)
+
+    def on_stats(self, s: dict):
+        self.buf.feed_stats(s)
+        if settings.get("xray_auto") and self.buf.want_auto() and license.has_premium("xray"):
+            self.take("auto")
+
+    def take(self, reason: str):
+        if not license.has_premium("xray"):
+            if reason != "auto":
+                self.main.show_window()
+                self.main.go("xray")
+            return
+        if self.busy:
+            return
+        self.busy = True
+        frames, procs = self.buf.window()  # копия окна здесь: буфер пополняется из этого же потока
+        if self.tab:
+            self.tab.busy(True)
+
+        def done(shot):
+            self.busy = False
+            try:
+                save(shot)
+            except OSError as e:
+                QMessageBox.critical(self.main, tr("Ошибка", "Error"), str(e))
+            if self.tab:
+                self.tab.busy(False)
+                self.tab.reload(select_first=True)
+            self.main.status(tr("Рентген: ", "X-ray: ") + shot.headline())
+            if reason != "button":
+                self.main.notify(tr("Рентген фриза снят", "Freeze X-ray taken"), shot.headline(), "xray")
+
+        def failed(e):
+            self.busy = False
+            if self.tab:
+                self.tab.busy(False)
+            if reason != "auto":
+                QMessageBox.critical(self.main, tr("Ошибка", "Error"), e)
+
+        gui.run_async(lambda _p: make_shot(frames, procs, reason, probe()), done, failed)
+
+    def quit(self):
+        if self.hotkey:
+            self.hotkey.stop()
+
+
+_ctl: _XRay | None = None
+
+
+def build(main):
+    """Вкладка «Рентген» (зовёт license_ui.PremiumGate). Фоновая часть создаётся один раз."""
+    global _ctl
+    if _ctl is None:
+        _ctl = _XRay(main)
+    _ctl.tab = XRayTab(main, _ctl)
+    return _ctl.tab

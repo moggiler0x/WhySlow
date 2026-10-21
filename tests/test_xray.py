@@ -1,4 +1,4 @@
-from whyslow import xray
+from whyslow.premium import xray
 from whyslow.processes import ProcGroup
 
 

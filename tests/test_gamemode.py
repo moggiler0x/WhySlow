@@ -6,7 +6,8 @@ import time
 import psutil
 import pytest
 
-from whyslow import gamemode, journal
+from whyslow import gamerestore, journal
+from whyslow.premium import gamemode
 from whyslow.knowledge import Verdict
 from whyslow.processes import ProcGroup
 
@@ -111,11 +112,10 @@ def test_recover_after_crash(child):
     before = proc.nice()
     game = gamemode.Game("fake.exe", os.getpid())
     gamemode.apply(game, [_bg_action(child.pid)], gamemode.start(game))
-    s = gamemode.recover()  # как будто WhySlow упал и запустился снова
-    assert s and s.game["name"] == "fake.exe"
+    assert gamerestore.recover() == "fake.exe"  # как будто WhySlow упал и запустился снова
     assert proc.nice() == before
     assert proc.status() != psutil.STATUS_STOPPED
-    assert gamemode.recover() is None
+    assert gamerestore.recover() is None
 
 
 def test_restore_skips_reused_pid(child):

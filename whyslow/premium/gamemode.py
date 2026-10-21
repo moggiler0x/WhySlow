@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 import re
 import shutil
 import subprocess
@@ -27,9 +26,10 @@ from pathlib import Path
 
 import psutil
 
-from . import journal, settings
-from .i18n import tr
-from .util import IS_LINUX, IS_WINDOWS, app_dir, human_size, is_admin, read_json, run, write_json
+from .. import gamerestore, journal, settings
+from ..gamerestore import same_process as _same, why as _why
+from ..i18n import tr
+from ..util import IS_LINUX, IS_WINDOWS, app_dir, human_size, is_admin, run, write_json
 
 # Папки, куда магазины ставят игры
 GAME_DIRS = re.compile(
@@ -118,20 +118,6 @@ def detect(procs, extra: list[str] | None = None, ignore: list[str] | None = Non
     return sorted(found, key=lambda g: (not g.exe, g.pid))[0]
 
 
-def running() -> list[tuple[int, str, str]]:
-    out = []
-    me = os.getpid()
-    for p in psutil.process_iter(["name", "exe"]):
-        if p.pid in (0, me):
-            continue
-        out.append((p.pid, p.info.get("name") or "", p.info.get("exe") or ""))
-    return out
-
-
-def detect_running() -> Game | None:
-    return detect(running(), settings.get("games"), settings.get("games_ignore"))
-
-
 # ------------------------------------------------------------------- план ---
 
 def can_lower() -> bool:
@@ -197,7 +183,7 @@ def _win_scheme() -> str:
 # ------------------------------------------------------- применение и откат ---
 
 def _state_path() -> Path:
-    return app_dir() / "gamemode.json"
+    return gamerestore.state_path()
 
 
 @dataclass
@@ -234,15 +220,6 @@ def _created(pid: int) -> float:
         return 0.0
 
 
-def _same(pid: int, created: float) -> psutil.Process | None:
-    """Процесс, если это всё ещё тот же (номер не достался новому процессу)."""
-    try:
-        p = psutil.Process(pid)
-        return p if abs(p.create_time() - created) < 1 else None
-    except psutil.Error:
-        return None
-
-
 def _nice(kind: str):
     if IS_WINDOWS:
         return psutil.ABOVE_NORMAL_PRIORITY_CLASS if kind == "up" else psutil.BELOW_NORMAL_PRIORITY_CLASS
@@ -272,14 +249,6 @@ def apply(game: Game, actions: list[Action], session: Session | None = None, pro
     journal.add("gamemode", tr(f"Игровой режим для {game.name}: {len(s.titles)} изм.", f"Game mode for {game.name}: {len(s.titles)} changes"),
                 {"game": game.name, "titles": s.titles}, undoable=False)
     return s, errors
-
-
-def _why(e: Exception) -> str:
-    if isinstance(e, psutil.AccessDenied):
-        return tr("нет прав", "access denied")
-    if isinstance(e, psutil.NoSuchProcess):
-        return tr("программа уже закрылась", "the program has already exited")
-    return str(e)
 
 
 def _apply_proc(s: Session, kind: str, pid: int) -> None:
@@ -317,44 +286,10 @@ def _apply_power(s: Session) -> None:
 
 def restore(s: Session) -> list[str]:
     """Возвращает всё как было. Закрывшиеся процессы пропускает. Удаляет файл состояния."""
-    errors = []
-    for u in reversed(s.undo):
-        try:
-            if u["kind"] == "power":
-                if IS_WINDOWS:
-                    run(["powercfg", "/setactive", u["old"]], timeout=10)
-                elif IS_LINUX:
-                    run(["powerprofilesctl", "set", u["old"]], timeout=5)
-                continue
-            p = _same(u["pid"], u["created"])
-            if not p:
-                continue
-            if u["kind"] == "suspend":
-                p.resume()
-            elif u["kind"] == "nice":
-                p.nice(u["old"])
-        except (psutil.Error, OSError, KeyError) as e:
-            errors.append(_why(e))
+    errors = gamerestore.undo(s.undo)
     s.undo = []
-    try:
-        _state_path().unlink()
-    except OSError:
-        pass
+    _state_path().unlink(missing_ok=True)
     return errors
-
-
-def recover() -> Session | None:
-    """После падения или перезагрузки WhySlow: незакрытая сессия откатывается."""
-    data = read_json(_state_path(), None)
-    if not isinstance(data, dict):
-        return None
-    try:
-        s = Session(**data)
-    except TypeError:
-        _state_path().unlink(missing_ok=True)
-        return None
-    restore(s)
-    return s
 
 
 def start(game: Game) -> Session:
@@ -459,3 +394,344 @@ def measure_fps(pid: int, seconds: int = 15) -> dict:
 def free_memory() -> int:
     return psutil.virtual_memory().available
 
+
+# ------------------------------------------------------------------ окно ---
+
+from PySide6.QtCore import QObject, Qt, QTimer  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication, QCheckBox, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+)
+
+from .. import gui, license  # noqa: E402
+from ..gui import C, Switch, _esc, accent, muted, pt, px, section  # noqa: E402
+
+class GamesTab(QWidget):
+    """Игровой режим: какая игра запущена, план с галочками, отчёт после игры."""
+
+    def __init__(self, main, ctl: "_Games"):
+        super().__init__()
+        self.main, self.ctl = main, ctl
+        self.boxes: list[QCheckBox] = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        title = QLabel(accent(tr("Игровой режим", "Game mode")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("WhySlow замечает запуск игры и предлагает план: понизить приоритет тяжёлых фоновых "
+                               "программ, приостановить ненужные на время игры, поднять приоритет игры и включить "
+                               "питание на максимум. Ничего не меняется без «Включить», а когда игра закрывается, "
+                               "всё возвращается как было и показывается, что это дало.",
+                               "WhySlow notices when a game starts and offers a plan: lower heavy background apps, "
+                               "pause unneeded ones while you play, raise the game's priority and set power to maximum. "
+                               "Nothing changes until you press “Turn on”, and when the game closes everything is "
+                               "restored and you see what it gave you.")))
+        opts = QHBoxLayout()
+        self.sw = Switch(settings.get("gamemode"))
+        self.sw.clicked.connect(self._toggle)
+        opts.addWidget(self.sw)
+        opts.addWidget(QLabel(tr("Замечать запуск игр", "Watch for games")))
+        opts.addStretch()
+        b_add = QPushButton(tr("Добавить игру…", "Add a game…"))
+        b_add.clicked.connect(self.add_game)
+        opts.addWidget(b_add)
+        lay.addLayout(opts)
+
+        self.game_label = QLabel()
+        self.game_label.setWordWrap(True)
+        self.game_label.setStyleSheet(f"font-size: {pt(13)}; font-weight: 700;")
+        lay.addWidget(self.game_label)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.list = QWidget()
+        self.list_lay = QVBoxLayout(self.list)
+        self.list_lay.setContentsMargins(0, 0, px(6), 0)
+        self.list_lay.setSpacing(px(8))
+        self.scroll.setWidget(self.list)
+        lay.addWidget(self.scroll, 1)
+
+        row = QHBoxLayout()
+        self.cb_auto = QCheckBox(tr("Для этой игры включать без вопроса", "Turn on for this game without asking"))
+        row.addWidget(self.cb_auto)
+        row.addStretch()
+        self.b_ignore = QPushButton(tr("Это не игра", "Not a game"))
+        self.b_ignore.clicked.connect(self.not_a_game)
+        row.addWidget(self.b_ignore)
+        self.b_off = QPushButton(tr("Выключить", "Turn off"))
+        self.b_off.clicked.connect(lambda: self.ctl.finish(manual=True))
+        row.addWidget(self.b_off)
+        self.b_on = QPushButton(tr("Включить", "Turn on"))
+        self.b_on.setObjectName("primary")
+        self.b_on.setCursor(Qt.PointingHandCursor)
+        self.b_on.clicked.connect(self.turn_on)
+        row.addWidget(self.b_on)
+        lay.addLayout(row)
+        self.fps = muted("")
+        self.fps.setTextFormat(Qt.RichText)
+        self.fps.setOpenExternalLinks(True)
+        lay.addWidget(self.fps)
+        self.refresh()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self.refresh()
+
+    def _toggle(self):
+        on = not settings.get("gamemode")
+        settings.set("gamemode", on)
+        self.sw.setChecked(on)
+
+    def _clear(self):
+        while self.list_lay.count():
+            w = self.list_lay.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+
+    def refresh(self):
+        """Перерисовать по состоянию MainWindow: нет игры / игра замечена / режим включён / отчёт."""
+        s = self.ctl.session
+        self._clear()
+        self.boxes = []
+        active = bool(s and s.applied_at)
+        if s:
+            name = s.game["name"]
+            self.game_label.setText(tr(f"Игровой режим включён: {name}", f"Game mode is on: {name}") if active
+                                    else tr(f"Запущена игра: {name}", f"Game running: {name}"))
+            if active:
+                for t in s.titles:
+                    self.list_lay.addWidget(muted("✓ " + t))
+            else:
+                self.list_lay.addWidget(muted(s.game.get("why", "")))
+                for a in self.ctl.actions:
+                    self.list_lay.addWidget(self._row(a))
+                if not self.ctl.actions:
+                    self.list_lay.addWidget(muted(tr("Мешать игре нечему — фон и так тихий.",
+                                                     "Nothing is in the game's way — the background is already quiet.")))
+            self.cb_auto.setChecked(name.lower() in settings.get("games_auto"))
+        else:
+            self.game_label.setText(tr("Игра не запущена", "No game running"))
+            if self.ctl.report:
+                self.list_lay.addWidget(section(tr("Что дал игровой режим", "What game mode gave you")))
+                for line in self.ctl.report:
+                    self.list_lay.addWidget(muted(line))
+            else:
+                self.list_lay.addWidget(muted(tr("Запустите игру — WhySlow заметит её и покажет план здесь. Если игра "
+                                                 "не определилась, нажмите «Добавить игру…».",
+                                                 "Start a game — WhySlow will notice it and show the plan here. If it "
+                                                 "isn't detected, press “Add a game…”.")))
+        self.list_lay.addStretch()
+        self.cb_auto.setEnabled(bool(s))
+        self.b_on.setEnabled(bool(s) and not active)
+        self.b_off.setEnabled(active)
+        self.b_ignore.setEnabled(bool(s) and not active)
+        pm = presentmon()
+        if not IS_WINDOWS:
+            self.fps.setText(tr("Замер FPS пока есть только в Windows; отчёт покажет, сколько процессора освободилось для игры.",
+                                "FPS measuring is Windows-only for now; the report shows how much CPU was freed for the game."))
+        elif pm:
+            self.fps.setText(tr("FPS меряется через PresentMon: 15 секунд до и после включения.",
+                                "FPS is measured with PresentMon: 15 seconds before and after turning it on."))
+        else:
+            folder = _esc(str(app_dir() / "presentmon"))
+            self.fps.setText(tr(f"Чтобы отчёт показывал FPS, скачайте бесплатный "
+                                f"<a style='color:{C['accent2']}' href='{PRESENTMON_URL}'>PresentMon</a> "
+                                f"(консольную версию) и положите его в {folder}.",
+                                f"For FPS in the report, download the free "
+                                f"<a style='color:{C['accent2']}' href='{PRESENTMON_URL}'>PresentMon</a> "
+                                f"(console version) and put it into {folder}."))
+
+    def _row(self, a: Action) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        h = QHBoxLayout(card)
+        h.setContentsMargins(px(14), px(10), px(14), px(10))
+        h.setSpacing(px(12))
+        cb = QCheckBox()
+        cb.setChecked(a.checked)
+        self.boxes.append(cb)
+        h.addWidget(cb, 0, Qt.AlignTop)
+        v = QVBoxLayout()
+        v.setSpacing(px(2))
+        t = QLabel(a.title)
+        t.setWordWrap(True)
+        t.setStyleSheet("font-weight: 700;")
+        v.addWidget(t)
+        if a.detail:
+            v.addWidget(muted(a.detail))
+        h.addLayout(v, 1)
+        card.mousePressEvent = lambda _e, cb=cb: cb.toggle()
+        return card
+
+    def chosen(self) -> list[Action]:
+        for a, b in zip(self.ctl.actions, self.boxes):
+            a.checked = b.isChecked()
+        return [a for a in self.ctl.actions if a.checked]
+
+    def turn_on(self):
+        s = self.ctl.session
+        if not s:
+            return
+        chosen = self.chosen()
+        auto = dict(settings.get("games_auto"))
+        name = s.game["name"].lower()
+        if self.cb_auto.isChecked():
+            auto[name] = sorted({a.kind for a in chosen})
+        else:
+            auto.pop(name, None)
+        settings.set("games_auto", auto)
+        self.ctl.apply(chosen)
+
+    def not_a_game(self):
+        s = self.ctl.session
+        if not s:
+            return
+        ignore = list(settings.get("games_ignore"))
+        ignore.append(s.game["name"])
+        settings.set("games_ignore", ignore)
+        self.ctl.session = None
+        self.ctl.actions = []
+        self.refresh()
+
+    def add_game(self):
+        from PySide6.QtWidgets import QInputDialog
+        names = sorted({g.name for g in self.ctl.groups if not g.system}, key=str.lower)
+        if not names:
+            return
+        name, ok = QInputDialog.getItem(self, tr("Добавить игру", "Add a game"),
+                                        tr("Запущенная программа, которую считать игрой:", "Running program to treat as a game:"),
+                                        names, 0, False)
+        if not ok or not name:
+            return
+        games = list(settings.get("games"))
+        if name not in games:
+            games.append(name)
+            settings.set("games", games)
+        settings.set("games_ignore", [g for g in settings.get("games_ignore") if g.lower() != name.lower()])
+        self.ctl.look()
+
+
+class _Games(QObject):
+    """Фоновая часть: раз в 10 секунд ищет игру, ведёт сессию и откатывает её."""
+
+    def __init__(self, main):
+        super().__init__(main)
+        self.main = main
+        self.tab: GamesTab | None = None
+        self.session: Session | None = None
+        self.actions: list[Action] = []
+        self.report: list[str] = []
+        self.groups: list = []
+        self.cpu = 0.0
+        self.skip: set[int] = set()  # игры, для которых режим выключили вручную
+        self._tick = 0
+        QTimer.singleShot(0, self._attach)  # Sampler создаётся в MainWindow позже вкладок
+
+    def _attach(self):
+        self.main.sampler.stats.connect(self.on_stats)
+        self.main.sampler.procs.connect(self.on_procs)
+        QApplication.instance().aboutToQuit.connect(self.quit)
+
+    def on_stats(self, s: dict):
+        self.cpu = s["cpu"]
+
+    def on_procs(self, groups):
+        self.groups = groups
+        s = self.session
+        if s:
+            if not game_alive(s):
+                self.finish()
+                return
+            s.feed(self.cpu, groups, free_memory())
+            return
+        self._tick += 1
+        if self._tick % 5 == 0 and settings.get("gamemode"):  # раз в 10 секунд
+            self.look()
+
+    def refresh(self):
+        if self.tab:
+            self.tab.refresh()
+
+    def look(self):
+        if self.session or not license.has_premium("gamemode"):
+            return
+        groups = list(self.groups)
+        procs = [(g.pids[0], g.name, g.exe) for g in groups if g.pids]
+        game = detect(procs, settings.get("games"), settings.get("games_ignore"))
+        if not game or game.pid in self.skip:
+            return
+        s = self.session = start(game)
+        self.report = []
+        gui.run_async(lambda _p: plan(game, groups), lambda acts: self._planned(s, game, acts),
+                      lambda _e: self._planned(s, game, []))
+        if presentmon():
+            gui.run_async(lambda _p: measure_fps(game.pid), lambda r: s.fps_before.update(r), lambda _e: None)
+
+    def _planned(self, s: Session, game: Game, actions: list[Action]):
+        if self.session is not s:
+            return  # игру уже закрыли или пометили «не игра»
+        auto = settings.get("games_auto").get(game.name.lower())
+        self.actions = actions
+        self.refresh()
+        if auto is not None:  # человек уже согласился на эти пункты для этой игры
+            for a in actions:
+                a.checked = a.kind in auto and (a.checked or a.kind == "suspend")
+            self.apply([a for a in actions if a.checked])
+            return
+        self.main.notify(tr(f"Запущена игра {game.name}", f"{game.name} started"),
+                         tr("Нажмите, чтобы посмотреть план игрового режима.", "Click to see the game mode plan."), "games")
+
+    def apply(self, chosen: list[Action]):
+        s = self.session
+        if not s or s.applied_at:
+            return
+        game = Game(s.game["name"], s.game["pid"], s.game.get("exe", ""), s.game.get("why", ""))
+
+        def done(res):
+            _s, errors = res
+            self.main.journal_tab.reload()
+            self.refresh()
+            self.main.status(tr(f"Игровой режим для {game.name} включён", f"Game mode for {game.name} is on") +
+                             (tr(f" (не получилось: {len(errors)})", f" ({len(errors)} failed)") if errors else ""))
+            if errors and self.main.isVisible():
+                QMessageBox.warning(self.main, tr("Не всё получилось", "Not everything worked"), "\n".join(errors))
+            if presentmon():  # замер «после» — когда игра успокоится
+                QTimer.singleShot(10000, lambda: self.session is s and gui.run_async(
+                    lambda _p: measure_fps(game.pid), lambda r: s.fps_after.update(r), lambda _e: None))
+
+        gui.run_async(lambda progress: apply(game, chosen, s, progress), done)
+
+    def finish(self, manual: bool = False):
+        s, self.session = self.session, None
+        if not s:
+            return
+        if manual:
+            self.skip.add(s.game["pid"])
+        self.report = report(s) if s.applied_at else []
+        self.actions = []
+        self.refresh()
+        if not s.applied_at:
+            return
+        name = s.game["name"]
+        gui.run_async(lambda _p: restore(s), lambda _e: None)
+        self.main.status(tr(f"Игровой режим для {name} выключен, всё вернул как было",
+                            f"Game mode for {name} is off, everything restored"))
+        if not manual:
+            self.main.notify(tr(f"{name} закрыта — всё вернул как было", f"{name} closed — everything restored"),
+                             self.report[0], "games")
+
+    def quit(self):
+        s, self.session = self.session, None
+        if s and s.applied_at:  # игра ещё идёт, а WhySlow закрывают — вернуть всё сразу
+            restore(s)
+
+
+_ctl: _Games | None = None
+
+
+def build(main):
+    """Вкладка «Игры» (зовёт license_ui.PremiumGate). Фоновая часть создаётся один раз."""
+    global _ctl
+    if _ctl is None:
+        _ctl = _Games(main)
+    _ctl.tab = GamesTab(main, _ctl)
+    return _ctl.tab

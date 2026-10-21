@@ -16,8 +16,8 @@ from pathlib import Path
 import psutil
 from PySide6.QtCore import QObject, QPointF, QRectF, QRunnable, QSize, Qt, QThread, QThreadPool, QTimer, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QConicalGradient, QFont, QFontMetrics, QIcon, QImage, QKeySequence, QLinearGradient, QPainter, QPainterPath,
-    QPalette, QPen, QPixmap, QRadialGradient, QShortcut,
+    QBrush, QColor, QConicalGradient, QFont, QFontMetrics, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QPen,
+    QPixmap, QRadialGradient,
 )
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
@@ -26,10 +26,10 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, bigfiles, checks, gamemode, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords,
-    reinstall, settings, startup, sysinfo, updater, watch, xray,
+    __version__, bigfiles, checks, gamerestore, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize,
+    passwords, reinstall, settings, startup, sysinfo, updater, watch,
 )
-from .license_ui import PremiumButton
+from .license_ui import PremiumButton, PremiumGate
 from .i18n import LANGS, lang, set_lang, tr
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
@@ -3574,406 +3574,6 @@ class HistoryTab(QWidget):
             self.detail.setText("")
 
 
-# ---------------------------------------------------------- премиум-доступ ---
-
-def premium_on(feature: str) -> bool:
-    """Открыта ли премиум-возможность. Без модуля подписки — закрыта (для разработки: WHYSLOW_PREMIUM=1)."""
-    try:
-        from . import license
-    except ImportError:
-        return os.environ.get("WHYSLOW_PREMIUM") == "1"
-    try:
-        return bool(license.has_premium(feature))
-    except Exception:
-        return False
-
-
-def premium_page(feature: str, build) -> QWidget:
-    """Вкладка за подпиской: замок с вводом ключа, а после активации — сама вкладка."""
-    try:
-        from .license_ui import PremiumGate
-    except ImportError:
-        return build() if premium_on(feature) else LockedPage()
-    return PremiumGate(feature, build)
-
-
-class LockedPage(QWidget):
-    """Замок, пока модуль подписки не подключён."""
-
-    def __init__(self):
-        super().__init__()
-        lay = QVBoxLayout(self)
-        lay.addStretch()
-        t = QLabel(accent(tr("Доступно по подписке WhySlow Премиум", "Available with WhySlow Premium")))
-        t.setObjectName("h1")
-        t.setAlignment(Qt.AlignCenter)
-        lay.addWidget(t)
-        m = muted(tr("Эта возможность уже встроена в программу и откроется после активации подписки.",
-                     "This feature is already built in and unlocks once a subscription is activated."))
-        m.setAlignment(Qt.AlignCenter)
-        lay.addWidget(m)
-        lay.addStretch()
-
-
-# ---------------------------------------------------------- Рентген фриза ---
-
-class XRayTab(QWidget):
-    """Снимки «одной лагающей секунды»: что было за 20 секунд до нажатия и кто виноват."""
-
-    KIND = {"stall": "⏸", "cpu": "▲", "core": "▲", "ram": "▣", "disk": "◉", "net": "⇅", "driver": "⚙",
-            "thermal": "♨", "gpu": "▦", "none": "✓"}
-
-    def __init__(self, main: "MainWindow"):
-        super().__init__()
-        self.main = main
-        self.shots: list[xray.Shot] = []
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(px(20), px(18), px(20), px(18))
-        lay.setSpacing(px(10))
-        head = QHBoxLayout()
-        text = QVBoxLayout()
-        title = QLabel(accent(tr("Рентген фриза", "Freeze X-ray")))
-        title.setObjectName("h1")
-        text.addWidget(title)
-        hot = by_os(tr(f"Нажмите {xray.HOTKEY} в момент подвисания — даже в игре и при свёрнутом WhySlow.",
-                       f"Press {xray.HOTKEY} the moment things freeze — even in a game with WhySlow minimized."),
-                    tr(f"В момент подвисания выберите «Снять рентген» в значке WhySlow в строке меню "
-                       f"(или {xray.HOTKEY}, когда окно WhySlow активно).",
-                       f"When things freeze, pick “Take X-ray” from the WhySlow menu bar icon "
-                       f"(or {xray.HOTKEY} while the WhySlow window is active)."),
-                    tr(f"В момент подвисания выберите «Снять рентген» в значке WhySlow в трее "
-                       f"(или {xray.HOTKEY}, когда окно WhySlow активно).",
-                       f"When things freeze, pick “Take X-ray” from the WhySlow tray icon "
-                       f"(or {xray.HOTKEY} while the WhySlow window is active)."))
-        text.addWidget(muted(hot + " " + tr(
-            f"WhySlow сохранит, что происходило последние {xray.LOOKBACK} секунд, и покажет, кто съел эту секунду: "
-            "программа, драйвер, диск, сеть или перегрев. Ничего в системе не меняется.",
-            f"WhySlow saves what happened in the last {xray.LOOKBACK} seconds and shows who ate that second: "
-            "an app, a driver, the disk, the network or overheating. Nothing in the system is changed.")))
-        head.addLayout(text, 1)
-        self.b_shot = QPushButton(tr("Снять рентген сейчас", "Take X-ray now"))
-        self.b_shot.setObjectName("primary")
-        self.b_shot.setCursor(Qt.PointingHandCursor)
-        self.b_shot.clicked.connect(lambda: self.main.take_xray("button"))
-        head.addWidget(self.b_shot, 0, Qt.AlignVCenter)
-        lay.addLayout(head)
-        opts = QHBoxLayout()
-        self.sw_auto = Switch(settings.get("xray_auto"))
-        self.sw_auto.clicked.connect(self._toggle_auto)
-        opts.addWidget(self.sw_auto)
-        opts.addWidget(QLabel(tr("Снимать самому, когда система замерла целиком", "Take one automatically when the whole system freezes")))
-        opts.addStretch()
-        lay.addLayout(opts)
-        self.table = make_table([tr("Когда", "When"), tr("Как", "How"), tr("Главный подозреваемый", "Main suspect")])
-        hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.table.itemSelectionChanged.connect(self.on_select)
-        self.table.setMaximumHeight(px(200))
-        lay.addWidget(self.table)
-        self.chart = Sparkline([C["accent"], C["warn"], C["info"]], 100, 70, axis=True,
-                               names=[tr("ЦП", "CPU"), tr("Память", "Memory"), tr("Диск, % от пика", "Disk, % of peak")])
-        lay.addWidget(self.chart)
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.detail = QWidget()
-        self.detail_lay = QVBoxLayout(self.detail)
-        self.detail_lay.setContentsMargins(0, 0, px(6), 0)
-        self.detail_lay.setSpacing(px(8))
-        self.scroll.setWidget(self.detail)
-        lay.addWidget(self.scroll, 1)
-        row = QHBoxLayout()
-        self.state = muted("")
-        row.addWidget(self.state, 1)
-        self.b_clear = QPushButton(tr("Удалить снимки", "Delete snapshots"))
-        self.b_clear.clicked.connect(self.clear)
-        row.addWidget(self.b_clear)
-        lay.addLayout(row)
-        self.reload()
-
-    def _toggle_auto(self):
-        on = not settings.get("xray_auto")
-        settings.set("xray_auto", on)
-        self.sw_auto.setChecked(on)
-
-    def busy(self, on: bool):
-        self.b_shot.setEnabled(not on)
-        self.state.setText(tr("Снимаю рентген…", "Taking an X-ray…") if on else "")
-
-    def reload(self, select_first: bool = False):
-        self.shots = xray.load()
-        how = {"hotkey": tr("клавишей", "hotkey"), "button": tr("кнопкой", "button"), "auto": tr("сам", "auto")}
-        self.table.setRowCount(len(self.shots))
-        for r, s in enumerate(self.shots):
-            cells = [time.strftime("%d.%m %H:%M:%S", time.localtime(s.time)), how.get(s.reason, s.reason), s.headline()]
-            for c, text in enumerate(cells):
-                self.table.setItem(r, c, QTableWidgetItem(text))
-        self.b_clear.setEnabled(bool(self.shots))
-        if select_first and self.shots:
-            self.table.selectRow(0)
-        elif not self.shots:
-            self._clear()
-            self.detail_lay.addWidget(muted(tr("Снимков пока нет. Когда что-то подвиснет — нажмите горячую клавишу "
-                                               "или кнопку выше.",
-                                               "No snapshots yet. When something freezes, press the hotkey or the button above.")))
-            self.detail_lay.addStretch()
-            self.chart.set_series([], [], [])
-
-    def _clear(self):
-        while self.detail_lay.count():
-            w = self.detail_lay.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-
-    def on_select(self):
-        rows = self.table.selectionModel().selectedRows()
-        if not rows or rows[0].row() >= len(self.shots):
-            return
-        s = self.shots[rows[0].row()]
-        frames = s.frames
-        peak = max((f["disk_r"] + f["disk_w"] for f in frames), default=0) or 1
-        self.chart.n = max(len(frames), 2)
-        self.chart.set_series([f["cpu"] for f in frames], [f["ram"] for f in frames],
-                              [(f["disk_r"] + f["disk_w"]) / peak * 100 for f in frames])
-        self._clear()
-        for i, d in enumerate(s.suspects):
-            self.detail_lay.addWidget(self._card(d, first=i == 0))
-        self.detail_lay.addStretch()
-
-    def _card(self, d: dict, first: bool) -> QFrame:
-        card = QFrame()
-        card.setObjectName("card")
-        v = QVBoxLayout(card)
-        v.setContentsMargins(px(16), px(10), px(14), px(10))
-        v.setSpacing(px(3))
-        color = C["bad"] if first and d["kind"] != "none" else (C["ok"] if d["kind"] == "none" else C["warn"])
-        t = QLabel(f"<span style='color:{color}'>{self.KIND.get(d['kind'], '•')}</span>&nbsp; {_esc(d['title'])}")
-        t.setWordWrap(True)
-        t.setStyleSheet(f"font-weight: 700; font-size: {pt(11.5 if first else 10.5)};")
-        v.addWidget(t)
-        detail = d.get("detail", "")
-        if d.get("who"):
-            kb = self.main.kb.lookup(d["who"])
-            if kb.verdict != "unknown":
-                detail += f" {d['who']}: {kb.note}"
-        if detail:
-            v.addWidget(muted(detail))
-        if d.get("advice"):
-            v.addWidget(muted("→ " + d["advice"]))
-        return card
-
-    def clear(self):
-        if confirm(self, tr("Удалить снимки?", "Delete snapshots?"),
-                   tr("Все сохранённые рентгены будут удалены.", "All saved X-rays will be deleted.")):
-            xray.clear()
-            self.reload()
-
-
-# ---------------------------------------------------------- Игровой режим ---
-
-class GamesTab(QWidget):
-    """Игровой режим: какая игра запущена, план с галочками, отчёт после игры."""
-
-    def __init__(self, main: "MainWindow"):
-        super().__init__()
-        self.main = main
-        self.boxes: list[QCheckBox] = []
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(px(20), px(18), px(20), px(18))
-        lay.setSpacing(px(10))
-        title = QLabel(accent(tr("Игровой режим", "Game mode")))
-        title.setObjectName("h1")
-        lay.addWidget(title)
-        lay.addWidget(muted(tr("WhySlow замечает запуск игры и предлагает план: понизить приоритет тяжёлых фоновых "
-                               "программ, приостановить ненужные на время игры, поднять приоритет игры и включить "
-                               "питание на максимум. Ничего не меняется без «Включить», а когда игра закрывается, "
-                               "всё возвращается как было и показывается, что это дало.",
-                               "WhySlow notices when a game starts and offers a plan: lower heavy background apps, "
-                               "pause unneeded ones while you play, raise the game's priority and set power to maximum. "
-                               "Nothing changes until you press “Turn on”, and when the game closes everything is "
-                               "restored and you see what it gave you.")))
-        opts = QHBoxLayout()
-        self.sw = Switch(settings.get("gamemode"))
-        self.sw.clicked.connect(self._toggle)
-        opts.addWidget(self.sw)
-        opts.addWidget(QLabel(tr("Замечать запуск игр", "Watch for games")))
-        opts.addStretch()
-        b_add = QPushButton(tr("Добавить игру…", "Add a game…"))
-        b_add.clicked.connect(self.add_game)
-        opts.addWidget(b_add)
-        lay.addLayout(opts)
-
-        self.game_label = QLabel()
-        self.game_label.setWordWrap(True)
-        self.game_label.setStyleSheet(f"font-size: {pt(13)}; font-weight: 700;")
-        lay.addWidget(self.game_label)
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.list = QWidget()
-        self.list_lay = QVBoxLayout(self.list)
-        self.list_lay.setContentsMargins(0, 0, px(6), 0)
-        self.list_lay.setSpacing(px(8))
-        self.scroll.setWidget(self.list)
-        lay.addWidget(self.scroll, 1)
-
-        row = QHBoxLayout()
-        self.cb_auto = QCheckBox(tr("Для этой игры включать без вопроса", "Turn on for this game without asking"))
-        row.addWidget(self.cb_auto)
-        row.addStretch()
-        self.b_ignore = QPushButton(tr("Это не игра", "Not a game"))
-        self.b_ignore.clicked.connect(self.not_a_game)
-        row.addWidget(self.b_ignore)
-        self.b_off = QPushButton(tr("Выключить", "Turn off"))
-        self.b_off.clicked.connect(lambda: self.main.finish_game(manual=True))
-        row.addWidget(self.b_off)
-        self.b_on = QPushButton(tr("Включить", "Turn on"))
-        self.b_on.setObjectName("primary")
-        self.b_on.setCursor(Qt.PointingHandCursor)
-        self.b_on.clicked.connect(self.turn_on)
-        row.addWidget(self.b_on)
-        lay.addLayout(row)
-        self.fps = muted("")
-        self.fps.setTextFormat(Qt.RichText)
-        self.fps.setOpenExternalLinks(True)
-        lay.addWidget(self.fps)
-        self.refresh()
-
-    def _toggle(self):
-        on = not settings.get("gamemode")
-        settings.set("gamemode", on)
-        self.sw.setChecked(on)
-
-    def _clear(self):
-        while self.list_lay.count():
-            w = self.list_lay.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-
-    def refresh(self):
-        """Перерисовать по состоянию MainWindow: нет игры / игра замечена / режим включён / отчёт."""
-        m = self.main
-        s = m.game_session
-        self._clear()
-        self.boxes = []
-        active = bool(s and s.applied_at)
-        if s:
-            name = s.game["name"]
-            self.game_label.setText(tr(f"Игровой режим включён: {name}", f"Game mode is on: {name}") if active
-                                    else tr(f"Запущена игра: {name}", f"Game running: {name}"))
-            if active:
-                for t in s.titles:
-                    self.list_lay.addWidget(muted("✓ " + t))
-            else:
-                self.list_lay.addWidget(muted(s.game.get("why", "")))
-                for a in self.main.game_actions:
-                    self.list_lay.addWidget(self._row(a))
-                if not self.main.game_actions:
-                    self.list_lay.addWidget(muted(tr("Мешать игре нечему — фон и так тихий.",
-                                                     "Nothing is in the game's way — the background is already quiet.")))
-            self.cb_auto.setChecked(name.lower() in settings.get("games_auto"))
-        else:
-            self.game_label.setText(tr("Игра не запущена", "No game running"))
-            if m.game_report:
-                self.list_lay.addWidget(section(tr("Что дал игровой режим", "What game mode gave you")))
-                for line in m.game_report:
-                    self.list_lay.addWidget(muted(line))
-            else:
-                self.list_lay.addWidget(muted(tr("Запустите игру — WhySlow заметит её и покажет план здесь. Если игра "
-                                                 "не определилась, нажмите «Добавить игру…».",
-                                                 "Start a game — WhySlow will notice it and show the plan here. If it "
-                                                 "isn't detected, press “Add a game…”.")))
-        self.list_lay.addStretch()
-        self.cb_auto.setEnabled(bool(s))
-        self.b_on.setEnabled(bool(s) and not active)
-        self.b_off.setEnabled(active)
-        self.b_ignore.setEnabled(bool(s) and not active)
-        pm = gamemode.presentmon()
-        if not IS_WINDOWS:
-            self.fps.setText(tr("Замер FPS пока есть только в Windows; отчёт покажет, сколько процессора освободилось для игры.",
-                                "FPS measuring is Windows-only for now; the report shows how much CPU was freed for the game."))
-        elif pm:
-            self.fps.setText(tr("FPS меряется через PresentMon: 15 секунд до и после включения.",
-                                "FPS is measured with PresentMon: 15 seconds before and after turning it on."))
-        else:
-            folder = _esc(str(gamemode.app_dir() / "presentmon"))
-            self.fps.setText(tr(f"Чтобы отчёт показывал FPS, скачайте бесплатный "
-                                f"<a style='color:{C['accent2']}' href='{gamemode.PRESENTMON_URL}'>PresentMon</a> "
-                                f"(консольную версию) и положите его в {folder}.",
-                                f"For FPS in the report, download the free "
-                                f"<a style='color:{C['accent2']}' href='{gamemode.PRESENTMON_URL}'>PresentMon</a> "
-                                f"(console version) and put it into {folder}."))
-
-    def _row(self, a: gamemode.Action) -> QFrame:
-        card = QFrame()
-        card.setObjectName("card")
-        h = QHBoxLayout(card)
-        h.setContentsMargins(px(14), px(10), px(14), px(10))
-        h.setSpacing(px(12))
-        cb = QCheckBox()
-        cb.setChecked(a.checked)
-        self.boxes.append(cb)
-        h.addWidget(cb, 0, Qt.AlignTop)
-        v = QVBoxLayout()
-        v.setSpacing(px(2))
-        t = QLabel(a.title)
-        t.setWordWrap(True)
-        t.setStyleSheet("font-weight: 700;")
-        v.addWidget(t)
-        if a.detail:
-            v.addWidget(muted(a.detail))
-        h.addLayout(v, 1)
-        card.mousePressEvent = lambda _e, cb=cb: cb.toggle()
-        return card
-
-    def chosen(self) -> list[gamemode.Action]:
-        for a, b in zip(self.main.game_actions, self.boxes):
-            a.checked = b.isChecked()
-        return [a for a in self.main.game_actions if a.checked]
-
-    def turn_on(self):
-        s = self.main.game_session
-        if not s:
-            return
-        chosen = self.chosen()
-        auto = dict(settings.get("games_auto"))
-        name = s.game["name"].lower()
-        if self.cb_auto.isChecked():
-            auto[name] = sorted({a.kind for a in chosen})
-        else:
-            auto.pop(name, None)
-        settings.set("games_auto", auto)
-        self.main.apply_game(chosen)
-
-    def not_a_game(self):
-        s = self.main.game_session
-        if not s:
-            return
-        ignore = list(settings.get("games_ignore"))
-        ignore.append(s.game["name"])
-        settings.set("games_ignore", ignore)
-        self.main.game_session = None
-        self.main.game_actions = []
-        self.refresh()
-
-    def add_game(self):
-        from PySide6.QtWidgets import QInputDialog
-        names = sorted({g.name for g in self.main.last_groups if not g.system}, key=str.lower)
-        if not names:
-            return
-        name, ok = QInputDialog.getItem(self, tr("Добавить игру", "Add a game"),
-                                        tr("Запущенная программа, которую считать игрой:", "Running program to treat as a game:"),
-                                        names, 0, False)
-        if not ok or not name:
-            return
-        games = list(settings.get("games"))
-        if name not in games:
-            games.append(name)
-            settings.set("games", games)
-        settings.set("games_ignore", [g for g in settings.get("games_ignore") if g.lower() != name.lower()])
-        self.main.look_for_game()
-
-
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -4162,8 +3762,6 @@ class UpdateDialog(QDialog):
 # ---------------------------------------------------------- Главное окно ---
 
 class MainWindow(QMainWindow):
-    hotkey_pressed = Signal()  # горячая клавиша рентгена приходит из своего потока
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle(tr(f"WhySlow {__version__} — почему тормозит компьютер",
@@ -4228,21 +3826,10 @@ class MainWindow(QMainWindow):
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
-        # Премиум: сами вкладки создаются, только когда подписка открыта
-        self.xray_tab: XRayTab | None = None
-        self.games_tab: GamesTab | None = None
-        self.xbuf = xray.Buffer()
-        self._xray_busy = False
-        self.game_session: gamemode.Session | None = None
-        self.game_report: list[str] = []
-        self.game_actions: list[gamemode.Action] = []
-        self.last_groups: list = []
-        self.last_cpu = 0.0
-        self._game_tick = 0
-        self._game_skip: set[int] = set()  # игры, для которых режим выключили вручную
+        # Платные вкладки: код в whyslow/premium/ (в релизе зашифрован), сюда — только через замок
         self._tray_target = "history"
-        self.xray_page = premium_page("freeze", self._build_xray)
-        self.games_page = premium_page("game_mode", self._build_games)
+        self.xray_page = PremiumGate("xray", main=self)
+        self.games_page = PremiumGate("gamemode", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
@@ -4291,15 +3878,9 @@ class MainWindow(QMainWindow):
         self.sampler.procs.connect(self.on_procs)
         self.sampler.start()
         QApplication.instance().aboutToQuit.connect(self._stop_sampler)
-        self.hotkey_pressed.connect(lambda: self.take_xray("hotkey"))
-        self.hotkey = None
-        if IS_WINDOWS:  # по всей системе, даже поверх игры
-            self.hotkey = xray.WinHotkey(self.hotkey_pressed.emit)
-            self.hotkey.start()
-        sc = QShortcut(QKeySequence("Ctrl+Alt+X"), self)  # на Mac это ⌘⌥X
-        sc.setContext(Qt.ApplicationShortcut)
-        sc.activated.connect(lambda: self.take_xray("hotkey"))
-        run_async(lambda _p: gamemode.recover(), self._game_recovered, lambda _e: None)
+        # Игровой режим мог не успеть вернуть приоритеты и питание (падение, выключение) —
+        # возвращаем всегда, даже если подписка уже закончилась
+        run_async(lambda _p: gamerestore.recover(), self._game_recovered, lambda _e: None)
         QTimer.singleShot(200, self.update_db)
         if "--tray" not in sys.argv:  # при запуске вместе с системой не грузим её проверкой
             QTimer.singleShot(400, self.scan)
@@ -4311,10 +3892,6 @@ class MainWindow(QMainWindow):
             self.auto_timer.start(3600 * 1000)
 
     def on_stats(self, s: dict):
-        self.last_cpu = s["cpu"]
-        self.xbuf.feed_stats(s)
-        if settings.get("xray_auto") and self.xbuf.want_auto() and premium_on("freeze"):
-            self.take_xray("auto")
         for k in ("disk_r", "disk_w", "net_rx", "net_tx"):
             self.hist[k].append(s[k])
         self.hist["cpu"].append(s["cpu"])
@@ -4331,9 +3908,6 @@ class MainWindow(QMainWindow):
 
     def on_procs(self, groups):
         self.recorder.feed_procs(groups)
-        self.xbuf.feed_procs(groups)
-        self.last_groups = groups
-        self.game_tick(groups)
         if not self.isVisible():
             return
         self.overview.on_procs(groups)
@@ -4358,7 +3932,6 @@ class MainWindow(QMainWindow):
         menu = QMenu()
         menu.addAction(tr("Открыть WhySlow", "Open WhySlow"), self.show_window)
         menu.addAction(tr("История тормозов", "Slowdown history"), lambda: (self.show_window(), self.go("history")))
-        menu.addAction(tr("Снять рентген фриза", "Take a freeze X-ray"), lambda: self.take_xray("hotkey"))
         menu.addSeparator()
         menu.addAction(tr("Выход", "Quit"), self.quit_app)
         tray.setContextMenu(menu)
@@ -4400,150 +3973,16 @@ class MainWindow(QMainWindow):
     def _stop_sampler(self):
         self.sampler.stop()
         self.sampler.wait(3000)
-        if self.hotkey:
-            self.hotkey.stop()
-        s, self.game_session = self.game_session, None
-        if s and s.applied_at:  # игра ещё идёт, а WhySlow закрывают — вернуть всё сразу
-            gamemode.restore(s)
+
+    def _game_recovered(self, game: str | None):
+        if game:
+            self.status(tr(f"Вернул приоритеты и питание после прошлой игры ({game})",
+                           f"Restored priorities and power after the last game ({game})"))
 
     def notify(self, title: str, text: str, target: str):
         if self.tray:
             self._tray_target = target
             self.tray.showMessage(title, text, QSystemTrayIcon.Information, 8000)
-
-    # --- рентген фриза ---
-
-    def _build_xray(self):
-        self.xray_tab = XRayTab(self)
-        return self.xray_tab
-
-    def take_xray(self, reason: str):
-        if not premium_on("freeze"):
-            if reason != "auto":
-                self.show_window()
-                self.go("xray")
-            return
-        if self._xray_busy:
-            return
-        self._xray_busy = True
-        frames, procs = self.xbuf.window()  # копия окна здесь: буфер пополняется из этого же потока
-        if self.xray_tab:
-            self.xray_tab.busy(True)
-
-        def done(shot):
-            self._xray_busy = False
-            try:
-                xray.save(shot)
-            except OSError as e:
-                _show_error(str(e))
-            if self.xray_tab:
-                self.xray_tab.busy(False)
-                self.xray_tab.reload(select_first=True)
-            self.status(tr("Рентген: ", "X-ray: ") + shot.headline())
-            if reason != "button":
-                self.notify(tr("Рентген фриза снят", "Freeze X-ray taken"), shot.headline(), "xray")
-
-        def failed(e):
-            self._xray_busy = False
-            if self.xray_tab:
-                self.xray_tab.busy(False)
-            if reason != "auto":
-                _show_error(e)
-
-        run_async(lambda _p: xray.make_shot(frames, procs, reason, xray.probe()), done, failed)
-
-    # --- игровой режим ---
-
-    def _build_games(self):
-        self.games_tab = GamesTab(self)
-        return self.games_tab
-
-    def _game_recovered(self, s):
-        if s:
-            self.status(tr(f"Вернул приоритеты и питание после прошлой игры ({s.game['name']})",
-                           f"Restored priorities and power after the last game ({s.game['name']})"))
-
-    def game_tick(self, groups):
-        s = self.game_session
-        if s:
-            if not gamemode.game_alive(s):
-                self.finish_game()
-                return
-            s.feed(self.last_cpu, groups, gamemode.free_memory())
-            return
-        self._game_tick += 1
-        if self._game_tick % 5 == 0 and settings.get("gamemode"):  # раз в 10 секунд
-            self.look_for_game()
-
-    def look_for_game(self):
-        if self.game_session or not premium_on("game_mode"):
-            return
-        groups = list(self.last_groups)
-        procs = [(g.pids[0], g.name, g.exe) for g in groups if g.pids]
-        game = gamemode.detect(procs, settings.get("games"), settings.get("games_ignore"))
-        if not game or game.pid in self._game_skip:
-            return
-        s = self.game_session = gamemode.start(game)
-        self.game_report = []
-        run_async(lambda _p: gamemode.plan(game, groups), lambda acts: self._game_planned(s, game, acts),
-                  lambda _e: self._game_planned(s, game, []))
-        if gamemode.presentmon():
-            run_async(lambda _p: gamemode.measure_fps(game.pid), lambda r: s.fps_before.update(r), lambda _e: None)
-
-    def _game_planned(self, s, game, actions):
-        if self.game_session is not s:
-            return  # игру уже закрыли или пометили «не игра»
-        auto = settings.get("games_auto").get(game.name.lower())
-        self.game_actions = actions
-        if self.games_tab:
-            self.games_tab.refresh()
-        if auto is not None:  # человек уже согласился на эти пункты для этой игры
-            for a in actions:
-                a.checked = a.kind in auto and (a.checked or a.kind == "suspend")
-            self.apply_game([a for a in actions if a.checked])
-            return
-        self.notify(tr(f"Запущена игра {game.name}", f"{game.name} started"),
-                    tr("Нажмите, чтобы посмотреть план игрового режима.", "Click to see the game mode plan."), "games")
-
-    def apply_game(self, chosen):
-        s = self.game_session
-        if not s or s.applied_at:
-            return
-        game = gamemode.Game(s.game["name"], s.game["pid"], s.game.get("exe", ""), s.game.get("why", ""))
-
-        def done(res):
-            _s, errors = res
-            self.journal_tab.reload()
-            if self.games_tab:
-                self.games_tab.refresh()
-            self.status(tr(f"Игровой режим для {game.name} включён", f"Game mode for {game.name} is on") +
-                        (tr(f" (не получилось: {len(errors)})", f" ({len(errors)} failed)") if errors else ""))
-            if errors and self.isVisible():
-                QMessageBox.warning(self, tr("Не всё получилось", "Not everything worked"), "\n".join(errors))
-            if gamemode.presentmon():  # замер «после» — когда игра успокоится
-                QTimer.singleShot(10000, lambda: self.game_session is s and run_async(
-                    lambda _p: gamemode.measure_fps(game.pid), lambda r: s.fps_after.update(r), lambda _e: None))
-
-        run_async(lambda progress: gamemode.apply(game, chosen, s, progress), done)
-
-    def finish_game(self, manual: bool = False):
-        s, self.game_session = self.game_session, None
-        if not s:
-            return
-        if manual:
-            self._game_skip.add(s.game["pid"])
-        self.game_report = gamemode.report(s) if s.applied_at else []
-        self.game_actions = []
-        if self.games_tab:
-            self.games_tab.refresh()
-        if not s.applied_at:
-            return
-        name = s.game["name"]
-        run_async(lambda _p: gamemode.restore(s), lambda _e: None)
-        self.status(tr(f"Игровой режим для {name} выключен, всё вернул как было", f"Game mode for {name} is off, everything restored"))
-        if not manual:
-            self.notify(tr(f"{name} закрыта — всё вернул как было", f"{name} closed — everything restored"),
-                        self.game_report[0], "games")
 
     def status(self, text: str):
         self.statusBar().showMessage(text, 8000)
@@ -4644,8 +4083,6 @@ class MainWindow(QMainWindow):
             self.reinstall_tab.activate()
         elif cur is self.history_tab:
             self.history_tab.activate()
-        elif cur is self.games_page and self.games_tab:
-            self.games_tab.refresh()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():
