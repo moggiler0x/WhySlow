@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, macapps, macstorage, online, optimize, passwords, pests, settings, updater
+from . import checks, knowledge, macapps, macstorage, online, optimize, passwords, premium, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -160,7 +160,12 @@ def check_passwords(path: str) -> int:
 def find_pests() -> int:
     """python -m whyslow --pests: скрытые майнеры, расширения браузеров, ночной выход в сеть.
     Только показывает; закрыть, убрать в карантин или снять политику — в окне, после подтверждения."""
-    if not pests.unlocked():
+    from . import license
+    try:
+        pests = premium.load("pests") if license.has_premium("pests") else None
+    except premium.PremiumLocked:
+        pests = None
+    if pests is None:
         print(tr("«Тихие вредители» доступны по подписке. Ключ вводится в окне WhySlow.",
                  "“Hidden pests” is part of the subscription. Enter your key in the WhySlow window."))
         return 2
@@ -187,3 +192,22 @@ def find_pests() -> int:
     print(tr("\nЗакрыть, убрать в карантин или удалить расширение — в окне, вкладка «Вредители».",
              "\nClose, quarantine or remove an extension in the window, Pests tab."))
     return 0
+
+
+def license_cmd(key: str = "") -> int:
+    """Состояние подписки; с ключом — активирует его."""
+    from . import license
+    if key:
+        try:
+            license.enter_key(key)
+        except license.LicenseError as e:
+            print(tr(f"Ключ не принят: {e}", f"Key not accepted: {e}"))
+            return 1
+    else:
+        license.refresh()
+    st = license.status()
+    print(license.status_text(st))
+    if st.error:
+        print(st.error)
+    print(tr(f"Код этого компьютера: {st.device}", f"This computer's code: {st.device}"))
+    return 0 if st.active else 1

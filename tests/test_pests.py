@@ -3,7 +3,8 @@ import time
 
 import pytest
 
-from whyslow import knowledge, pests
+from whyslow import knowledge, restore
+from whyslow.premium import pests
 
 
 @pytest.fixture
@@ -133,11 +134,5 @@ def test_quarantine_and_undo(tmp_path):
     assert not f.exists() and dst.exists()
     entry = journal.load()[-1]
     assert entry["kind"] == "pest_quarantine" and entry["undoable"]
-    pests.undo(entry)
+    restore.undo(entry)
     assert f.exists() and not dst.exists()
-
-
-def test_locked_without_license(monkeypatch):
-    import sys
-    monkeypatch.setitem(sys.modules, "whyslow.license", None)  # модуля нет → закрыто
-    assert pests.unlocked() is False

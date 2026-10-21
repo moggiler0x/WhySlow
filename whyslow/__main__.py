@@ -8,10 +8,10 @@ def selfcheck() -> int:
     from . import __version__
     names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
              "lhm", "macapps", "macstorage", "journal", "passwords", "optimize", "reinstall", "settings", "net", "online", "updater", "cli",
-             "conflicts", "diskhealth", "power", "bigfiles", "watch", "pests"]
+             "conflicts", "diskhealth", "power", "bigfiles", "watch", "ed25519", "seal", "license", "premium"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
-        names.append("gui")
+        names += ["gui", "license_ui"]
     except ImportError:
         pass
     for name in names:
@@ -56,6 +56,10 @@ def main() -> int:
     if "--pests" in sys.argv:
         from .cli import find_pests
         return find_pests()
+    if "--license" in sys.argv:  # --license [КЛЮЧ]: состояние подписки или ввод ключа без окна
+        from .cli import license_cmd
+        i = sys.argv.index("--license")
+        return license_cmd(sys.argv[i + 1] if i + 1 < len(sys.argv) else "")
     if "--cli" in sys.argv:
         from .cli import main as cli_main
         return cli_main()
