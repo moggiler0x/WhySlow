@@ -54,6 +54,9 @@ def main() -> int:
             print("--passwords FILE.csv")
             return 2
         return check_passwords(sys.argv[i + 1])
+    if "--pests" in sys.argv:
+        from .cli import find_pests
+        return find_pests()
     if "--forecast" in sys.argv:
         from .cli import outlook
         return outlook()

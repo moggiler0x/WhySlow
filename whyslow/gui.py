@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, bigfiles, checks, forecast, gamerestore, journal, junk, knowledge, lhm, macapps, macstorage, network, online,
-    optimize, passwords, reinstall, settings, startup, sysinfo, updater, watch,
+    __version__, bigfiles, checks, forecast, gamerestore, journal, junk, knowledge, license, lhm, macapps, macstorage, network,
+    online, optimize, passwords, premium, reinstall, restore, settings, startup, sysinfo, updater, watch,
 )
 from .license_ui import PremiumButton, PremiumGate
 from .i18n import LANGS, lang, set_lang, tr
@@ -3809,6 +3809,8 @@ class JournalTab(QWidget):
                 lhm.uninstall()
             elif e["kind"] == "macdata_trash":
                 macstorage.undo(e)
+            elif e["kind"].startswith("pest_"):
+                restore.undo(e)
         except Exception as ex:
             QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
             return
@@ -4006,18 +4008,20 @@ class MainWindow(QMainWindow):
         self.games_page = PremiumGate("gamemode", main=self)
         self.twin_tab = PremiumGate("twin", main=self)
         self.health_tab = PremiumGate("health_money", main=self)
+        self.pests_tab = PremiumGate("pests", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
                          "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab,
                          "xray": self.xray_page, "games": self.games_page,
-                         "twin": self.twin_tab, "health_money": self.health_tab}
+                         "twin": self.twin_tab, "health_money": self.health_tab, "pests": self.pests_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
                  (self.twin_tab, tr("Двойник", "Twin")), (self.health_tab, tr("Риски в ₽", "Risk cost")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
-                 (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
+                 (self.pests_tab, tr("Вредители", "Pests")), (self.passwords_tab, tr("Пароли", "Passwords")),
+                 (self.reinstall_tab, tr("Переустановка", "Reinstall")),
                  (self.compare_tab, tr("Сравнение", "Compare")),
                  (self.xray_page, tr("Рентген", "X-ray")), (self.games_page, tr("Игры", "Games")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
@@ -4065,6 +4069,10 @@ class MainWindow(QMainWindow):
         if "--tray" not in sys.argv:  # при запуске вместе с системой не грузим её проверкой
             QTimer.singleShot(400, self.scan)
         QTimer.singleShot(1500, self.check_updates)
+        # Ночной журнал сети для «Тихих вредителей»: замер раз в несколько минут, в фоне, только по подписке
+        self.pests_timer = QTimer(self)
+        self.pests_timer.timeout.connect(self.record_net)
+        self.pests_timer.start(5 * 60 * 1000)
         if IS_MAC:  # автоочистка по расписанию: проверяем при запуске и раз в час
             QTimer.singleShot(30000, self.autoclean_if_due)
             self.auto_timer = QTimer(self)
@@ -4248,6 +4256,10 @@ class MainWindow(QMainWindow):
             set_lang(code)
             self.restart()
 
+    def record_net(self):
+        if license.has_premium("pests"):
+            run_async(lambda _p: premium.load("pests").record(), lambda _r: None, lambda _e: None)
+
     def go(self, key: str):
         self.tabs.setCurrentWidget(self.tab_keys[key])
 
@@ -4265,6 +4277,8 @@ class MainWindow(QMainWindow):
             self.history_tab.activate()
         elif cur is self.forecast_tab:
             self.forecast_tab.activate()
+        elif cur is self.pests_tab and hasattr(self.pests_tab.content, "activate"):
+            self.pests_tab.content.activate()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():

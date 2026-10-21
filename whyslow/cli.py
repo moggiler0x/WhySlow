@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, forecast, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
+from . import checks, forecast, knowledge, macapps, macstorage, online, optimize, passwords, premium, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -241,6 +241,43 @@ def risk_cost() -> int:
     for line in rep.notes + [healthcost.disclaimer()]:
         print("\n" + line)
     return 0
+def find_pests() -> int:
+    """python -m whyslow --pests: скрытые майнеры, расширения браузеров, ночной выход в сеть.
+    Только показывает; закрыть, убрать в карантин или снять политику — в окне, после подтверждения."""
+    from . import license
+    try:
+        pests = premium.load("pests") if license.has_premium("pests") else None
+    except premium.PremiumLocked:
+        pests = None
+    if pests is None:
+        print(tr("«Тихие вредители» доступны по подписке. Ключ вводится в окне WhySlow.",
+                 "“Hidden pests” is part of the subscription. Enter your key in the WhySlow window."))
+        return 2
+    kb = knowledge.load()
+    r = pests.scan(kb, progress=lambda t: print("  " + t))
+    icons = {pests.OK: "[ OK ]", pests.INFO: "[ i  ]", pests.WARN: "[ !  ]", pests.BAD: "[!!!!]"}
+    print("\n" + r.headline())
+    print(tr("\nПохоже на майнеры:", "\nLooks like miners:") if r.miners else tr("\nМайнеров не видно.", "\nNo miners seen."))
+    for s in r.miners:
+        print(f"{icons[s.level]} {s.name}  {tr('ЦП', 'CPU')} {s.cpu:.0f}%  GPU {s.gpu:.0f}%")
+        for why in s.reasons:
+            print(f"        {why}")
+    print(tr(f"\nРасширения браузеров: {len(r.extensions)}", f"\nBrowser extensions: {len(r.extensions)}"))
+    for e in r.extensions:
+        if e.level in (pests.WARN, pests.BAD):
+            print(f"{icons[e.level]} {e.name} ({e.browser})")
+            for why in e.reasons:
+                print(f"        {why}")
+    if r.night:
+        print(tr("\nВыходили в сеть ночью, пока за компьютером никого не было:",
+                 "\nWent online at night while nobody was at the computer:"))
+        for n in r.night:
+            print(f"{icons[n.level]} {n.name}  {tr('ночей', 'nights')}: {n.nights}  {n.note}")
+    print(tr("\nЗакрыть, убрать в карантин или удалить расширение — в окне, вкладка «Вредители».",
+             "\nClose, quarantine or remove an extension in the window, Pests tab."))
+    return 0
+
+
 def license_cmd(key: str = "") -> int:
     """Состояние подписки; с ключом — активирует его."""
     from . import license
