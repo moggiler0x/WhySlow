@@ -22,6 +22,8 @@ process against it and tells you whether it is safe to disable, better left alon
   * [macOS System Data](#macos-system-data)
   * [Reinstalling the system](#reinstalling-the-system)
   * [Hidden pests](#hidden-pests)
+
+  * [Moving to a new PC](#moving-to-a-new-pc)
   * [Leaked passwords](#leaked-passwords)
   * [Outlook: how long the hardware will last](#outlook-how-long-the-hardware-will-last)
 
@@ -68,6 +70,8 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
 | **Pests** (subscription) | Hidden miners, browser extensions that see every site, programs that go online at night, and a connection map |
+
+| **Move** | Move to a new PC with one button: programs, their settings and your files, without junk (subscription) |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
 | **Compare** | Subscription: anonymously compares your PC with computers on the same hardware (boot time, idle load, startup) and names the programs fast similar PCs don't have |
 
@@ -176,6 +180,26 @@ WhySlow explains every finding from the knowledge base. Closing a program, remov
 to quarantine or removing a forced extension install only happens after you confirm. Quarantine and removed policies
 can be restored in the Journal tab. Extensions are removed in the browser itself: WhySlow opens their page.
 
+again, and turn on sync in your browser, or use the **Move** tab below, which takes programs and settings too.
+
+### Moving to a new PC
+
+The **Move** tab (subscription) moves your setup to a new computer with one button, without the junk that has piled
+up over the years.
+
+1. **On the old PC** pick “This is the old PC: pack”. WhySlow lists installed programs and how each one installs
+   again (winget on Windows; Homebrew and the App Store on macOS; Flatpak on Linux; VS Code extensions everywhere),
+   finds settings of known apps (VS Code, Git, Chrome / Yandex Browser / Edge bookmarks, OBS, Notepad++, Windows
+   Terminal, PowerShell, zsh / bash, iTerm2, fonts; SSH keys only if you tick them) and your folders.
+2. Untick what you don't need and choose a USB, external or network drive. Caches, temporary files, `node_modules`,
+   `Thumbs.db` and old installers in Downloads are left out. Nothing changes on the old computer.
+3. **On the new PC** pick “This is the new PC: unpack” → “Open package…” and choose the `WhySlow-Move-…` folder.
+   Ticked programs install themselves, settings go in place (the ones already there are backed up and can be
+   restored from **Journal**), files go back to their folders without overwriting existing ones.
+
+The package works without WhySlow too: `install.bat` / `install.command` installs the programs, `files/restore.bat` /
+`restore.command` brings back the files, and `programs.txt` lists what to download by hand. Settings move between
+Windows and macOS where the app keeps the same files (VS Code, Git, bookmarks, OBS).
 ### Leaked passwords
 
 The **Passwords** tab finds passwords that already appear in data breaches and helps replace them.
@@ -548,6 +572,7 @@ whyslow/
   checks.py      diagnostics → list of findings
   optimize.py    optimization plan from scan results, and applying it
   reinstall.py   backup of the chosen folders and starting the OS's own reinstall
+  premium/migrate.py  moving to a new PC: program list, app settings and files into a package and back
   knowledge.py   knowledge base: loading, updating from GitHub, matching
   online.py      describing unknown programs: file details and Wikipedia
   startup.py     startup items on Windows / Linux / macOS
@@ -579,6 +604,7 @@ whyslow/
 
     pests.py     hidden pests: miners, browser extensions, night network log, quarantine
   restore.py     undo for paid-feature actions (quarantine, browser policies), works without a subscription
+
   updater.py     updating the program from GitHub
   settings.py    settings (language, updates, auto-clean on Mac)
   i18n.py        interface language: Russian and English

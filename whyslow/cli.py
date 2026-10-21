@@ -241,6 +241,8 @@ def risk_cost() -> int:
     for line in rep.notes + [healthcost.disclaimer()]:
         print("\n" + line)
     return 0
+
+
 def find_pests() -> int:
     """python -m whyslow --pests: скрытые майнеры, расширения браузеров, ночной выход в сеть.
     Только показывает; закрыть, убрать в карантин или снять политику — в окне, после подтверждения."""

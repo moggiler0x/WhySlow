@@ -3809,6 +3809,8 @@ class JournalTab(QWidget):
                 lhm.uninstall()
             elif e["kind"] == "macdata_trash":
                 macstorage.undo(e)
+            elif e["kind"] == "move_settings":
+                reinstall.undo_moves(e)
             elif e["kind"].startswith("pest_"):
                 restore.undo(e)
         except Exception as ex:
@@ -4009,9 +4011,11 @@ class MainWindow(QMainWindow):
         self.twin_tab = PremiumGate("twin", main=self)
         self.health_tab = PremiumGate("health_money", main=self)
         self.pests_tab = PremiumGate("pests", main=self)
+        self.move_tab = PremiumGate("migrate", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
-                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
+                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "move": self.move_tab,
+                         "journal": self.journal_tab,
                          "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab,
                          "xray": self.xray_page, "games": self.games_page,
                          "twin": self.twin_tab, "health_money": self.health_tab, "pests": self.pests_tab}
@@ -4021,7 +4025,7 @@ class MainWindow(QMainWindow):
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.pests_tab, tr("Вредители", "Pests")), (self.passwords_tab, tr("Пароли", "Passwords")),
-                 (self.reinstall_tab, tr("Переустановка", "Reinstall")),
+                 (self.reinstall_tab, tr("Переустановка", "Reinstall")), (self.move_tab, tr("Переезд", "Move")),
                  (self.compare_tab, tr("Сравнение", "Compare")),
                  (self.xray_page, tr("Рентген", "X-ray")), (self.games_page, tr("Игры", "Games")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
