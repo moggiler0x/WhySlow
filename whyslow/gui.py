@@ -3825,8 +3825,12 @@ class MainWindow(QMainWindow):
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
-        from .compare_ui import CompareTab  # отдельный модуль: сам берёт помощники из gui
-        self.compare_tab = CompareTab(self)
+        try:  # платная вкладка: код в whyslow/premium/compare.py, открывается замком подписки
+            from .license_ui import PremiumGate
+            self.compare_tab = PremiumGate("compare", main=self)
+        except ImportError:
+            self.compare_tab = muted(tr("Сравнение с похожими ПК доступно по подписке.",
+                                        "Comparison with similar PCs is part of the subscription."))
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,

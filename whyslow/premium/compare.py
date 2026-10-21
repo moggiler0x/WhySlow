@@ -23,9 +23,9 @@ from dataclasses import asdict, dataclass, field
 
 import psutil
 
-from . import settings
-from .i18n import tr
-from .util import IS_LINUX, IS_MAC, IS_WINDOWS, app_dir, ps_json, read_json, run, write_json
+from .. import settings
+from ..i18n import tr
+from ..util import IS_LINUX, IS_MAC, IS_WINDOWS, app_dir, ps_json, read_json, run, write_json
 
 FEATURE = "compare"
 SCHEMA = 1
@@ -39,22 +39,10 @@ class CompareError(Exception):
 
 # ---------------------------------------------------------------- лицензия ---
 
-def has_premium() -> bool:
-    """Функция платная. Проверку ключа делает модуль подписки; пока его нет — закрыто."""
-    try:
-        from . import license as lic  # type: ignore[attr-defined]
-    except ImportError:
-        return False
-    try:
-        return bool(lic.has_premium(FEATURE))
-    except Exception:  # noqa: BLE001 — сломанная проверка не должна ронять вкладку
-        return False
-
-
 def _auth_headers() -> dict:
     """Заголовки, по которым сервер убеждается, что подписка оплачена."""
     try:
-        from . import license as lic  # type: ignore[attr-defined]
+        from .. import license as lic
         return dict(lic.auth_headers() or {})
     except ImportError:
         return {}
@@ -191,7 +179,7 @@ def server_url() -> str:
     url = os.environ.get("WHYSLOW_COMPARE_URL", "")
     if not url:
         try:
-            from . import license as lic  # type: ignore[attr-defined]
+            from .. import license as lic
             url = lic.server_url() or ""
         except ImportError:
             pass
@@ -204,7 +192,7 @@ def _post(path: str, body: dict, timeout: float = 15) -> dict:
     import urllib.error
     import urllib.request
 
-    from .net import explain, urlopen
+    from ..net import explain, urlopen
     base = server_url()
     if not base:
         raise CompareError(tr("Сервер сравнения ещё не запущен.", "The comparison server isn't running yet."))
@@ -373,3 +361,212 @@ def explain_result(snap: Snapshot, data: dict, kb=None) -> Report | None:
         suspects.append(Suspect(pid, title, note, fast, share))
     suspects.sort(key=lambda s: (s.share_fast, s.share_all))
     return Report(peers, level, level_text, rows, headline, suspects[:5])
+
+
+# ------------------------------------------------------------------ вкладка ---
+# Qt подключается только при построении вкладки: логику выше проверяют тесты без PySide6.
+
+def build(main):
+    """Виджет вкладки «Сравнение» (его строит замок подписки PremiumGate)."""
+    return _ui()(main)
+
+
+def _ui():
+    from html import escape as _esc
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import (
+        QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidgetItem,
+        QTextEdit, QVBoxLayout, QWidget,
+    )
+
+    from .. import checks, sysinfo
+    from ..gui import C, _show_error, confirm, make_table, muted, pt, px, run_async, section
+
+    class ConsentDialog(QDialog):
+        """Показывает ровно то, что уйдёт на сервер, и спрашивает согласие."""
+
+        def __init__(self, parent, snap: Snapshot):
+            super().__init__(parent)
+            self.setWindowTitle(tr("Что отправится на сервер", "What will be sent"))
+            self.resize(px(620), px(560))
+            lay = QVBoxLayout(self)
+            lay.addWidget(muted(tr(
+                "Чтобы сравнить ваш ПК с похожими, WhySlow отправит этот анонимный снимок. В нём нет имени, "
+                "имени компьютера, путей к файлам и названий ваших личных программ: программы передаются только "
+                "как записи из открытой базы WhySlow, остальные — лишь количеством. Ключ подписки сервер проверяет, "
+                "но рядом со снимком не хранит, IP-адрес тоже не сохраняется. Снимок можно удалить с сервера в любой момент.",
+                "To compare your PC with similar ones, WhySlow will send this anonymous snapshot. It has no name, "
+                "computer name, file paths or names of your personal programs: programs are sent only as entries of "
+                "WhySlow's open database, others only as a count. The server checks the subscription key but doesn't "
+                "store it next to the snapshot, and your IP address isn't saved either. You can delete the snapshot "
+                "from the server at any time.")))
+            text = QTextEdit()
+            text.setReadOnly(True)
+            text.setPlainText(json.dumps(snap.to_json(), ensure_ascii=False, indent=2))
+            lay.addWidget(text, 1)
+            self.agree = QCheckBox(tr("Согласен отправлять этот снимок для сравнения", "I agree to send this snapshot for comparison"))
+            lay.addWidget(self.agree)
+            bb = QDialogButtonBox()
+            self.b_ok = bb.addButton(tr("Отправить и сравнить", "Send and compare"), QDialogButtonBox.AcceptRole)
+            self.b_ok.setObjectName("primary")
+            self.b_ok.setEnabled(False)
+            bb.addButton(tr("Отмена", "Cancel"), QDialogButtonBox.RejectRole)
+            self.agree.toggled.connect(self.b_ok.setEnabled)
+            bb.accepted.connect(self.accept)
+            bb.rejected.connect(self.reject)
+            lay.addWidget(bb)
+
+
+    class ComparePage(QWidget):
+        def __init__(self, main):
+            super().__init__()
+            self.main = main
+            lay = QVBoxLayout(self)
+            lay.setContentsMargins(px(20), px(18), px(20), px(18))
+            lay.setSpacing(px(10))
+            lay.addWidget(muted(tr(
+                "WhySlow сравнивает ваш компьютер с другими пользователями на таком же железе: сколько грузится "
+                "система, насколько она занята в простое, сколько всего в автозагрузке. И показывает, какие программы "
+                "есть у вас, но редко встречаются у быстрых похожих ПК.",
+                "WhySlow compares your computer with other users on the same hardware: how long the system takes "
+                "to boot, how busy it is when idle, how much is in startup. And it shows which programs you have "
+                "that are rare on fast similar PCs.")))
+            row = QHBoxLayout()
+            self.b_run = QPushButton(tr("Сравнить", "Compare"))
+            self.b_run.setObjectName("primary")
+            self.b_run.setCursor(Qt.PointingHandCursor)
+            self.b_run.clicked.connect(self.run)
+            row.addWidget(self.b_run)
+            self.progress = muted("")
+            row.addWidget(self.progress, 1)
+            lay.addLayout(row)
+
+            self.headline = QLabel()
+            self.headline.setWordWrap(True)
+            self.headline.setStyleSheet(f"font-size: {pt(15)}; font-weight: 600; color: white;")
+            lay.addWidget(self.headline)
+            self.level = muted("")
+            lay.addWidget(self.level)
+            self.table = make_table([tr("Показатель", "Metric"), tr("У вас", "Yours"), tr("Обычно у похожих", "Typical"),
+                                     tr("У быстрых", "Fast ones"), tr("Итог", "Verdict")])
+            hh = self.table.horizontalHeader()
+            for i in range(4):
+                hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(4, QHeaderView.Stretch)
+            lay.addWidget(self.table, 1)
+            lay.addWidget(section(tr("Чем ваш ПК отличается от быстрых", "What sets your PC apart from fast ones")))
+            self.suspects = muted("")
+            self.suspects.setTextFormat(Qt.RichText)
+            lay.addWidget(self.suspects)
+
+            foot = QHBoxLayout()
+            self.b_startup = QPushButton(tr("Открыть автозагрузку", "Open startup"))
+            self.b_startup.clicked.connect(lambda: self.main.go("startup"))
+            foot.addWidget(self.b_startup)
+            foot.addStretch()
+            self.b_forget = QPushButton(tr("Удалить мои данные с сервера", "Delete my data from the server"))
+            self.b_forget.clicked.connect(self.forget)
+            foot.addWidget(self.b_forget)
+            lay.addLayout(foot)
+            self.show_last()
+
+        def show_last(self):
+            snap, data, when = last()
+            self.b_forget.setEnabled(bool(settings.get("compare_id")))
+            self.b_startup.setVisible(False)
+            if snap and data:
+                self.show_result(snap, data, when)
+            else:
+                self.headline.setText(tr("Нажмите «Сравнить», чтобы узнать, как ваш ПК выглядит на фоне таких же.",
+                                         "Press Compare to see how your PC stacks up against similar ones."))
+
+        def run(self):
+            self.b_run.setEnabled(False)
+            main = self.main
+
+            def work(progress):
+                r = main.scan_result or checks.scan(main.kb, progress)
+                progress(tr("Собираю сведения о железе…", "Collecting hardware details…"))
+                return r, collect(r, sysinfo.cpu_name(), sysinfo.gpus(), progress)
+
+            def collected(res):
+                r, snap = res
+                if main.scan_result is None:
+                    main.scan_result = r
+                if not settings.get("compare_consent"):
+                    dlg = ConsentDialog(self, snap)
+                    if dlg.exec() != QDialog.Accepted:
+                        self._idle()
+                        return
+                    settings.set("compare_consent", True)
+                self.progress.setText(tr("Сравниваю с похожими ПК…", "Comparing with similar PCs…"))
+                run_async(lambda _p: compare(snap), lambda data: (self._idle(), self.show_result(snap, data, time.time())),
+                          self._failed)
+
+            run_async(work, collected, self._failed, self.progress.setText)
+
+        def _idle(self):
+            self.b_run.setEnabled(True)
+            self.progress.setText("")
+            self.b_forget.setEnabled(bool(settings.get("compare_id")))
+
+        def _failed(self, e: str):
+            self._idle()
+            _show_error(e)
+
+        def show_result(self, snap: Snapshot, data: dict, when: float):
+            rep = explain_result(snap, data, self.main.kb)
+            stamp = time.strftime("%d.%m.%Y %H:%M", time.localtime(when))
+            if rep is None:
+                self.headline.setText(tr("Похожих ПК пока слишком мало для честного сравнения.",
+                                         "There aren't enough similar PCs yet for a fair comparison."))
+                self.level.setText(tr(f"Ваш снимок сохранён ({stamp}): как только наберётся хотя бы {MIN_PEERS} "
+                                      "похожих компьютеров, сравнение заработает.",
+                                      f"Your snapshot is saved ({stamp}): once there are at least {MIN_PEERS} "
+                                      "similar computers, the comparison will work."))
+                self.table.setRowCount(0)
+                self.suspects.setText("")
+                return
+            self.headline.setText(rep.headline)
+            self.level.setText(tr(f"Сравнение с: {rep.level_text}. Снимок от {stamp}.",
+                                  f"Compared with: {rep.level_text}. Snapshot from {stamp}."))
+            rows = [r for r in rep.rows if r.mine is not None or r.median is not None]
+            self.table.setRowCount(len(rows))
+            for i, r in enumerate(rows):
+                color = C["muted"]
+                if r.diff_pct is not None and abs(r.diff_pct) >= 10:
+                    color = C["bad"] if r.diff_pct >= 20 else C["warn"] if r.diff_pct > 0 else C["ok"]
+                cells = [r.title, *(_fmt(v, r.unit) if isinstance(v, (int, float)) else "—"
+                                    for v in (r.mine, r.median, r.best)), r.text()]
+                for c, text in enumerate(cells):
+                    it = QTableWidgetItem(text)
+                    if c == 4:
+                        it.setForeground(QColor(color))
+                    self.table.setItem(i, c, it)
+            if rep.suspects:
+                lines = []
+                for s in rep.suspects:
+                    share = tr(f"есть только у {s.share_fast * 100:.0f}% быстрых похожих ПК",
+                               f"only {s.share_fast * 100:.0f}% of fast similar PCs have it")
+                    note = f" — {_esc(s.note)}" if s.note else ""
+                    lines.append(f"<b>{_esc(s.title)}</b>: {share}{note}")
+                self.suspects.setText("<br>".join(lines))
+                self.b_startup.setVisible(True)
+            else:
+                self.suspects.setText(tr("Заметных отличий в программах нет.", "No notable differences in programs."))
+                self.b_startup.setVisible(False)
+
+        def forget(self):
+            if not confirm(self, tr("Удалить данные?", "Delete data?"),
+                           tr("Снимок этого компьютера будет удалён с сервера сравнения, согласие — отозвано.",
+                              "This computer's snapshot will be deleted from the comparison server and consent withdrawn.")):
+                return
+            run_async(lambda _p: forget(),
+                      lambda _r: (self.main.status(tr("Данные удалены с сервера", "Data deleted from the server")),
+                                  self.table.setRowCount(0), self.suspects.setText(""), self.level.setText(""),
+                                  self.show_last()),
+                      _show_error)
+
+    return ComparePage

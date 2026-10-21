@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from whyslow import compare, settings
+from whyslow import settings
+from whyslow.premium import compare
 from whyslow.knowledge import KnowledgeBase
 
 
@@ -15,10 +16,6 @@ def test_norm_gpu_and_ram():
     assert compare.norm_gpu("NVIDIA GeForce RTX 3060 Laptop GPU") == "nvidia geforce rtx 3060 laptop"
     assert compare.ram_bucket(int(15.8 * 2**30)) == 16
     assert compare.ram_bucket(int(7.4 * 2**30)) == 8
-
-
-def test_no_license_module_means_locked():
-    assert compare.has_premium() is False
 
 
 def test_install_id_is_stable_and_random():
