@@ -5,8 +5,8 @@ LaunchDaemons). Отключение сделано так же, как в си�
 
 from __future__ import annotations
 
-import json
 import os
+import re
 import shutil
 import struct
 import time
@@ -16,7 +16,7 @@ from pathlib import Path
 from . import journal
 from .i18n import tr
 from .knowledge import KnowledgeBase, Verdict
-from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, is_admin, run
+from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, is_admin, ps_json as _ps_json, run
 
 
 class ActionError(Exception):
@@ -54,6 +54,38 @@ def list_items(kb: KnowledgeBase | None = None) -> list[StartupItem]:
             # Имя службы последним: записи базы для служб ищут его как `\\bимя$`
             it.verdict = kb.lookup(it.name, it.command, it.meta.get("service", ""))
     return items
+
+
+def _stem(path: str) -> str:
+    base = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    for ext in (".exe", ".app", ".desktop", ".service", ".plist"):
+        base = base.removesuffix(ext)
+    return base
+
+
+# Программы-«носители»: через них запускается много разного, по ним искать нельзя
+_HOSTS = {"svchost", "rundll32", "dllhost", "conhost", "cmd", "powershell", "pwsh", "wscript", "cscript", "mshta",
+          "msiexec", "explorer", "update", "updater", "python", "python3", "pythonw", "java", "javaw", "node",
+          "sh", "bash", "zsh", "env", "open", "launchd", "systemd", "dbus-daemon"}
+
+
+def find_for_process(items: list[StartupItem], name: str, exe: str = "") -> list[StartupItem]:
+    """Включённые записи автозагрузки, которые запускают эту программу: по пути к файлу,
+    а если его не видно — по имени. Нужно, чтобы из «Процессов» убрать программу
+    из автозагрузки, а не только закрыть до следующего включения."""
+    exe_low = exe.lower().replace("\\", "/")
+    stem = _stem(exe or name)
+    if len(stem) < 3 or stem in _HOSTS:
+        return []
+    found = []
+    for it in items:
+        if not it.enabled or not it.can_toggle:
+            continue
+        cmd = it.command.lower().replace("\\", "/")
+        if (exe_low and exe_low in cmd) or _stem(it.name) == stem or \
+                re.search(rf"(^|[/\s\"']){re.escape(stem)}(\.exe|\.app)?([\s\"'/]|$)", cmd):
+            found.append(it)
+    return found
 
 
 def set_enabled(item: StartupItem, enabled: bool, log: bool = True) -> None:
@@ -230,20 +262,6 @@ def _win_restore_value(b: dict) -> None:
     import winreg
     with winreg.CreateKeyEx(_hive(b["hive"]), b["path"], 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
         winreg.SetValueEx(k, b["value"], 0, b["type"], b["data"])
-
-
-def _ps_json(script: str, timeout: float = 60) -> list[dict]:
-    """Выполняет PowerShell и разбирает ConvertTo-Json. Один объект тоже даёт список."""
-    code, out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script], timeout=timeout)
-    if code != 0 or not out.strip():
-        return []
-    try:
-        data = json.loads(out)
-    except ValueError:
-        return []
-    data = data if isinstance(data, list) else [data]
-    return [d for d in data if isinstance(d, dict)]
 
 
 def _ours(kind: str) -> dict[str, dict]:

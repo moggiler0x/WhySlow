@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import psutil
 
-from . import junk, lhm, network, startup, sysinfo
+from . import conflicts, diskhealth, junk, lhm, network, power, startup, sysinfo
 from .knowledge import KnowledgeBase
 from .i18n import tr
 from .processes import ProcessMonitor
@@ -33,6 +33,7 @@ class ScanResult:
     junk: list[junk.JunkCategory] = field(default_factory=list)
     proxy: network.ProxyState | None = None
     procs: list = field(default_factory=list)  # программы на момент проверки, для плана оптимизации
+    physical: list = field(default_factory=list)  # физические диски: тип и здоровье
     took: float = 0.0
 
 
@@ -44,13 +45,18 @@ def scan(kb: KnowledgeBase, progress=lambda text: None) -> ScanResult:
     progress(tr("Смотрю процессор и память…", "Checking CPU and memory…"))
     mon = ProcessMonitor()
     mon.sample()
+    io0 = diskhealth.io_snapshot()
     cpu = psutil.cpu_percent(interval=1.5)
+    io1 = diskhealth.io_snapshot()
     procs = r.procs = mon.sample(kb)
     _cpu(f, cpu, procs)
     _ram(f, procs)
 
     progress(tr("Проверяю диски…", "Checking disks…"))
     _disks(f)
+    _disk_busy(f, diskhealth.busy_percent(io0, io1), diskhealth.top_io(io0, io1))
+    r.physical = diskhealth.physical()
+    _disk_health(f, r.physical)
 
     progress(tr("Читаю автозагрузку…", "Reading startup items…"))
     r.startup = startup.list_items(kb)
@@ -70,8 +76,16 @@ def scan(kb: KnowledgeBase, progress=lambda text: None) -> ScanResult:
     r.proxy = network.proxy_state()
     _proxy(f, r.proxy)
 
+    progress(tr("Ищу конфликты между программами…", "Looking for conflicts between programs…"))
+    try:
+        for c in conflicts.detect(procs):
+            f.append(Finding(c.level, c.title, c.detail, c.advice, c.tab))
+    except Exception:  # noqa: BLE001 — необязательная проверка не должна ронять всю диагностику
+        pass
+
     progress(tr("Температуры и прочее…", "Temperatures and more…"))
     _temps(f)
+    _power(f, power.state())
     _uptime(f)
     if IS_LINUX:
         _failed_units(f)
@@ -193,6 +207,52 @@ def _disks(f):
                                             "It's best to keep at least 15–20% free."), tab="junk"))
 
 
+def _disk_busy(f, busy, top):
+    if busy is None or busy < 90:
+        return
+    who = ", ".join(f"{name} ({human_size(rate)}/{tr('с', 's')})" for name, rate in top)
+    detail = tr("Когда диск занят почти всё время, любая программа ждёт своей очереди на чтение — "
+                "отсюда подвисания при открытии окон и файлов.",
+                "When the disk is busy nearly all the time, every program waits its turn to read — "
+                "that's why windows and files open with a delay.")
+    if who:
+        detail += tr(f" Больше всех читают и пишут: {who}.", f" Reading and writing the most: {who}.")
+    f.append(Finding(WARN, tr(f"Диск занят на {busy:.0f}%", f"Disk is {busy:.0f}% busy"), detail,
+                     tr("Если это обновление или антивирус — дождитесь конца. Если что-то постоянное — "
+                        "закройте или уберите из автозагрузки.",
+                        "If it's an update or the antivirus, wait for it to finish. If it's constant, close "
+                        "it or remove it from startup."), "procs"))
+
+
+def _disk_health(f, disks):
+    for d in disks:
+        if d.health in ("bad", "warn"):
+            f.append(Finding(BAD if d.health == "bad" else WARN,
+                             tr(f"Диск {d.name}: {d.health_label}", f"Disk {d.name}: {d.health_label}"),
+                             tr("Диск сам сообщает о проблемах (SMART" + (f", {d.detail}" if d.detail else "") + "). "
+                                "Неисправный диск читает медленно, программы зависают, а файлы могут пропасть.",
+                                "The disk itself reports problems (SMART" + (f", {d.detail}" if d.detail else "") + "). "
+                                "A failing disk reads slowly, programs hang, and files may be lost."),
+                             tr("Сразу скопируйте важные файлы на другой диск или в облако и замените диск.",
+                                "Copy important files to another disk or the cloud right away and replace the disk."),
+                             "system"))
+    sys_disk = next((d for d in disks if d.system), None)
+    if sys_disk and sys_disk.kind == "hdd":
+        f.append(Finding(WARN, tr("Система стоит на жёстком диске (HDD)", "The system is on a hard drive (HDD)"),
+                         tr(f"{sys_disk.name}. Жёсткий диск в десятки раз медленнее SSD на мелких файлах, из которых "
+                            "и состоит система: долгое включение и запуск программ — это он.",
+                            f"{sys_disk.name}. A hard drive is dozens of times slower than an SSD on small files, "
+                            "which is what the system is made of: slow boot and app launches come from it."),
+                         by_os(tr("Самый заметный апгрейд — SSD под систему. Пока его нет, не отключайте SysMain: "
+                                  "на HDD он ускоряет запуск программ.",
+                                  "The most noticeable upgrade is an SSD for the system. Until then, keep SysMain "
+                                  "on: on an HDD it speeds up app launches."),
+                               tr("Самый заметный апгрейд — SSD (на старых Mac его можно поставить в сервисе).",
+                                  "The most noticeable upgrade is an SSD (older Macs can get one at a service center)."),
+                               tr("Самый заметный апгрейд — SSD под систему.",
+                                  "The most noticeable upgrade is an SSD for the system.")), "system"))
+
+
 def _startup(f, items):
     on = [i for i in items if i.enabled and not i.system]
     bad = [i for i in items if i.enabled and i.verdict and i.verdict.verdict == "bad"]
@@ -311,6 +371,46 @@ def _temps(f):
     else:
         t = max(temps.values())
         f.append(Finding(OK, tr(f"Температуры в норме (максимум {t:.0f}°C)", f"Temperatures are normal (max {t:.0f}°C)")))
+
+
+def _power(f, st):
+    if st.saver:
+        f.append(Finding(WARN, tr(f"Включён режим «{st.saver_name}»", f"“{st.saver_name}” mode is on"),
+                         tr("В этом режиме система нарочно снижает частоту процессора и яркость, чтобы экономить "
+                            "заряд, — программы работают заметно медленнее.",
+                            "In this mode the system deliberately lowers CPU speed and brightness to save power — "
+                            "programs run noticeably slower."),
+                         by_os(tr("Выключите: «Параметры → Система → Питание и батарея → Режим питания» — "
+                                  "«Сбалансированный» или «Максимальная производительность».",
+                                  "Turn it off: Settings → System → Power & battery → Power mode — "
+                                  "Balanced or Best performance."),
+                               tr("Выключите: «Системные настройки → Аккумулятор → Режим энергосбережения» — "
+                                  "«Никогда».",
+                                  "Turn it off: System Settings → Battery → Low Power Mode — Never."),
+                               tr("Выключите: в настройках питания выберите «Сбалансированный» или "
+                                  "«Производительность» (powerprofilesctl set balanced).",
+                                  "Turn it off: choose Balanced or Performance in power settings "
+                                  "(powerprofilesctl set balanced)."))))
+    elif st.battery and not st.plugged and st.percent is not None and st.percent < 20:
+        f.append(Finding(INFO, tr(f"Заряд {st.percent:.0f}%, ноутбук не на зарядке",
+                                  f"Battery at {st.percent:.0f}%, laptop is unplugged"),
+                         tr("При низком заряде многие ноутбуки сами сбрасывают частоты процессора.",
+                            "With a low battery many laptops throttle the CPU on their own."),
+                         tr("Подключите зарядку.", "Plug in the charger.")))
+    worn = st.health is not None and st.health < 80
+    service = bool(st.condition) and st.condition.lower() not in ("normal", "good")
+    if worn or service:
+        cycles = tr(f", {st.cycles} циклов зарядки", f", {st.cycles} charge cycles") if st.cycles else ""
+        hp = tr(f"{st.health:.0f}% от исходной ёмкости", f"{st.health:.0f}% of original capacity") \
+            if st.health is not None else st.condition
+        f.append(Finding(WARN if (st.health or 100) < 60 or service else INFO,
+                         tr(f"Аккумулятор изношен: {hp}", f"Battery is worn: {hp}") + cycles,
+                         tr("Старый аккумулятор быстрее садится, а под нагрузкой не выдаёт нужной мощности — "
+                            "тогда система снижает частоты даже на зарядке у некоторых ноутбуков.",
+                            "A worn battery drains faster and can't deliver peak power under load — on some "
+                            "laptops the system then throttles even when plugged in."),
+                         tr("Замена аккумулятора вернёт и время работы, и производительность.",
+                            "Replacing the battery restores both runtime and performance.")))
 
 
 def _uptime(f):

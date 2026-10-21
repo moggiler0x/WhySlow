@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -53,6 +54,20 @@ def run(cmd: list[str], timeout: float = 10, cwd=None) -> tuple[int, str]:
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
+def ps_json(script: str, timeout: float = 60) -> list[dict]:
+    """Выполняет PowerShell и разбирает ConvertTo-Json. Один объект тоже даёт список."""
+    code, out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script], timeout=timeout)
+    if code != 0 or not out.strip():
+        return []
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return []
+    data = data if isinstance(data, list) else [data]
+    return [d for d in data if isinstance(d, dict)]
+
+
 def is_admin() -> bool:
     if IS_WINDOWS:
         try:
@@ -61,6 +76,31 @@ def is_admin() -> bool:
         except Exception:
             return False
     return os.geteuid() == 0
+
+
+def write_json(path: Path, data) -> None:
+    """Пишет JSON через временный файл: если программа упадёт посреди записи,
+    старая версия останется целой, а не превратится в полфайла."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_json(path: Path, default):
+    """Читает JSON. Повреждённый файл не затирается следующей записью, а
+    откладывается рядом (*.broken), чтобы его можно было восстановить вручную."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return default
+    try:
+        return json.loads(text)
+    except ValueError:
+        try:
+            os.replace(path, path.with_name(path.name + ".broken"))
+        except OSError:
+            pass
+        return default
 
 
 def human_size(n: float) -> str:

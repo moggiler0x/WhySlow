@@ -1,6 +1,6 @@
 {
- "version": 3,
- "updated": "2026-10-19",
+ "version": 4,
+ "updated": "2026-10-21",
  "entries": [
   {
    "id": "miner",
@@ -86,6 +86,287 @@
    ],
    "note": "Значок и служба встроенного антивируса. Отключать нельзя.",
    "note_en": "Tray icon and service of the built-in antivirus. Don't disable it."
+  },
+  {
+   "id": "whyslow",
+   "title": "WhySlow",
+   "title_en": "WhySlow",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "optional",
+   "match": [
+    "whyslow"
+   ],
+   "note": "Это сам WhySlow: в фоне записывает, когда и из-за чего тормозил компьютер. Если запись не нужна — выключите на вкладке «История».",
+   "note_en": "This is WhySlow itself: it records in the background when and why the computer was slow. If you don't need that, turn it off on the History tab."
+  },
+  {
+   "id": "win_core",
+   "title": "Ядро Windows",
+   "title_en": "Windows core",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(system|registry|memory compression|memcompression|secure system|interrupts)(?!\\s+(settings|preferences|information))(\\s|$)",
+    "^(smss|csrss|wininit|winlogon|services|lsass|lsaiso|svchost|fontdrvhost|sihost|dllhost|conhost|taskhostw|wmiprvse|wudfhost|dashost|smartscreen|securityhealthservice)\\.exe\\b"
+   ],
+   "note": "Основа Windows: без этих процессов система упадёт или перезагрузится. svchost — «контейнер» для служб: если он грузит процессор, смотрите, какая служба внутри, во вкладке «Автозагрузка».",
+   "note_en": "The foundation of Windows: without these the system crashes or reboots. svchost is a container for services: if it loads the CPU, check which service runs inside it on the Startup tab."
+  },
+  {
+   "id": "win_shell",
+   "title": "Рабочий стол Windows",
+   "title_en": "Windows desktop",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(explorer|dwm|shellexperiencehost|startmenuexperiencehost|searchhost|searchapp|textinputhost|applicationframehost|runtimebroker|lockapp|ctfmon)\\.exe\\b"
+   ],
+   "note": "Рабочий стол, панель задач, Пуск и окна. Если закрыть — пропадут панель задач и окна, пока Windows их не перезапустит. dwm рисует окна: высокая нагрузка обычно значит старый драйвер видеокарты.",
+   "note_en": "Desktop, taskbar, Start menu and windows. Closing it makes the taskbar and windows disappear until Windows restarts them. dwm draws windows: high load usually means an old graphics driver."
+  },
+  {
+   "id": "win_tiworker",
+   "title": "Установщик обновлений Windows",
+   "title_en": "Windows Modules Installer",
+   "category": "Обновления",
+   "category_en": "Updates",
+   "verdict": "keep",
+   "match": [
+    "^(tiworker|trustedinstaller|musnotification|mousocoreworker|wuauclt|usoclient)\\.exe\\b"
+   ],
+   "note": "Ставит обновления Windows. Пока работает, грузит процессор и диск — дайте ему закончить и перезагрузитесь. Прерывать нельзя.",
+   "note_en": "Installs Windows updates. While running it loads the CPU and disk — let it finish and restart. Don't interrupt it."
+  },
+  {
+   "id": "win_defender_scan",
+   "title": "Проверка антивирусом Windows",
+   "title_en": "Windows Defender scan",
+   "category": "Безопасность",
+   "category_en": "Security",
+   "verdict": "keep",
+   "match": [
+    "^(msmpeng|mpdefendercoreservice|nissrv|mpcmdrun)\\.exe\\b"
+   ],
+   "note": "Antimalware Service Executable — встроенный антивирус. Сильно грузит систему во время плановой проверки; обычно это проходит само за 10–30 минут. Отключать нельзя.",
+   "note_en": "Antimalware Service Executable — the built-in antivirus. It loads the system heavily during a scheduled scan; usually that passes in 10–30 minutes. Don't disable it."
+  },
+  {
+   "id": "win_audiodg",
+   "title": "Звук Windows",
+   "title_en": "Windows audio",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^audiodg\\.exe\\b"
+   ],
+   "note": "Обрабатывает звук. Если грузит процессор — выключите «улучшения звука» в свойствах устройства воспроизведения или обновите драйвер звука.",
+   "note_en": "Processes audio. If it loads the CPU, turn off audio enhancements in the playback device properties or update the audio driver."
+  },
+  {
+   "id": "win_print",
+   "title": "Диспетчер печати",
+   "title_en": "Print Spooler",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "optional",
+   "match": [
+    "^spoolsv\\.exe\\b",
+    "\\bspooler$"
+   ],
+   "note": "Очередь печати. Если принтера нет — службу можно отключить. Если грузит процессор — в очереди застрял документ.",
+   "note_en": "The print queue. Without a printer you can disable the service. If it loads the CPU, a document is stuck in the queue."
+  },
+  {
+   "id": "win_search_proc",
+   "title": "Индексатор поиска Windows",
+   "title_en": "Windows Search indexer",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "optional",
+   "match": [
+    "^(searchindexer|searchprotocolhost|searchfilterhost)\\.exe\\b"
+   ],
+   "note": "Строит индекс для поиска. После установки Windows или переноса файлов может часами грузить диск — это проходит само. Если мешает постоянно, отключите службу «Windows Search» во вкладке «Автозагрузка».",
+   "note_en": "Builds the search index. After installing Windows or moving files it can load the disk for hours — that passes on its own. If it bothers you constantly, disable the Windows Search service on the Startup tab."
+  },
+  {
+   "id": "win_compat",
+   "title": "Сбор данных совместимости",
+   "title_en": "Compatibility telemetry",
+   "category": "Телеметрия",
+   "category_en": "Telemetry",
+   "verdict": "safe",
+   "match": [
+    "^compattelrunner\\.exe\\b",
+    "microsoft compatibility appraiser"
+   ],
+   "note": "Собирает сведения о программах для Microsoft. Иногда надолго грузит диск. Отключение ни на что не влияет.",
+   "note_en": "Collects app data for Microsoft. Sometimes loads the disk for a long time. Disabling it affects nothing."
+  },
+  {
+   "id": "mac_webkit",
+   "title": "Вкладки Safari (WebKit)",
+   "title_en": "Safari tabs (WebKit)",
+   "category": "Браузер",
+   "category_en": "Browser",
+   "verdict": "optional",
+   "match": [
+    "^com\\.apple\\.webkit\\.(webcontent|networking|gpu)",
+    "^safari web content"
+   ],
+   "note": "Это отдельные вкладки и окна Safari (или программ, которые показывают веб-страницы). Если такой процесс грузит процессор или память — закройте тяжёлую вкладку; Safari покажет, какая это, в меню «Окно → Монитор активности».",
+   "note_en": "These are individual Safari tabs and windows (or apps that show web pages). If one loads the CPU or memory, close the heavy tab; Safari's Window menu shows which one in its activity view."
+  },
+  {
+   "id": "mac_kernel_task",
+   "title": "Ядро macOS (kernel_task)",
+   "title_en": "macOS kernel (kernel_task)",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^kernel_task(\\s|$)"
+   ],
+   "note": "Ядро системы. Большая нагрузка — это часто не работа, а защита от перегрева: macOS занимает процессор, чтобы он остыл. Проверьте температуры и не держите Mac на мягком; на Intel-Mac помогает чистка от пыли.",
+   "note_en": "The system kernel. High load is often not work but overheating protection: macOS occupies the CPU to let it cool down. Check temperatures and don't keep the Mac on soft surfaces; on Intel Macs dust cleaning helps."
+  },
+  {
+   "id": "mac_windowserver",
+   "title": "WindowServer",
+   "title_en": "WindowServer",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^windowserver(\\s|$)"
+   ],
+   "note": "Рисует всё на экране. Грузит систему, когда открыто много окон, подключены внешние мониторы с масштабированием или включена прозрачность. Помогает: закрыть лишние окна, «Универсальный доступ → Дисплей → Уменьшить прозрачность».",
+   "note_en": "Draws everything on screen. It loads the system with many windows open, scaled external displays or transparency on. Helps: close extra windows, Accessibility → Display → Reduce transparency."
+  },
+  {
+   "id": "mac_spotlight",
+   "title": "Индексация Spotlight",
+   "title_en": "Spotlight indexing",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(mds|mds_stores|mdworker|mdworker_shared|mdsync|corespotlightd|mdbulkimport)(\\s|$)"
+   ],
+   "note": "Строит индекс для поиска Spotlight. После обновления macOS или копирования многих файлов работает часами — это нормально и пройдёт само. Папки, которые не нужно искать, можно исключить: «Системные настройки → Spotlight → Конфиденциальность».",
+   "note_en": "Builds the Spotlight search index. After a macOS update or copying many files it runs for hours — that's normal and passes. Folders you don't need searched can be excluded: System Settings → Spotlight → Privacy."
+  },
+  {
+   "id": "mac_photos",
+   "title": "Анализ фото",
+   "title_en": "Photo analysis",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(photoanalysisd|photolibraryd|mediaanalysisd|mediaanalysisd-access|cloudphotod|vnimageprocessingservice)(\\s|$)"
+   ],
+   "note": "Распознаёт лица и предметы в «Фото». Обычно работает, когда Mac на зарядке и без дела; после импорта большой библиотеки может занять дни. Вреда нет, со временем затихнет.",
+   "note_en": "Recognizes faces and objects in Photos. Usually runs when the Mac is charging and idle; after importing a large library it can take days. Harmless, it calms down over time."
+  },
+  {
+   "id": "mac_icloud",
+   "title": "Синхронизация iCloud",
+   "title_en": "iCloud sync",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(bird|cloudd|fileproviderd|nsurlsessiond|cloudpaird|iclouddrivefileprovider)(\\s|$)"
+   ],
+   "note": "Синхронизирует iCloud Drive и скачивает данные в фоне. Грузит сеть и диск, пока идёт синхронизация. Если мешает — приостановите в «Системные настройки → Apple ID → iCloud».",
+   "note_en": "Syncs iCloud Drive and downloads data in the background. Loads network and disk while syncing. If it bothers you, pause it in System Settings → Apple ID → iCloud."
+  },
+  {
+   "id": "mac_backupd",
+   "title": "Time Machine",
+   "title_en": "Time Machine",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(backupd|backupd-helper)(\\s|$)"
+   ],
+   "note": "Делает резервную копию. Можно дождаться или нажать «Пропустить» в меню Time Machine; копия догонит позже.",
+   "note_en": "Making a backup. Wait or click Skip in the Time Machine menu; the backup will catch up later."
+  },
+  {
+   "id": "mac_update",
+   "title": "Обновление macOS",
+   "title_en": "macOS update",
+   "category": "Обновления",
+   "category_en": "Updates",
+   "verdict": "keep",
+   "match": [
+    "^(softwareupdated|softwareupdate|mobileassetd|installd|system_installd|appstoreagent|storedownloadd)(\\s|$)"
+   ],
+   "note": "Скачивает или ставит обновления. Дайте закончить.",
+   "note_en": "Downloading or installing updates. Let it finish."
+  },
+  {
+   "id": "mac_security",
+   "title": "Защита macOS",
+   "title_en": "macOS security",
+   "category": "Безопасность",
+   "category_en": "Security",
+   "verdict": "keep",
+   "match": [
+    "^(xprotect\\w*|mrt|syspolicyd|trustd|endpointsecurityd|amfid|securityd|xprotectpluginservice)(\\s|$)"
+   ],
+   "note": "Встроенная защита от вирусов и проверка подписей программ. Иногда грузит процессор при первом запуске новых программ.",
+   "note_en": "Built-in malware protection and app signature checks. Sometimes loads the CPU when new programs run for the first time."
+  },
+  {
+   "id": "mac_core",
+   "title": "Основа macOS",
+   "title_en": "macOS core",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(launchd|loginwindow|finder|dock|systemuiserver|controlcenter|coreaudiod|coreservicesd|cfprefsd|distnoted|opendirectoryd|configd|logd|powerd|hidd|bluetoothd|airportd|watchdogd|sharingd|usernoted|notificationcenter|universalaccessd|thermalmonitord)(\\s|$)"
+   ],
+   "note": "Часть macOS. Закрывать не нужно: система перезапустит их сама, а пока — может пропасть звук, Dock или окна.",
+   "note_en": "Part of macOS. No need to close these: the system restarts them anyway, and meanwhile sound, the Dock or windows may vanish."
+  },
+  {
+   "id": "mac_updaters",
+   "title": "Фоновые обновлялки на Mac",
+   "title_en": "Background updaters on Mac",
+   "category": "Обновления",
+   "category_en": "Updates",
+   "verdict": "optional",
+   "match": [
+    "keystone",
+    "googlesoftwareupdate",
+    "com\\.microsoft\\.(update|autoupdate)",
+    "microsoft autoupdate",
+    "\\bmsupdate\\b"
+   ],
+   "note": "Проверяют обновления Chrome и Microsoft Office. Можно отключить, но тогда обновляйте программы вручную — для браузера это важно.",
+   "note_en": "Check for Chrome and Microsoft Office updates. You can disable them, but then update the apps by hand — that matters for a browser."
+  },
+  {
+   "id": "linux_core_procs",
+   "title": "Основа Linux",
+   "title_en": "Linux core",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "^(systemd|systemd-\\w+|kthreadd|kworker\\S*|ksoftirqd\\S*|kswapd\\d*|xorg|xwayland|gnome-shell|kwin_\\w+|plasmashell|pipewire|pipewire-pulse|pulseaudio|wireplumber|dbus-daemon|dbus-broker|networkmanager)(\\s|$)"
+   ],
+   "note": "Часть системы и рабочего стола. kswapd под нагрузкой значит, что не хватает оперативки.",
+   "note_en": "Part of the system and desktop. kswapd under load means RAM is short."
   },
   {
    "id": "win_services_core",
@@ -763,6 +1044,20 @@
    ],
    "note": "Управляет 3G/4G модемами. Нет модема — не нужен.",
    "note_en": "Manages 3G/4G modems. No modem — not needed."
+  },
+  {
+   "id": "mac_system_path",
+   "title": "Компонент macOS",
+   "title_en": "macOS component",
+   "category": "Система",
+   "category_en": "System",
+   "verdict": "keep",
+   "match": [
+    "\\s/System/Library/",
+    "\\s/usr/(libexec|sbin)/"
+   ],
+   "note": "Встроенная часть macOS (лежит в системной папке, которую нельзя менять). Обычно затихает сама.",
+   "note_en": "A built-in part of macOS (lives in the read-only system folder). It usually calms down on its own."
   }
  ]
 }
