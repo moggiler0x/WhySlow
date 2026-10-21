@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "updated": "2026-10-21",
  "about": "Прогноз актуальности железа. tier — поправка в годах: топовая модель держится как средняя на несколько лет новее. Требования задач: сколько лет после выхода (с поправкой) железо ещё тянет задачу и сколько памяти нужно сейчас (ram_gb в году ram_year, удваивается каждые ram_double лет).",
  "cpu": [
@@ -249,4 +249,108 @@
    "text_en": "In 2025–2026 RAM and SSDs became noticeably more expensive as makers shifted factories to memory for AI servers. If the upgrade isn't urgent, keep an eye on prices."
   }
  ]
+ ,
+ "twin_about": "«Двойник ПК». perf — скорость относительно эталона: видеокарта RTX 3060, процессор Ryzen 5 3600 (=1.0). Чего нет в списке, прикидывается по году с поправкой. Игры: fps_gpu — кадров в секунду на эталонной видеокарте, fps_cpu — сколько кадров выдаёт эталонный процессор (1080p, высокие настройки). Цены — примерный диапазон новых деталей; rub для русского интерфейса, usd для английского.",
+ "perf": {
+  "gpu": [
+   {"match": "GTX\\s*1050\\s*Ti", "perf": 0.33},
+   {"match": "GTX\\s*1060", "perf": 0.5},
+   {"match": "GTX\\s*1070", "perf": 0.66},
+   {"match": "GTX\\s*1080", "perf": 0.82},
+   {"match": "GTX\\s*1650", "perf": 0.42},
+   {"match": "GTX\\s*16[56]0\\s*(Super|Ti)", "perf": 0.62},
+   {"match": "GTX\\s*1660", "perf": 0.55},
+   {"match": "RTX\\s*2060", "perf": 0.75},
+   {"match": "RTX\\s*2070", "perf": 0.92},
+   {"match": "RTX\\s*2080", "perf": 1.1},
+   {"match": "RTX\\s*3050", "perf": 0.7},
+   {"match": "RTX\\s*3060\\s*Ti", "perf": 1.25},
+   {"match": "RTX\\s*3060", "perf": 1.0},
+   {"match": "RTX\\s*3070", "perf": 1.42},
+   {"match": "RTX\\s*3080", "perf": 1.8},
+   {"match": "RTX\\s*3090", "perf": 2.0},
+   {"match": "RTX\\s*4060\\s*Ti", "perf": 1.45},
+   {"match": "RTX\\s*4060", "perf": 1.2},
+   {"match": "RTX\\s*4070\\s*Ti", "perf": 2.3},
+   {"match": "RTX\\s*4070", "perf": 1.85},
+   {"match": "RTX\\s*4080", "perf": 2.8},
+   {"match": "RTX\\s*4090", "perf": 3.4},
+   {"match": "RTX\\s*5060\\s*Ti", "perf": 1.7},
+   {"match": "RTX\\s*5060", "perf": 1.45},
+   {"match": "RTX\\s*5070\\s*Ti", "perf": 2.7},
+   {"match": "RTX\\s*5070", "perf": 2.2},
+   {"match": "RTX\\s*5080", "perf": 3.1},
+   {"match": "RTX\\s*5090", "perf": 4.2},
+   {"match": "RX\\s*5[78]0\\b", "perf": 0.55},
+   {"match": "RX\\s*5700", "perf": 0.95},
+   {"match": "RX\\s*6600", "perf": 0.95},
+   {"match": "RX\\s*6700", "perf": 1.3},
+   {"match": "RX\\s*6800", "perf": 1.8},
+   {"match": "RX\\s*7600", "perf": 1.1},
+   {"match": "RX\\s*7700", "perf": 1.6},
+   {"match": "RX\\s*7800", "perf": 1.9},
+   {"match": "RX\\s*9060", "perf": 1.6},
+   {"match": "RX\\s*9070\\s*XT", "perf": 2.6},
+   {"match": "RX\\s*9070", "perf": 2.3},
+   {"match": "Arc.*B580", "perf": 1.35},
+   {"match": "Arc.*A770", "perf": 1.1},
+   {"match": "Arc.*A750", "perf": 1.0},
+   {"match": "Apple M1\\b(?!\\s*(Pro|Max|Ultra))", "perf": 0.22},
+   {"match": "Apple M2\\b(?!\\s*(Pro|Max|Ultra))", "perf": 0.3},
+   {"match": "Apple M3\\b(?!\\s*(Pro|Max|Ultra))", "perf": 0.36},
+   {"match": "Apple M4\\b(?!\\s*(Pro|Max|Ultra))", "perf": 0.42},
+   {"match": "Apple M\\d\\s+Pro", "perf": 0.6},
+   {"match": "Apple M\\d\\s+Max", "perf": 1.2}
+  ],
+  "cpu": [
+   {"match": "Ryzen\\s+5\\s+3600", "perf": 1.0},
+   {"match": "Ryzen\\s+5\\s+5600", "perf": 1.25},
+   {"match": "Ryzen\\s+7\\s+5800X3D", "perf": 1.55},
+   {"match": "Ryzen\\s+5\\s+7600", "perf": 1.5},
+   {"match": "Ryzen\\s+7\\s+7800X3D", "perf": 1.95},
+   {"match": "Ryzen\\s+5\\s+9600", "perf": 1.6},
+   {"match": "Ryzen\\s+7\\s+9800X3D", "perf": 2.15},
+   {"match": "i5-12400", "perf": 1.3},
+   {"match": "i5-13400", "perf": 1.38},
+   {"match": "i5-14600", "perf": 1.65},
+   {"match": "Ultra\\s+5\\s+245", "perf": 1.55}
+  ]
+ },
+ "games": [
+  {"id": "cs2", "title": "Counter-Strike 2", "fps_gpu": 230, "fps_cpu": 260, "vram_gb": 4, "ram_gb": 8},
+  {"id": "dota2", "title": "Dota 2", "fps_gpu": 220, "fps_cpu": 170, "vram_gb": 3, "ram_gb": 8},
+  {"id": "fortnite", "title": "Fortnite", "fps_gpu": 110, "fps_cpu": 170, "vram_gb": 6, "ram_gb": 12},
+  {"id": "cyberpunk", "title": "Cyberpunk 2077", "fps_gpu": 62, "fps_cpu": 105, "vram_gb": 8, "ram_gb": 12},
+  {"id": "new_aaa", "title": "Новые игры 2025–2026", "title_en": "New 2025–2026 games", "fps_gpu": 48, "fps_cpu": 85, "vram_gb": 8, "ram_gb": 16}
+ ],
+ "upgrades": [
+  {"id": "ssd", "kind": "ssd", "title": "SSD на 1 ТБ вместо жёсткого диска", "title_en": "1 TB SSD instead of the hard drive", "replace": {"disk": "ssd"}, "price": {"rub": [6000, 9000], "usd": [60, 90]}},
+  {"id": "ram16", "kind": "ram", "title": "Память до 16 ГБ", "title_en": "Memory to 16 GB", "replace": {"ram_gb": 16}, "price": {"rub": [4000, 7000], "usd": [40, 70]}},
+  {"id": "ram32", "kind": "ram", "title": "Память до 32 ГБ", "title_en": "Memory to 32 GB", "replace": {"ram_gb": 32}, "price": {"rub": [8000, 13000], "usd": [80, 130]}},
+  {"id": "rtx4060", "kind": "gpu", "title": "GeForce RTX 4060 8 ГБ", "title_en": "GeForce RTX 4060 8 GB", "replace": {"gpu": "NVIDIA GeForce RTX 4060", "vram_gb": 8}, "price": {"rub": [30000, 36000], "usd": [280, 320]}},
+  {"id": "rtx5060", "kind": "gpu", "title": "GeForce RTX 5060 8 ГБ", "title_en": "GeForce RTX 5060 8 GB", "replace": {"gpu": "NVIDIA GeForce RTX 5060", "vram_gb": 8}, "price": {"rub": [32000, 38000], "usd": [300, 340]}},
+  {"id": "rx9060xt", "kind": "gpu", "title": "Radeon RX 9060 XT 16 ГБ", "title_en": "Radeon RX 9060 XT 16 GB", "replace": {"gpu": "AMD Radeon RX 9060 XT", "vram_gb": 16}, "price": {"rub": [38000, 45000], "usd": [350, 400]}},
+  {"id": "rtx5070", "kind": "gpu", "title": "GeForce RTX 5070 12 ГБ", "title_en": "GeForce RTX 5070 12 GB", "replace": {"gpu": "NVIDIA GeForce RTX 5070", "vram_gb": 12}, "price": {"rub": [60000, 70000], "usd": [550, 620]}},
+  {"id": "rx9070xt", "kind": "gpu", "title": "Radeon RX 9070 XT 16 ГБ", "title_en": "Radeon RX 9070 XT 16 GB", "replace": {"gpu": "AMD Radeon RX 9070 XT", "vram_gb": 16}, "price": {"rub": [72000, 85000], "usd": [650, 750]}},
+  {"id": "r5_7600", "kind": "cpu", "title": "Ryzen 5 7600 + плата + 32 ГБ DDR5", "title_en": "Ryzen 5 7600 + board + 32 GB DDR5", "replace": {"cpu": "AMD Ryzen 5 7600", "ram_gb": 32}, "price": {"rub": [38000, 48000], "usd": [400, 500]}},
+  {"id": "r7_9800x3d", "kind": "cpu", "title": "Ryzen 7 9800X3D + плата + 32 ГБ DDR5", "title_en": "Ryzen 7 9800X3D + board + 32 GB DDR5", "replace": {"cpu": "AMD Ryzen 7 9800X3D", "ram_gb": 32}, "price": {"rub": [75000, 90000], "usd": [750, 850]}},
+  {"id": "mac_m4_16", "kind": "system", "platform": "mac", "title": "Новый Mac на M4, 16 ГБ", "title_en": "A new M4 Mac, 16 GB", "replace": {"cpu": "Apple M4", "gpu": "Apple M4", "ram_gb": 16, "disk": "ssd"}, "price": {"rub": [75000, 110000], "usd": [599, 999]}},
+  {"id": "mac_m4pro_24", "kind": "system", "platform": "mac", "title": "Новый Mac на M4 Pro, 24 ГБ", "title_en": "A new M4 Pro Mac, 24 GB", "replace": {"cpu": "Apple M4 Pro", "gpu": "Apple M4 Pro", "ram_gb": 24, "disk": "ssd"}, "price": {"rub": [150000, 200000], "usd": [1399, 1999]}}
+ ],
+ "health": {
+  "about": "«Здоровье в деньгах». afr — вероятность отказа за год: для исправного SSD и HDD это годовая доля отказов по большим выборкам дисков, для дисков с признаками износа — грубая оценка. Цены — диапазон, rub/usd.",
+  "afr": {"ssd": 0.01, "hdd": 0.025, "hdd_old": 0.06, "warn": 0.3, "bad": 0.7},
+  "prices": {
+   "backup_free": {"rub": [0, 0], "usd": [0, 0]},
+   "backup_drive": {"rub": [5000, 8000], "usd": [50, 80]},
+   "ssd": {"rub": [6000, 9000], "usd": [60, 90]},
+   "hdd": {"rub": [5000, 8000], "usd": [50, 80]},
+   "recovery": {"rub": [15000, 50000], "usd": [300, 1500]},
+   "battery": {"rub": [3000, 7000], "usd": [60, 130]},
+   "battery_mac": {"rub": [12000, 20000], "usd": [129, 249]},
+   "swollen": {"rub": [10000, 30000], "usd": [200, 500]},
+   "cleaning": {"rub": [1500, 3500], "usd": [40, 100]},
+   "overheat_repair": {"rub": [8000, 25000], "usd": [150, 400]}
+  }
+ }
 }

@@ -25,6 +25,8 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Outlook: how long the hardware will last](#outlook-how-long-the-hardware-will-last)
 
   * [Freeze X-ray and game mode](#freeze-x-ray-and-game-mode)
+
+  * [PC twin and risk cost (subscription)](#pc-twin-and-risk-cost-subscription)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -57,6 +59,8 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Optimize** | A single **Optimize** button: WhySlow builds a fix plan on its own and applies the checked items after **Apply** |
 | **System** | CPU with every core separately, clock speeds, memory, integrated GPU load, disks, network, temperatures — last-minute charts with a scale and hover tooltips |
 | **Outlook** | Roughly how many more years the hardware will handle browsing, work, games and video editing, what runs out first, and what to upgrade when |
+| **Twin** | Subscription. What a new graphics card, memory, SSD or CPU would do for this exact computer: game frame rates, memory load, how many more years the hardware lasts |
+| **Risk cost** | Subscription. What might break (disks, battery, overheating), how likely it is, and what dealing with it now costs versus later |
 | **Startup** | Everything that starts with the system, plus the knowledge base verdict. Toggle items on or off right in the list, or remove them |
 | **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict. If a program starts with the system, you can remove it from startup right here |
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day. Finds large files in a chosen folder and moves them to the Trash |
@@ -214,6 +218,25 @@ next time. When the game closes, priorities, paused apps and power come back as 
 or crashed mid-game. Afterwards you see how much CPU was freed for the game and, with the free
 [PresentMon](https://github.com/GameTechDev/PresentMon/releases) next to it, the FPS before and after.
 
+### PC twin and risk cost (subscription)
+
+**Twin.** Before buying a part, see what it would do for this exact computer. WhySlow takes your hardware, how much
+memory is in use right now and by whom, and how often the system ran out of CPU or memory over the past month
+(History tab), and swaps in the new part:
+
+* game frame rates before and after, and what limits them — graphics, CPU or video memory. Enter the FPS you
+  actually see and the estimate adjusts to your settings;
+* "14 of 16 GB in use right now, mostly Chrome; with 32 GB it would be 44%";
+* how many more years the hardware lasts for your task, and what remains the weak spot;
+* a rough price and a "best value" mark — the most benefit per dollar.
+
+**Risk cost.** Disks (SMART), battery, overheating, and whether there's a backup (Time Machine, OneDrive, File
+History). For each — the chance of trouble within a year, when to expect it, what dealing with it now costs, and
+what it costs if you wait: "backup — $0, data recovery after a failure — $300–1,500".
+
+Prices, part speeds and failure rates live in the same `hardware.json` and are updated from the internet. These are
+estimates, not measurements or guarantees.
+
 ### Problems it finds
 
 Each check answers its own question and offers a fix where possible:
@@ -359,6 +382,8 @@ python3 -m whyslow --cli       # check, report and optimization plan (changes no
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
 python3 -m whyslow --passwords export.csv   # which passwords from your manager are in breaches (changes nothing)
 python3 -m whyslow --forecast  # how long the hardware will last and what to upgrade first (changes nothing)
+python3 -m whyslow --twin      # subscription: what an upgrade would do for this computer (changes nothing)
+python3 -m whyslow --risks     # subscription: what might break and what it costs (changes nothing)
 python3 -m whyslow --storage   # macOS: what “System Data” is made of and which app data can go (changes nothing)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
@@ -488,6 +513,8 @@ change, edit the file and bump `version`:
 * `workloads` — tasks: how many years after the (adjusted) release year the hardware handles them (`cpu_years`,
   `gpu_years`), how much memory they need today (`ram_gb`, `vram_gb`) and how many years it takes to double (`ram_double`).
 * `os` — OS support dates, `suggest` — current example models for advice, `market` — price notes.
+* `perf` — graphics and CPU speed relative to an RTX 3060 and Ryzen 5 3600, `games` — frame rates on that reference,
+  `upgrades` — parts for the Twin with prices (`rub`, `usd`), `health` — failure rates and repair prices.
 
 ## How it is built
 
@@ -516,6 +543,8 @@ whyslow/
   premium/gamemode.py  game mode: game detection, plan, restore, report and FPS measuring
   sysinfo.py     hardware info, integrated GPU load
   forecast.py    outlook: how long the hardware will last and what to upgrade
+  premium/twin.py          PC twin (subscription, encrypted in releases)
+  premium/health_money.py  health in money (subscription, encrypted in releases)
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
   passwords.py   breach check for passwords, new passwords, import file

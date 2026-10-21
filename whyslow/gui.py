@@ -4004,13 +4004,17 @@ class MainWindow(QMainWindow):
         self.compare_tab = PremiumGate("compare", main=self)
         self.xray_page = PremiumGate("xray", main=self)
         self.games_page = PremiumGate("gamemode", main=self)
+        self.twin_tab = PremiumGate("twin", main=self)
+        self.health_tab = PremiumGate("health_money", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
                          "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab,
-                         "xray": self.xray_page, "games": self.games_page}
+                         "xray": self.xray_page, "games": self.games_page,
+                         "twin": self.twin_tab, "health_money": self.health_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
+                 (self.twin_tab, tr("Двойник", "Twin")), (self.health_tab, tr("Риски в ₽", "Risk cost")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
@@ -4019,7 +4023,7 @@ class MainWindow(QMainWindow):
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
-            pages.insert(7, (self.storage_tab, tr("Хранилище", "Storage")))
+            pages.insert(9, (self.storage_tab, tr("Хранилище", "Storage")))
         for w, title in pages:
             self.tabs.addTab(w, title)
             self.nav.addTab(title)

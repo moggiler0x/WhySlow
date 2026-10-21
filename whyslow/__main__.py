@@ -57,6 +57,12 @@ def main() -> int:
     if "--forecast" in sys.argv:
         from .cli import outlook
         return outlook()
+    if "--twin" in sys.argv:
+        from .cli import pc_twin
+        return pc_twin()
+    if "--risks" in sys.argv:
+        from .cli import risk_cost
+        return risk_cost()
     if "--license" in sys.argv:  # --license [КЛЮЧ]: состояние подписки или ввод ключа без окна
         from .cli import license_cmd
         i = sys.argv.index("--license")

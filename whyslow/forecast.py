@@ -500,3 +500,21 @@ def summary(fc: Forecast) -> str:
     disk = {"ssd": "SSD", "hdd": "HDD"}.get(fc.hw.get("disk", ""), "")
     parts = [fc.cpu.name, gpu, tr(f"{fc.ram_gb:.0f} ГБ памяти", f"{fc.ram_gb:.0f} GB RAM")] + ([disk] if disk else [])
     return " · ".join(p for p in parts if p)
+
+
+# --------------------------------------------------------------- цены ---
+
+def price(entry: dict) -> tuple[int, int]:
+    """Цена в валюте интерфейса: рубли для русского, доллары для английского."""
+    p = entry.get("price", entry) if isinstance(entry, dict) else {}
+    lo, hi = (p.get("usd") if lang() == "en" else p.get("rub")) or (0, 0)
+    return int(lo), int(hi)
+
+
+def money(lo: float, hi: float | None = None) -> str:
+    def one(x: float) -> str:
+        x = int(round(x, -2)) if x >= 1000 else int(round(x))
+        return f"${x:,}" if lang() == "en" else f"{x:,}".replace(",", " ")
+    hi = lo if hi is None else hi
+    text = one(lo) if round(lo) == round(hi) else (f"{one(lo)}–{one(hi).lstrip('$')}")
+    return text if lang() == "en" else text + " ₽"
