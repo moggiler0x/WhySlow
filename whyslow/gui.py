@@ -29,6 +29,7 @@ from . import (
     __version__, bigfiles, checks, forecast, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords,
     reinstall, settings, startup, sysinfo, updater, watch,
 )
+from .license_ui import PremiumButton
 from .i18n import LANGS, lang, set_lang, tr
 from .i18n import pick as i18n_pick  # pick — поле записи базы на текущем языке
 from .processes import ProcessMonitor, kill
@@ -4021,6 +4022,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.tabs, 1)
 
         sb = self.statusBar()
+        self.b_premium = PremiumButton()  # в шапке места нет: там и так тесно от вкладок
+        sb.addPermanentWidget(self.b_premium)
         self.db_label = QLabel()
         sb.addPermanentWidget(self.db_label)
         b_db = QPushButton(tr("Обновить базу", "Update database"))

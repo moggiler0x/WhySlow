@@ -28,7 +28,57 @@ DIST = ROOT / "dist"
 WORK = ROOT / "build"
 sys.path.insert(0, str(ROOT))
 
+from whyslow import seal  # noqa: E402
 from whyslow.updater import asset_name  # noqa: E402 — имена файлов те же, что ищет обновление
+
+import contextlib  # noqa: E402
+
+PREMIUM = ROOT / "whyslow" / "premium"
+
+
+def _seal_seed() -> bytes | None:
+    env = os.environ.get("WHYSLOW_SEAL_SEED")
+    if env:
+        return bytes.fromhex(env.strip())
+    kf = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner") / "private.key"
+    try:
+        return bytes.fromhex(kf.read_text().strip())
+    except OSError:
+        return None
+
+
+@contextlib.contextmanager
+def sealed_premium():
+    """На время сборки шифрует whyslow/premium/<функция>.py в .wsl и убирает исходники,
+    чтобы в готовое приложение попал только зашифрованный код. Без ключа — предупреждает."""
+    mods = [p for p in PREMIUM.glob("*.py") if p.stem != "__init__"]
+    if not mods:
+        yield []
+        return
+    seed = _seal_seed()
+    if seed is None:
+        print("! ВНИМАНИЕ: нет ключа подписи (WHYSLOW_SEAL_SEED или ~/.whyslow-owner/private.key).")
+        print("! Платные модули войдут в сборку ОТКРЫТЫМ кодом. Для релиза запускайте сборку с ключом.")
+        yield []
+        return
+    stash = WORK / "premium_src"
+    shutil.rmtree(stash, ignore_errors=True)
+    stash.mkdir(parents=True)
+    wsl = []
+    for src in mods:
+        out = src.with_suffix(".wsl")
+        out.write_bytes(seal.seal_bytes(src.read_bytes(), seal.feature_key(seed, src.stem)))
+        wsl.append(out)
+    try:
+        for src in mods:  # исходники в сборку не попадают — только .wsl
+            shutil.move(str(src), str(stash / src.name))
+        print(f"+ зашифровано платных модулей: {len(mods)} (в сборку идут только .wsl)")
+        yield wsl
+    finally:
+        for src in mods:
+            shutil.move(str(stash / src.name), str(src))
+        for out in wsl:
+            out.unlink(missing_ok=True)
 
 VERSION = re.search(r'__version__ = "(.+)"', (ROOT / "whyslow" / "__init__.py").read_text(encoding="utf-8")).group(1)
 SYSTEM = platform.system()
@@ -64,7 +114,10 @@ def pyinstaller(onefile: bool) -> None:
         args.append("--onefile")
     if SYSTEM == "Darwin":
         args += ["--osx-bundle-identifier", "io.github.moggiler0x.whyslow"]
-    sh(*args, cwd=ROOT)
+    with sealed_premium() as wsl:
+        for out in wsl:  # зашифрованные модули кладём рядом с пакетом
+            args += ["--add-data", f"{out}{sep}whyslow/premium"]
+        sh(*args, cwd=ROOT)
 
 
 def selfcheck(binary: Path) -> None:
