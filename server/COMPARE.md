@@ -46,5 +46,5 @@
 ## Тесты
 
 ```
-node --test server/test/compare.test.mjs
+cd server && npm test
 ```

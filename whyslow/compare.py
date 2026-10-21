@@ -28,7 +28,6 @@ from .i18n import tr
 from .util import IS_LINUX, IS_MAC, IS_WINDOWS, app_dir, ps_json, read_json, run, write_json
 
 FEATURE = "compare"
-SERVER = "https://whyslow.moggiler0x.workers.dev"  # тот же Worker, что проверяет подписку
 SCHEMA = 1
 MIN_PEERS = 5           # меньше — сравнивать не с чем, и сводка начинает выдавать отдельные ПК
 RAM_SIZES = (2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256)
@@ -187,15 +186,18 @@ def collect(result, cpu_name: str, gpus: list[dict], progress=lambda t: None) ->
 # ------------------------------------------------------------------ сервер ---
 
 def server_url() -> str:
-    """Адрес сервера: из окружения (для проверки), иначе тот же, что у подписки."""
+    """Адрес сервера: из окружения (для проверки), иначе тот же, что у подписки.
+    Пустая строка — сервер ещё не развёрнут, в сеть не ходим."""
     url = os.environ.get("WHYSLOW_COMPARE_URL", "")
     if not url:
         try:
             from . import license as lic  # type: ignore[attr-defined]
-            url = getattr(lic, "SERVER", "") or getattr(lic, "SERVER_URL", "")
+            url = lic.server_url() or ""
         except ImportError:
             pass
-    return (url or SERVER).rstrip("/")
+        except Exception:  # noqa: BLE001
+            url = ""
+    return url.rstrip("/")
 
 
 def _post(path: str, body: dict, timeout: float = 15) -> dict:
@@ -203,7 +205,10 @@ def _post(path: str, body: dict, timeout: float = 15) -> dict:
     import urllib.request
 
     from .net import explain, urlopen
-    req = urllib.request.Request(server_url() + path, data=json.dumps(body).encode(), method="POST",
+    base = server_url()
+    if not base:
+        raise CompareError(tr("Сервер сравнения ещё не запущен.", "The comparison server isn't running yet."))
+    req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **_auth_headers()})
     try:
         with urlopen(req, timeout=timeout) as r:
@@ -235,7 +240,7 @@ def compare(snap: Snapshot) -> dict:
 def forget() -> None:
     """Удалить свой снимок с сервера и забыть id: следующая отправка будет как с нового ПК."""
     sid = settings.get("compare_id")
-    if sid:
+    if sid and server_url():
         _post("/compare/forget", {"id": sid})
     settings.set("compare_id", "")
     settings.set("compare_consent", False)

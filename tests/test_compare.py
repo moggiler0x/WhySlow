@@ -73,3 +73,10 @@ def test_explain_names_programs_rare_on_fast_pcs():
 def test_explain_needs_enough_peers():
     snap = compare.Snapshot("0" * 32, {}, {}, [])
     assert compare.explain_result(snap, {"peers": 3}) is None
+
+
+def test_no_server_means_no_network(monkeypatch):
+    import pytest
+    monkeypatch.delenv("WHYSLOW_COMPARE_URL", raising=False)
+    with pytest.raises(compare.CompareError):
+        compare.compare(compare.Snapshot("0" * 32, {}, {}, []))
