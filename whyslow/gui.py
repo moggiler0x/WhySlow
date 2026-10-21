@@ -1311,6 +1311,9 @@ class SystemTab(QWidget):
         dv = QVBoxLayout(self.disk_box)
         self.disk_lay = QGridLayout()
         dv.addLayout(self.disk_lay)
+        self.disk_phys = muted("")
+        self.disk_phys.setVisible(False)
+        dv.addWidget(self.disk_phys)
         self.disk_io = muted("")
         dv.addWidget(self.disk_io)
         self.disk_graph = Sparkline([C["ok"], C["warn"]], None, 130, axis=True, fmt=rate_short,
@@ -1390,6 +1393,19 @@ class SystemTab(QWidget):
         self.gpu_lay.setColumnStretch(1, 1)
         self.gpu_lay.setColumnStretch(3, 1)
         self._fill_disks(info["disks"])
+        self._fill_physical(info.get("physical") or [])
+
+    def _fill_physical(self, disks):
+        lines = []
+        for d in disks:
+            parts = [p for p in (d.kind_label, d.health_label) if p]
+            if not parts:
+                continue
+            color = {"bad": C["bad"], "warn": C["warn"]}.get(d.health)
+            text = f"{d.name}: {', '.join(parts)}" + (tr(" · система", " · system") if d.system else "")
+            lines.append(f"<span style='color:{color}'>{text}</span>" if color else text)
+        self.disk_phys.setText("<br>".join(lines))
+        self.disk_phys.setVisible(bool(lines))
 
     def _fill_disks(self, disks: list[dict]):
         if [d["mount"] for d in disks] != list(self.disk_bars):

@@ -181,7 +181,13 @@ def static_info() -> dict:
         "gpus": gpus(),
         "boot": psutil.boot_time(),
         "disks": disks(),
+        "physical": _physical(),
     }
+
+
+def _physical() -> list:
+    from . import diskhealth
+    return diskhealth.physical()
 
 
 class _WinGpuLoad:

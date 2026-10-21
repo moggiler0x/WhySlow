@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import psutil
 
-from . import conflicts, junk, lhm, network, startup, sysinfo
+from . import conflicts, diskhealth, junk, lhm, network, startup, sysinfo
 from .knowledge import KnowledgeBase
 from .i18n import tr
 from .processes import ProcessMonitor
@@ -33,6 +33,7 @@ class ScanResult:
     junk: list[junk.JunkCategory] = field(default_factory=list)
     proxy: network.ProxyState | None = None
     procs: list = field(default_factory=list)  # программы на момент проверки, для плана оптимизации
+    physical: list = field(default_factory=list)  # физические диски: тип и здоровье
     took: float = 0.0
 
 
@@ -44,13 +45,18 @@ def scan(kb: KnowledgeBase, progress=lambda text: None) -> ScanResult:
     progress(tr("Смотрю процессор и память…", "Checking CPU and memory…"))
     mon = ProcessMonitor()
     mon.sample()
+    io0 = diskhealth.io_snapshot()
     cpu = psutil.cpu_percent(interval=1.5)
+    io1 = diskhealth.io_snapshot()
     procs = r.procs = mon.sample(kb)
     _cpu(f, cpu, procs)
     _ram(f, procs)
 
     progress(tr("Проверяю диски…", "Checking disks…"))
     _disks(f)
+    _disk_busy(f, diskhealth.busy_percent(io0, io1), diskhealth.top_io(io0, io1))
+    r.physical = diskhealth.physical()
+    _disk_health(f, r.physical)
 
     progress(tr("Читаю автозагрузку…", "Reading startup items…"))
     r.startup = startup.list_items(kb)
@@ -198,6 +204,52 @@ def _disks(f):
         elif free_pct < 20 and system:
             f.append(Finding(WARN, title, tr("Лучше держать свободными хотя бы 15–20%.",
                                             "It's best to keep at least 15–20% free."), tab="junk"))
+
+
+def _disk_busy(f, busy, top):
+    if busy is None or busy < 90:
+        return
+    who = ", ".join(f"{name} ({human_size(rate)}/{tr('с', 's')})" for name, rate in top)
+    detail = tr("Когда диск занят почти всё время, любая программа ждёт своей очереди на чтение — "
+                "отсюда подвисания при открытии окон и файлов.",
+                "When the disk is busy nearly all the time, every program waits its turn to read — "
+                "that's why windows and files open with a delay.")
+    if who:
+        detail += tr(f" Больше всех читают и пишут: {who}.", f" Reading and writing the most: {who}.")
+    f.append(Finding(WARN, tr(f"Диск занят на {busy:.0f}%", f"Disk is {busy:.0f}% busy"), detail,
+                     tr("Если это обновление или антивирус — дождитесь конца. Если что-то постоянное — "
+                        "закройте или уберите из автозагрузки.",
+                        "If it's an update or the antivirus, wait for it to finish. If it's constant, close "
+                        "it or remove it from startup."), "procs"))
+
+
+def _disk_health(f, disks):
+    for d in disks:
+        if d.health in ("bad", "warn"):
+            f.append(Finding(BAD if d.health == "bad" else WARN,
+                             tr(f"Диск {d.name}: {d.health_label}", f"Disk {d.name}: {d.health_label}"),
+                             tr("Диск сам сообщает о проблемах (SMART" + (f", {d.detail}" if d.detail else "") + "). "
+                                "Неисправный диск читает медленно, программы зависают, а файлы могут пропасть.",
+                                "The disk itself reports problems (SMART" + (f", {d.detail}" if d.detail else "") + "). "
+                                "A failing disk reads slowly, programs hang, and files may be lost."),
+                             tr("Сразу скопируйте важные файлы на другой диск или в облако и замените диск.",
+                                "Copy important files to another disk or the cloud right away and replace the disk."),
+                             "system"))
+    sys_disk = next((d for d in disks if d.system), None)
+    if sys_disk and sys_disk.kind == "hdd":
+        f.append(Finding(WARN, tr("Система стоит на жёстком диске (HDD)", "The system is on a hard drive (HDD)"),
+                         tr(f"{sys_disk.name}. Жёсткий диск в десятки раз медленнее SSD на мелких файлах, из которых "
+                            "и состоит система: долгое включение и запуск программ — это он.",
+                            f"{sys_disk.name}. A hard drive is dozens of times slower than an SSD on small files, "
+                            "which is what the system is made of: slow boot and app launches come from it."),
+                         by_os(tr("Самый заметный апгрейд — SSD под систему. Пока его нет, не отключайте SysMain: "
+                                  "на HDD он ускоряет запуск программ.",
+                                  "The most noticeable upgrade is an SSD for the system. Until then, keep SysMain "
+                                  "on: on an HDD it speeds up app launches."),
+                               tr("Самый заметный апгрейд — SSD (на старых Mac его можно поставить в сервисе).",
+                                  "The most noticeable upgrade is an SSD (older Macs can get one at a service center)."),
+                               tr("Самый заметный апгрейд — SSD под систему.",
+                                  "The most noticeable upgrade is an SSD for the system.")), "system"))
 
 
 def _startup(f, items):
