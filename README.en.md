@@ -52,11 +52,12 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Optimize** | A single **Optimize** button: WhySlow builds a fix plan on its own and applies the checked items after **Apply** |
 | **System** | CPU with every core separately, clock speeds, memory, integrated GPU load, disks, network, temperatures — last-minute charts with a scale and hover tooltips |
 | **Startup** | Everything that starts with the system, plus the knowledge base verdict. Toggle items on or off right in the list, or remove them |
-| **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict |
-| **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day |
+| **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict. If a program starts with the system, you can remove it from startup right here |
+| **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day. Finds large files in a chosen folder and moves them to the Trash |
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
+| **History** | When and why the computer was slow: WhySlow records long load spikes in the background, can live in the tray and start with the system |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
 ### One-click optimization
@@ -168,6 +169,11 @@ Each check answers its own question and offers a fix where possible:
 * **Low disk space.** Especially on the system drive, plus how much cleanup can free.
 * **Overheating.** Component temperatures above normal.
 * **Clutter in startup.** What can be disabled, what is better removed, and for items not in the base, what the internet says about them.
+* **Programs getting in each other's way.** Two antiviruses at once, several programs that reroute traffic,
+  a network adapter or DNS left behind by a closed program, too many game overlays.
+* **Slow or failing disk.** The system on a hard drive (HDD), the disk itself reporting a fault (SMART),
+  the disk busy nearly all the time — with the programs reading and writing the most.
+* **Power saving mode.** Battery saver throttles the CPU; plus battery wear.
 * **No reboot for a long time.** A reminder that a restart often helps on its own.
 
 ### Safety
@@ -193,7 +199,7 @@ Each check answers its own question and offers a fix where possible:
 | Temperatures | via LibreHardwareMonitor (CPU, motherboard, disks) + NVIDIA | ✅ | ✅ Apple Silicon: CPU, storage, battery, no password |
 | Startup | Run and RunOnce registry keys, Startup folder, Task Scheduler, services | XDG autostart + systemd | Login Items, LaunchAgents, LaunchDaemons |
 | Stale proxy | ✅ + fix | ✅ GNOME + fix, environment variables | — |
-| Cleanup | Temp, browser cache, dumps, updates, recycle bin | cache, thumbnails, /tmp, trash | cache, logs, trash |
+| Cleanup | Temp, all browsers and profiles, shader cache, dumps, updates, recycle bin | cache, thumbnails, /tmp, trash | cache, logs, trash |
 | “System Data” by category, auto-clean | — | — | ✅ |
 
 ## Install and run
@@ -411,6 +417,11 @@ whyslow/
   macstorage.py  macOS “System Data”: categories, deleting to the Trash, auto-clean
   macapps.py     Mac app data by app: installed or not, when last opened
   network.py     system proxy check
+  conflicts.py   programs getting in each other's way: antiviruses, traffic rerouting, DNS, overlays
+  diskhealth.py  physical disks: SSD or HDD, SMART, load and who causes it
+  power.py       power saving mode and battery wear
+  bigfiles.py    finding large files and moving them to the Trash
+  watch.py       recording slowdowns in the background, starting with the system
   sysinfo.py     hardware info, integrated GPU load
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
@@ -421,6 +432,7 @@ whyslow/
   i18n.py        interface language: Russian and English
   data/known.json
   data/icon.png  window icon
+tests/           tests (python -m pytest tests)
 packaging/
   build.py       builds the ready-made app for the current OS (PyInstaller)
   make_icon.py   draws the app icon
