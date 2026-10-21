@@ -53,6 +53,11 @@ jobs:
 
       - name: Собрать
         id: build
+        # Секрет шифрования платных модулей (отдельный от ключа подписи). Если он задан в
+        # Settings → Secrets → Actions как WHYSLOW_SEAL_SEED, модули в сборке шифруются;
+        # без него сборка соберётся, но платные функции пойдут открытым кодом (для проверки).
+        env:
+          WHYSLOW_SEAL_SEED: ${{ secrets.WHYSLOW_SEAL_SEED }}
         run: python packaging/build.py
 
       - name: Сохранить файл

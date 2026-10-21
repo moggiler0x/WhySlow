@@ -5,10 +5,11 @@
 ключи перестанут работать. Сделайте резервную копию файла (флешка, менеджер паролей).
 
 Команды:
-  python owner/keys.py init                       создать пару ключей и вписать открытый в whyslow/license.py
+  python owner/keys.py init                       создать ключи (подпись + шифрование), вписать открытый в whyslow/license.py
   python owner/keys.py issue solo 1 K7Q2M-9XWPA   лицензия «Соло» на 1 месяц для кода устройства
   python owner/keys.py issue family 12 A..., B... «Все устройства» на год для нескольких кодов
-  python owner/keys.py server-secret              закрытый ключ для сервера (wrangler secret put PRIVATE_KEY)
+  python owner/keys.py server-secret              ключ подписи для сервера (wrangler secret put PRIVATE_KEY)
+  python owner/keys.py seal-secret                секрет шифрования модулей (wrangler secret put SEAL_SECRET; секрет GitHub WHYSLOW_SEAL_SEED)
 
 Через сервер активации (адрес и пароль администратора — в ~/.whyslow-owner/server.json):
   python owner/keys.py code solo 1 "Иван, @ivan"  новый код активации WS-XXXX-XXXX-XXXX-XXXX
@@ -37,14 +38,9 @@ sys.path.insert(0, str(ROOT))
 
 from whyslow import ed25519, license, seal  # noqa: E402
 
-
-def feature_keys(seed: bytes) -> dict:
-    """Ключи расшифровки всех платных модулей — кладём в подписанный ключ, чтобы функции
-    открывались без интернета сразу после ввода ключа."""
-    return {f: seal.feature_key(seed, f).hex() for f in license.FEATURES}
-
 HOME = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner")
-KEY_FILE = HOME / "private.key"
+KEY_FILE = HOME / "private.key"      # закрытый ключ подписи ключей (самое ценное)
+SEAL_FILE = HOME / "seal.key"        # отдельный секрет шифрования модулей (его даём сборке в CI)
 LOG_FILE = HOME / "issued.jsonl"
 SERVER_FILE = HOME / "server.json"
 MONTH = 31 * 86400
@@ -57,23 +53,44 @@ def secret() -> bytes:
         sys.exit(f"Нет закрытого ключа {KEY_FILE}. Сначала: python owner/keys.py init")
 
 
+def seal_secret() -> bytes:
+    """Секрет шифрования платных модулей. Отдельный от ключа подписи, чтобы в CI-сборку
+    отдавать только его: утечёт — дадут расшифровать модули, но НЕ выпускать ключи подписки."""
+    env = os.environ.get("WHYSLOW_SEAL_SEED")
+    if env:
+        return bytes.fromhex(env.strip())
+    try:
+        return bytes.fromhex(SEAL_FILE.read_text().strip())
+    except FileNotFoundError:
+        sys.exit(f"Нет секрета шифрования {SEAL_FILE}. Сначала: python owner/keys.py init")
+
+
+def feature_keys() -> dict:
+    """Ключи расшифровки всех платных модулей — кладём в подписанный ключ, чтобы функции
+    открывались без интернета сразу после ввода ключа."""
+    return {f: seal.feature_key(seal_secret(), f).hex() for f in license.FEATURES}
+
+
 def cmd_init(a):
     if KEY_FILE.exists():
         sys.exit(f"{KEY_FILE} уже есть. Новый ключ сделает все выданные ключи недействительными; "
                  "если это точно нужно, удалите файл вручную.")
     HOME.mkdir(parents=True, exist_ok=True)
     seed = secrets.token_bytes(32)
-    KEY_FILE.write_text(seed.hex() + "\n")
-    try:
-        os.chmod(KEY_FILE, 0o600)
-    except OSError:
-        pass
+    seal_seed = secrets.token_bytes(32)
+    for path, value in ((KEY_FILE, seed.hex()), (SEAL_FILE, seal_seed.hex())):
+        path.write_text(value + "\n")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
     pub = ed25519.public_key(seed).hex()
     src = ROOT / "whyslow" / "license.py"
     text = src.read_text(encoding="utf-8")
     text = re.sub(r'^PUBLIC_KEY = ".*"$', f'PUBLIC_KEY = "{pub}"', text, count=1, flags=re.M)
     src.write_text(text, encoding="utf-8")
-    print(f"Закрытый ключ: {KEY_FILE}  — сделайте его резервную копию и никому не показывайте.")
+    print(f"Закрытый ключ подписи: {KEY_FILE}  — храните в тайне, сделайте копию. В CI его не кладите.")
+    print(f"Секрет шифрования модулей: {SEAL_FILE}  — тоже секрет, но именно его отдают сборке в CI.")
     print(f"Открытый ключ: {pub}  — вписан в whyslow/license.py, его можно публиковать.")
 
 
@@ -86,7 +103,7 @@ def cmd_issue(a):
         sys.exit(f"Тариф {a.plan} — не больше {limit} устройств.")
     now = int(time.time())
     payload = {"v": 1, "kid": "off-" + secrets.token_hex(4), "plan": a.plan, "iat": now,
-               "exp": now + int(a.months * MONTH), "dev": devices, "keys": feature_keys(secret())}
+               "exp": now + int(a.months * MONTH), "dev": devices, "keys": feature_keys()}
     token = license.make_token(secret(), payload)
     license.read_token(token, public=ed25519.public_key(secret()).hex(), device=devices[0])
     HOME.mkdir(parents=True, exist_ok=True)
@@ -95,6 +112,10 @@ def cmd_issue(a):
     until = datetime.datetime.fromtimestamp(payload["exp"]).strftime("%d.%m.%Y")
     print(f"Лицензия «{license.PLANS[a.plan]['name'][0]}» до {until} для {', '.join(devices)}:\n")
     print(token)
+
+
+def cmd_seal_secret(a):
+    print(seal_secret().hex())
 
 
 def cmd_server_secret(a):
@@ -169,6 +190,7 @@ def main():
     s.add_argument("--note", default="")
     s.set_defaults(fn=cmd_issue)
     sub.add_parser("server-secret").set_defaults(fn=cmd_server_secret)
+    sub.add_parser("seal-secret").set_defaults(fn=cmd_seal_secret)
     s = sub.add_parser("code")
     s.add_argument("plan", choices=license.PLANS)
     s.add_argument("months", type=float)

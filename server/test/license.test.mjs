@@ -11,6 +11,8 @@ import { readToken } from "../src/crypto.js";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // Тестовая пара ключей (RFC 8032, пример 1) — не настоящая
 const PRIVATE_KEY = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
+// Секрет шифрования отдельный от ключа подписи — так и на сервере
+const SEAL_SECRET = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 const PUBLIC_KEY = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
 
 function fakeKV() {
@@ -23,7 +25,7 @@ function fakeKV() {
   };
 }
 
-const env = () => ({ LICENSES: fakeKV(), PUBLIC_KEY, PRIVATE_KEY, ADMIN_TOKEN: "admin-secret" });
+const env = () => ({ LICENSES: fakeKV(), PUBLIC_KEY, PRIVATE_KEY, SEAL_SECRET, ADMIN_TOKEN: "admin-secret" });
 
 async function call(e, path, body, headers = {}) {
   const r = await worker.fetch(new Request("https://x.dev" + path, {
@@ -95,7 +97,7 @@ seed = bytes.fromhex(sys.argv[3])
 key = bytes.fromhex(d["keys"]["compare"])
 assert key == seal.feature_key(seed, "compare")
 blob = seal.seal_bytes(b"def build(m): return m", key)
-print(seal.open_sealed(blob, key) == b"def build(m): return m")`, data.token, PUBLIC_KEY, PRIVATE_KEY], { cwd: ROOT });
+print(seal.open_sealed(blob, key) == b"def build(m): return m")`, data.token, PUBLIC_KEY, SEAL_SECRET], { cwd: ROOT });
   assert.equal(out.toString().trim(), "True");
 });
 

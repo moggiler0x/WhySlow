@@ -31,36 +31,59 @@ sys.path.insert(0, str(ROOT))
 from whyslow import seal  # noqa: E402
 from whyslow.updater import asset_name  # noqa: E402 — имена файлов те же, что ищет обновление
 
+import ast  # noqa: E402
 import contextlib  # noqa: E402
 
 PREMIUM = ROOT / "whyslow" / "premium"
 
 
 def _seal_seed() -> bytes | None:
+    # Секрет шифрования модулей. В CI — переменная WHYSLOW_SEAL_SEED из секрета GitHub Actions
+    # (отдельного от ключа подписи, поэтому утечка CI не даёт выпускать ключи подписки).
     env = os.environ.get("WHYSLOW_SEAL_SEED")
     if env:
         return bytes.fromhex(env.strip())
-    kf = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner") / "private.key"
+    kf = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner") / "seal.key"
     try:
         return bytes.fromhex(kf.read_text().strip())
     except OSError:
         return None
 
 
+def _premium_imports(mods: list[Path]) -> list[str]:
+    """Модули, которые импортирует зашифрованный код. PyInstaller их не видит (исходник зашифрован),
+    поэтому добавим их через --hidden-import, иначе после расшифровки будет ImportError."""
+    names = set()
+    for src in mods:
+        try:
+            tree = ast.parse(src.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module)  # относительные импорты (level>0) уже внутри whyslow
+    # whyslow.* и так собирается через --collect-submodules; остальное называем явно
+    return sorted(n for n in names if not n.startswith("whyslow"))
+
+
 @contextlib.contextmanager
 def sealed_premium():
     """На время сборки шифрует whyslow/premium/<функция>.py в .wsl и убирает исходники,
-    чтобы в готовое приложение попал только зашифрованный код. Без ключа — предупреждает."""
+    чтобы в готовое приложение попал только зашифрованный код. Без ключа — предупреждает.
+    Отдаёт (список .wsl, список скрытых импортов этих модулей)."""
     mods = [p for p in PREMIUM.glob("*.py") if p.stem != "__init__"]
     if not mods:
-        yield []
+        yield [], []
         return
     seed = _seal_seed()
     if seed is None:
-        print("! ВНИМАНИЕ: нет ключа подписи (WHYSLOW_SEAL_SEED или ~/.whyslow-owner/private.key).")
-        print("! Платные модули войдут в сборку ОТКРЫТЫМ кодом. Для релиза запускайте сборку с ключом.")
-        yield []
+        print("! ВНИМАНИЕ: нет секрета шифрования (WHYSLOW_SEAL_SEED или ~/.whyslow-owner/seal.key).")
+        print("! Платные модули войдут в сборку ОТКРЫТЫМ кодом. Для релиза запускайте сборку с секретом.")
+        yield [], []
         return
+    hidden = _premium_imports(mods)
     stash = WORK / "premium_src"
     shutil.rmtree(stash, ignore_errors=True)
     stash.mkdir(parents=True)
@@ -73,7 +96,9 @@ def sealed_premium():
         for src in mods:  # исходники в сборку не попадают — только .wsl
             shutil.move(str(src), str(stash / src.name))
         print(f"+ зашифровано платных модулей: {len(mods)} (в сборку идут только .wsl)")
-        yield wsl
+        if hidden:
+            print(f"+ скрытые импорты платных модулей: {', '.join(hidden)}")
+        yield wsl, hidden
     finally:
         for src in mods:
             shutil.move(str(stash / src.name), str(src))
@@ -114,9 +139,11 @@ def pyinstaller(onefile: bool) -> None:
         args.append("--onefile")
     if SYSTEM == "Darwin":
         args += ["--osx-bundle-identifier", "io.github.moggiler0x.whyslow"]
-    with sealed_premium() as wsl:
+    with sealed_premium() as (wsl, hidden):
         for out in wsl:  # зашифрованные модули кладём рядом с пакетом
             args += ["--add-data", f"{out}{sep}whyslow/premium"]
+        for name in hidden:  # их импорты PyInstaller сам не увидит в шифртексте
+            args += ["--hidden-import", name]
         sh(*args, cwd=ROOT)
 
 

@@ -63,9 +63,12 @@ function toHex(bytes) {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Ключи расшифровки платных модулей для списка функций — кладём их в подписанный токен
+// Ключи расшифровки платных модулей для списка функций — кладём их в подписанный токен.
+// Берутся из SEAL_SECRET (отдельного от ключа подписи PRIVATE_KEY), того же, что у сборки.
 export async function featureKeys(env, features) {
-  const seed = Uint8Array.from((env.PRIVATE_KEY || "").match(/../g) || [], (h) => parseInt(h, 16));
+  const secret = env.SEAL_SECRET || "";
+  if (!secret) return {}; // шифрование модулей не настроено — ключи не выдаём
+  const seed = Uint8Array.from(secret.match(/../g) || [], (h) => parseInt(h, 16));
   const salt = enc.encode("whyslow-seal-key");
   const out = {};
   for (const f of features) out[f] = toHex(await hkdf(seed, salt, enc.encode(f)));
