@@ -6,6 +6,7 @@ LaunchDaemons). Отключение сделано так же, как в си�
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import struct
 import time
@@ -53,6 +54,38 @@ def list_items(kb: KnowledgeBase | None = None) -> list[StartupItem]:
             # Имя службы последним: записи базы для служб ищут его как `\\bимя$`
             it.verdict = kb.lookup(it.name, it.command, it.meta.get("service", ""))
     return items
+
+
+def _stem(path: str) -> str:
+    base = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    for ext in (".exe", ".app", ".desktop", ".service", ".plist"):
+        base = base.removesuffix(ext)
+    return base
+
+
+# Программы-«носители»: через них запускается много разного, по ним искать нельзя
+_HOSTS = {"svchost", "rundll32", "dllhost", "conhost", "cmd", "powershell", "pwsh", "wscript", "cscript", "mshta",
+          "msiexec", "explorer", "update", "updater", "python", "python3", "pythonw", "java", "javaw", "node",
+          "sh", "bash", "zsh", "env", "open", "launchd", "systemd", "dbus-daemon"}
+
+
+def find_for_process(items: list[StartupItem], name: str, exe: str = "") -> list[StartupItem]:
+    """Включённые записи автозагрузки, которые запускают эту программу: по пути к файлу,
+    а если его не видно — по имени. Нужно, чтобы из «Процессов» убрать программу
+    из автозагрузки, а не только закрыть до следующего включения."""
+    exe_low = exe.lower().replace("\\", "/")
+    stem = _stem(exe or name)
+    if len(stem) < 3 or stem in _HOSTS:
+        return []
+    found = []
+    for it in items:
+        if not it.enabled or not it.can_toggle:
+            continue
+        cmd = it.command.lower().replace("\\", "/")
+        if (exe_low and exe_low in cmd) or _stem(it.name) == stem or \
+                re.search(rf"(^|[/\s\"']){re.escape(stem)}(\.exe|\.app)?([\s\"'/]|$)", cmd):
+            found.append(it)
+    return found
 
 
 def set_enabled(item: StartupItem, enabled: bool, log: bool = True) -> None:

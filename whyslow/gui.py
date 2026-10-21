@@ -1853,6 +1853,12 @@ class ProcessesTab(QWidget):
         self.b_kill.clicked.connect(self.kill)
         self.b_kill.setEnabled(False)
         row.addWidget(self.b_kill)
+        self.b_autostart = QPushButton(tr("Убрать из автозагрузки", "Remove from startup"))
+        self.b_autostart.setToolTip(tr("Чтобы программа не запускалась снова при включении компьютера",
+                                       "So the program doesn't start again when the computer boots"))
+        self.b_autostart.clicked.connect(self.disable_autostart)
+        self.b_autostart.setVisible(False)
+        row.addWidget(self.b_autostart)
         row.addStretch()
         self.b_report = QPushButton(tr("Предложить в базу…", "Suggest to the base…"))
         self.b_report.clicked.connect(self.report)
@@ -1907,7 +1913,29 @@ class ProcessesTab(QWidget):
                 note = _esc(v.note)
             else:
                 note = online_note(g.name, g.exe, lambda name=name: self.selected_name() == name and self.on_select())
+            auto = self.autostart_items(g)
+            if auto:
+                note += ("<br>" if note else "") + f"<span style='color:{C['warn']}'>" + _esc(
+                    tr(f"Запускается вместе с системой ({auto[0].source}). Если просто закрыть — вернётся после "
+                       "перезагрузки.",
+                       f"Starts with the system ({auto[0].source}). Just closing it means it comes back after "
+                       "a restart.")) + "</span>"
             self.detail.setText(_esc(g.exe or g.name) + (f"<br>{note}" if note else ""))
+        self.b_autostart.setVisible(bool(g and self.autostart_items(g)))
+
+    def autostart_items(self, g) -> list:
+        if g.system or (g.verdict and g.verdict.verdict == "keep"):
+            return []
+        return startup.find_for_process(self.main.startup_tab.items, g.name, g.exe)
+
+    def disable_autostart(self):
+        g = self.groups.get(self.selected_name())
+        items = self.autostart_items(g) if g else []
+        if not items:
+            return
+        # Подтверждение, права и журнал — те же, что на вкладке «Автозагрузка»; она же обновится сама
+        self.main.startup_tab.toggle(items[0], False)
+        self.on_select()
 
     def report(self):
         g = self.groups.get(self.selected_name())
