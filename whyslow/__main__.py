@@ -8,7 +8,8 @@ def selfcheck() -> int:
     from . import __version__
     names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
              "lhm", "macapps", "macstorage", "journal", "passwords", "optimize", "reinstall", "settings", "net", "online", "updater", "cli",
-             "conflicts", "diskhealth", "power", "bigfiles", "watch", "ed25519", "seal", "license", "premium"]
+             "conflicts", "diskhealth", "power", "bigfiles", "watch", "forecast",
+             "ed25519", "seal", "license", "premium"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
         names += ["gui", "license_ui"]
@@ -53,6 +54,9 @@ def main() -> int:
             print("--passwords FILE.csv")
             return 2
         return check_passwords(sys.argv[i + 1])
+    if "--forecast" in sys.argv:
+        from .cli import outlook
+        return outlook()
     if "--license" in sys.argv:  # --license [КЛЮЧ]: состояние подписки или ввод ключа без окна
         from .cli import license_cmd
         i = sys.argv.index("--license")
