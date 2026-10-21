@@ -22,6 +22,7 @@
 | [Reinstalling the system](README.en.md#reinstalling-the-system) | [Переустановка системы](README.ru.md#переустановка-системы) |
 | [Moving to a new PC](README.en.md#moving-to-a-new-pc) | [Переезд на новый ПК](README.ru.md#переезд-на-новый-пк) |
 | [Leaked passwords](README.en.md#leaked-passwords) | [Пароли в утечках](README.ru.md#пароли-в-утечках) |
+| [Subscription](README.en.md#subscription) | [Подписка](README.ru.md#подписка) |
 | [Install and run](README.en.md#install-and-run) | [Установка и запуск](README.ru.md#установка-и-запуск) |
 | [Updates](README.en.md#updates) | [Обновление](README.ru.md#обновление) |
 | [Temperature sensors](README.en.md#temperature-sensors) | [Датчики температуры](README.ru.md#датчики-температуры) |
