@@ -22,6 +22,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [macOS System Data](#macos-system-data)
   * [Reinstalling the system](#reinstalling-the-system)
   * [Leaked passwords](#leaked-passwords)
+  * [Outlook: how long the hardware will last](#outlook-how-long-the-hardware-will-last)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -40,6 +41,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Entry format](#entry-format)
   * [When a program is not in the base](#when-a-program-is-not-in-the-base)
   * [Suggesting an entry](#suggesting-an-entry)
+  * [Hardware requirements](#hardware-requirements)
 * [How it is built](#how-it-is-built)
 
 ## What it does
@@ -51,6 +53,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Overview** | Live CPU, memory, disk and network tiles with charts, what is loading the system right now, and a single **Check** button that lists problems with explanations and a **Fix** button |
 | **Optimize** | A single **Optimize** button: WhySlow builds a fix plan on its own and applies the checked items after **Apply** |
 | **System** | CPU with every core separately, clock speeds, memory, integrated GPU load, disks, network, temperatures — last-minute charts with a scale and hover tooltips |
+| **Outlook** | Roughly how many more years the hardware will handle browsing, work, games and video editing, what runs out first, and what to upgrade when |
 | **Startup** | Everything that starts with the system, plus the knowledge base verdict. Toggle items on or off right in the list, or remove them |
 | **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict. If a program starts with the system, you can remove it from startup right here |
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day. Finds large files in a chosen folder and moves them to the Trash |
@@ -156,6 +159,20 @@ The **Passwords** tab finds passwords that already appear in data breaches and h
 
 The manager is updated only after the site is. Changing a password only in the manager would leave you with a
 password the site doesn't accept.
+
+### Outlook: how long the hardware will last
+
+The Outlook tab detects the CPU, graphics, amount of memory and the system disk type, and compares them with what
+operating systems, browsers, games and work apps require today and how fast those requirements grow.
+
+* For each task (browser and office, work, online games, new demanding games, video editing and 3D) — roughly how many
+  more years the hardware will handle it and what runs out first.
+* Pick what you mostly do and WhySlow tells you what to upgrade and when: an SSD instead of a hard drive, memory,
+  a graphics card, or the whole computer. It doesn't suggest replacing parts that can't be replaced in laptops and Macs.
+* Separately — how much longer the OS will get updates on this hardware (Windows 10, Intel Macs and so on).
+
+This is a rough estimate based on typical requirements, not a guarantee. The requirements live in
+[`whyslow/data/hardware.json`](whyslow/data/hardware.json) and are updated from the internet just like the knowledge base.
 
 ### Problems it finds
 
@@ -283,6 +300,7 @@ No window, right in the terminal (from source; on macOS and Linux the app works 
 python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
 python3 -m whyslow --passwords export.csv   # which passwords from your manager are in breaches (changes nothing)
+python3 -m whyslow --forecast  # how long the hardware will last and what to upgrade first (changes nothing)
 python3 -m whyslow --storage   # macOS: what “System Data” is made of and which app data can go (changes nothing)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
@@ -400,6 +418,19 @@ Answers are cached in `online.json` next to the base cache (hits for a month, mi
   a ready-made issue opens with the found description already filled in.
 * Or send a pull request that edits [`known.json`](whyslow/data/known.json).
 
+### Hardware requirements
+
+The Outlook tab uses [`whyslow/data/hardware.json`](whyslow/data/hardware.json). The program downloads it from here
+when the tab is opened or on **Update requirements from the internet**. When new games and CPUs come out or requirements
+change, edit the file and bump `version`:
+
+* `cpu`, `gpu` — model recognition rules: a regular expression, release year and `tier` — a class bonus in years
+  (a top graphics card holds up like a mid-range one a few years newer). Year and class can come from part of the name:
+  `{"group": "gen", "map": {"12": 2021}}`.
+* `workloads` — tasks: how many years after the (adjusted) release year the hardware handles them (`cpu_years`,
+  `gpu_years`), how much memory they need today (`ram_gb`, `vram_gb`) and how many years it takes to double (`ram_double`).
+* `os` — OS support dates, `suggest` — current example models for advice, `market` — price notes.
+
 ## How it is built
 
 ```
@@ -423,6 +454,7 @@ whyslow/
   bigfiles.py    finding large files and moving them to the Trash
   watch.py       recording slowdowns in the background, starting with the system
   sysinfo.py     hardware info, integrated GPU load
+  forecast.py    outlook: how long the hardware will last and what to upgrade
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
   passwords.py   breach check for passwords, new passwords, import file
@@ -431,6 +463,7 @@ whyslow/
   settings.py    settings (language, updates, auto-clean on Mac)
   i18n.py        interface language: Russian and English
   data/known.json
+  data/hardware.json  software hardware requirements for the outlook
   data/icon.png  window icon
 tests/           tests (python -m pytest tests)
 packaging/

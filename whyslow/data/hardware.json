@@ -1,0 +1,252 @@
+{
+ "version": 1,
+ "updated": "2026-10-21",
+ "about": "Прогноз актуальности железа. tier — поправка в годах: топовая модель держится как средняя на несколько лет новее. Требования задач: сколько лет после выхода (с поправкой) железо ещё тянет задачу и сколько памяти нужно сейчас (ram_gb в году ram_year, удваивается каждые ram_double лет).",
+ "cpu": [
+  {
+   "id": "apple_m",
+   "match": "Apple M(?P<ser>\\d+)(?:\\s+(?P<tier>Pro|Max|Ultra))?",
+   "year": {"group": "ser", "map": {"1": 2020, "2": 2022, "3": 2023, "4": 2024, "5": 2025}, "else": 2026},
+   "tier": {"group": "tier", "map": {"": 1, "Pro": 2, "Max": 3, "Ultra": 4}}
+  },
+  {
+   "id": "intel_core_ultra",
+   "match": "Core\\(?T?M?\\)?\\s+Ultra\\s+(?P<tier>[579])\\s+(?P<ser>\\d)\\d{2}",
+   "year": {"group": "ser", "map": {"1": 2023, "2": 2024, "3": 2026}, "else": 2026},
+   "tier": {"group": "tier", "map": {"5": 0, "7": 1, "9": 2}},
+   "win11": true
+  },
+  {
+   "id": "intel_core_new",
+   "match": "Intel.*\\bCore\\(?T?M?\\)?\\s+(?P<tier>[3579])\\s+(?:Processor\\s+)?(?P<ser>[12])\\d{2}",
+   "year": 2023,
+   "tier": {"group": "tier", "map": {"3": -1, "5": 0, "7": 1, "9": 2}},
+   "win11": true
+  },
+  {
+   "id": "intel_core_i",
+   "match": "\\bi(?P<tier>[3579])-(?P<gen>1[0-4]|[2-9])\\d{2,3}(?P<suf>[A-Z]*)",
+   "year": {"group": "gen", "map": {"2": 2011, "3": 2012, "4": 2013, "5": 2015, "6": 2015, "7": 2017, "8": 2017, "9": 2018, "10": 2020, "11": 2021, "12": 2021, "13": 2022, "14": 2023}},
+   "tier": {"group": "tier", "map": {"3": -1, "5": 0, "7": 1, "9": 2}},
+   "adjust": [{"group": "suf", "match": "^[UY]", "delta": -1}],
+   "win11": {"group": "gen", "min": 8}
+  },
+  {
+   "id": "intel_core_old",
+   "match": "Core\\(?T?M?\\)?2|Core\\(?T?M?\\)? i[357] (CPU )?\\s*\\d{3}\\b",
+   "year": 2009,
+   "tier": 0,
+   "win11": false
+  },
+  {
+   "id": "ryzen_ai",
+   "match": "Ryzen\\s+AI\\s+(?:MAX\\+?\\s+)?(?:PRO\\s+)?(?P<tier>[579])",
+   "year": 2024,
+   "tier": {"group": "tier", "map": {"5": 0, "7": 1, "9": 2}},
+   "win11": true
+  },
+  {
+   "id": "ryzen",
+   "match": "Ryzen\\s+(?P<tier>[3579])\\s+(?:PRO\\s+)?(?P<ser>\\d)\\d{3}(?P<suf>[A-Z0-9]*)",
+   "year": {"group": "ser", "map": {"1": 2017, "2": 2018, "3": 2019, "4": 2020, "5": 2020, "6": 2022, "7": 2022, "8": 2024, "9": 2024}},
+   "tier": {"group": "tier", "map": {"3": -1, "5": 0, "7": 1, "9": 2}},
+   "adjust": [{"group": "suf", "match": "^U", "delta": -1}],
+   "win11": {"group": "ser", "min": 2}
+  },
+  {
+   "id": "threadripper",
+   "match": "Threadripper",
+   "year": 2019,
+   "tier": 3,
+   "win11": true
+  },
+  {
+   "id": "snapdragon_x",
+   "match": "Snapdragon.*\\bX\\d?\\b|Snapdragon\\(R\\) X",
+   "year": 2024,
+   "tier": 0,
+   "win11": true
+  },
+  {
+   "id": "budget_x86",
+   "match": "Celeron|Pentium|Atom|Athlon|\\bA[4-9]-\\d{4}|\\bE[12]-\\d{4}|Intel.*\\bN[1-3]?\\d{2,3}\\b",
+   "year": 2018,
+   "tier": -4
+  }
+ ],
+ "gpu": [
+  {
+   "id": "virtual",
+   "match": "Basic Display|Basic Render|VMware|VirtualBox|llvmpipe|Parallels|QXL|Virtio|Remote Display|Hyper-V",
+   "skip": true
+  },
+  {
+   "id": "apple_m",
+   "match": "Apple M(?P<ser>\\d+)(?:\\s+(?P<tier>Pro|Max|Ultra))?",
+   "year": {"group": "ser", "map": {"1": 2020, "2": 2022, "3": 2023, "4": 2024, "5": 2025}, "else": 2026},
+   "tier": {"group": "tier", "map": {"": -2, "Pro": 0, "Max": 2, "Ultra": 3}},
+   "integrated": true
+  },
+  {
+   "id": "nvidia_rtx",
+   "match": "RTX\\s*(?P<ser>[2-5])0(?P<tier>[5-9])0",
+   "year": {"group": "ser", "map": {"2": 2018, "3": 2020, "4": 2022, "5": 2025}},
+   "tier": {"group": "tier", "map": {"5": -2, "6": 0, "7": 2, "8": 3, "9": 4}},
+   "adjust": [{"group": "", "match": "Laptop|Max-Q|Mobile", "delta": -1}]
+  },
+  {
+   "id": "nvidia_gtx16",
+   "match": "GTX\\s*16(?P<tier>[5-6])0",
+   "year": 2019,
+   "tier": {"group": "tier", "map": {"5": -2, "6": -1}}
+  },
+  {
+   "id": "nvidia_gtx",
+   "match": "GTX\\s*(?P<ser>7|9|10)(?P<tier>[5-8])0",
+   "year": {"group": "ser", "map": {"7": 2013, "9": 2014, "10": 2016}},
+   "tier": {"group": "tier", "map": {"5": -2, "6": 0, "7": 1, "8": 2}}
+  },
+  {
+   "id": "nvidia_low",
+   "match": "GeForce\\s+(GT|MX)\\s*\\d{3,4}",
+   "year": 2016,
+   "tier": -5
+  },
+  {
+   "id": "amd_rx9000",
+   "match": "RX\\s*90(?P<tier>[5-9])0",
+   "year": 2025,
+   "tier": {"group": "tier", "map": {"5": -2, "6": 0, "7": 2, "8": 3, "9": 3}}
+  },
+  {
+   "id": "amd_rx_new",
+   "match": "RX\\s*(?P<ser>[5-7])(?P<tier>[4-9])\\d0",
+   "year": {"group": "ser", "map": {"5": 2019, "6": 2020, "7": 2022}},
+   "tier": {"group": "tier", "map": {"4": -3, "5": -2, "6": 0, "7": 1, "8": 2, "9": 3}},
+   "adjust": [{"group": "", "match": "\\d{4}M\\b|\\d{4}S\\b", "delta": -1}]
+  },
+  {
+   "id": "amd_rx_old",
+   "match": "RX\\s*(?P<ser>[45])(?P<tier>[4-9])0\\b",
+   "year": {"group": "ser", "map": {"4": 2016, "5": 2017}},
+   "tier": {"group": "tier", "map": {"4": -4, "5": -3, "6": -2, "7": -1, "8": 0, "9": 0}}
+  },
+  {
+   "id": "amd_vega",
+   "match": "RX\\s+Vega\\s*(56|64)",
+   "year": 2017,
+   "tier": 1
+  },
+  {
+   "id": "amd_radeon_pro_mac",
+   "match": "Radeon\\s+Pro\\s+(?P<ser>[4-5])\\d{2,3}[MX]?",
+   "year": {"group": "ser", "map": {"4": 2016, "5": 2019}},
+   "tier": -1
+  },
+  {
+   "id": "intel_arc",
+   "match": "Arc.*\\b(?P<ser>[AB])(?P<tier>[3-7])\\d0",
+   "year": {"group": "ser", "map": {"A": 2022, "B": 2024}},
+   "tier": {"group": "tier", "map": {"3": -3, "5": -1, "7": 0}}
+  },
+  {
+   "id": "intel_arc_igpu",
+   "match": "Intel.*Arc.*Graphics|Arc\\(TM\\) Graphics",
+   "year": 2023,
+   "tier": -3,
+   "integrated": true
+  },
+  {
+   "id": "intel_igpu",
+   "match": "Intel.*(UHD|HD|Iris)",
+   "year": "cpu",
+   "tier": -6,
+   "integrated": true
+  },
+  {
+   "id": "amd_igpu",
+   "match": "Radeon\\s*\\d{3}M\\b",
+   "year": "cpu",
+   "tier": -3,
+   "integrated": true
+  },
+  {
+   "id": "amd_igpu_old",
+   "match": "Radeon\\(TM\\)\\s*(Vega\\s*\\d+\\s*)?Graphics|Radeon\\s+Vega\\s+\\d+|Radeon\\s+Graphics",
+   "year": "cpu",
+   "tier": -5,
+   "integrated": true
+  },
+  {
+   "id": "qualcomm_adreno",
+   "match": "Adreno|Qualcomm",
+   "year": 2024,
+   "tier": -4,
+   "integrated": true
+  }
+ ],
+ "workloads": [
+  {
+   "id": "everyday",
+   "title": "Браузер, офис, видеозвонки",
+   "title_en": "Browser, office, video calls",
+   "cpu_years": 14, "gpu_years": 20,
+   "ram_gb": 6, "ram_year": 2026, "ram_double": 7,
+   "ssd": true
+  },
+  {
+   "id": "work",
+   "title": "Работа: много вкладок, мессенджеры, фото, программирование",
+   "title_en": "Work: many tabs, messengers, photos, coding",
+   "cpu_years": 12, "gpu_years": 14,
+   "ram_gb": 12, "ram_year": 2026, "ram_double": 6,
+   "ssd": true
+  },
+  {
+   "id": "online_games",
+   "title": "Сетевые игры (CS2, Dota 2, Valorant, Fortnite)",
+   "title_en": "Online games (CS2, Dota 2, Valorant, Fortnite)",
+   "cpu_years": 12, "gpu_years": 13,
+   "ram_gb": 8, "ram_year": 2026, "ram_double": 6,
+   "vram_gb": 3, "vram_double": 6,
+   "ssd": true
+  },
+  {
+   "id": "aaa_games",
+   "title": "Новые требовательные игры",
+   "title_en": "New demanding games",
+   "cpu_years": 9, "gpu_years": 8,
+   "ram_gb": 10, "ram_year": 2026, "ram_double": 5,
+   "vram_gb": 6, "vram_double": 5,
+   "ssd": true
+  },
+  {
+   "id": "creative",
+   "title": "Монтаж видео, 3D, нейросети на своём ПК",
+   "title_en": "Video editing, 3D, running AI locally",
+   "cpu_years": 8, "gpu_years": 7,
+   "ram_gb": 16, "ram_year": 2026, "ram_double": 5,
+   "vram_gb": 6, "vram_double": 4,
+   "ssd": true
+  }
+ ],
+ "os": {
+  "win10": {
+   "end": "2025-10-14",
+   "esu_end": "2026-10-13"
+  },
+  "mac_intel_last": "macOS 26 Tahoe",
+  "mac_intel_security_end": 2028,
+  "mac_arm_years": 8
+ },
+ "suggest": {
+  "gpu": {"year": 2025, "tier": 0, "text": "GeForce RTX 5060 / Radeon RX 9060 XT"},
+  "cpu": {"year": 2024, "tier": 0, "text": "Ryzen 5 9600 / Core Ultra 5 245"}
+ },
+ "market": [
+  {
+   "text": "В 2025–2026 годах оперативная память и SSD заметно подорожали: производители перевели заводы на память для серверов с ИИ. Если апгрейд не срочный, имеет смысл следить за ценами.",
+   "text_en": "In 2025–2026 RAM and SSDs became noticeably more expensive as makers shifted factories to memory for AI servers. If the upgrade isn't urgent, keep an eye on prices."
+  }
+ ]
+}
