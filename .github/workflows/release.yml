@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      skip: ${{ steps.v.outputs.skip }}
       draft: ${{ steps.create.outputs.draft }}
     steps:
       - uses: actions/checkout@v5
@@ -43,6 +44,7 @@ jobs:
       - name: Какую версию выпускаем
         id: v
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT: ${{ github.event.inputs.version }}
           EVENT: ${{ github.event_name }}
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
@@ -66,10 +68,18 @@ jobs:
             echo "::error::Версия должна быть вида 0.3.0, а не «$version»"
             exit 1
           fi
+          # Релиз, выпущенный на сайте, создаёт тег — и запускает нас дважды: на тег и на релиз.
+          # Сборки делает запуск на релиз, иначе два запуска перезальют файлы друг за другом.
+          if [ "$EVENT" = "push" ] && { gh release view "v$version" >/dev/null 2>&1 || gh release view "$TAG" >/dev/null 2>&1; }; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Релиз $TAG уже есть, его соберёт запуск на событие release"
+            exit 0
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Выпускаю $version"
 
       - name: Записать версию в код и поставить тег
+        if: steps.v.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
@@ -90,6 +100,7 @@ jobs:
           fi
 
       - name: Создать релиз
+        if: steps.v.outputs.skip != 'true'
         id: create
         env:
           GH_TOKEN: ${{ github.token }}
@@ -112,6 +123,7 @@ jobs:
 
   build:
     needs: release
+    if: needs.release.outputs.skip != 'true'
     uses: ./.github/workflows/build.yml
     with:
       tag: v${{ needs.release.outputs.version }}

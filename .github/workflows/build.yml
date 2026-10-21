@@ -70,4 +70,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           FILE: ${{ steps.build.outputs.file }}
-        run: gh release upload "$TAG" "$FILE" --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          # Уже приложенный файл не заменяем: встроенное обновление могло запомнить его
+          # контрольную сумму, и новая сборка с другой суммой у людей не поставится.
+          # Пересобрать — сначала удалить файл из релиза.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' \
+              | grep -qxF "$(basename "$FILE")"; then
+            echo "::notice::$(basename "$FILE") уже есть в релизе $TAG, не трогаю"
+            exit 0
+          fi
+          gh release upload "$TAG" "$FILE" --repo "$GITHUB_REPOSITORY"

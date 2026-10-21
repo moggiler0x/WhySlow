@@ -215,7 +215,8 @@ class _WinGpuLoad:
         pdh.PdhCollectQueryData(query)
         self.pdh, self.query, self.counter = pdh, query, counter
 
-    def get(self) -> float | None:
+    def items(self) -> list[tuple[str, float]] | None:
+        """Все экземпляры счётчика: («pid_1234_luid_…_engtype_3D», проценты)."""
         if self.failed:
             return None
         import ctypes
@@ -232,7 +233,7 @@ class _WinGpuLoad:
             size, count = c_uint32(0), c_uint32(0)
             self.pdh.PdhGetFormattedCounterArrayW(self.counter, 0x200, byref(size), byref(count), None)
             if not size.value:
-                return 0.0
+                return []
             buf = ctypes.create_string_buffer(size.value)
             if self.pdh.PdhGetFormattedCounterArrayW(self.counter, 0x200, byref(size), byref(count), buf):
                 return None
@@ -240,13 +241,18 @@ class _WinGpuLoad:
         except (OSError, AttributeError, ValueError):
             self.failed = True
             return None
+        return [(it.name, it.value) for it in items if it.status in (0, 1) and it.name]
+
+    def get(self) -> float | None:
+        items = self.items()
+        if items is None:
+            return None
         # Как Диспетчер задач: складываем процессы по типу движка (3D, Video Decode…)
         # и показываем самый загруженный движок
         engines: dict[str, float] = {}
-        for it in items:
-            if it.status in (0, 1) and it.name:
-                kind = it.name.split("_engtype_")[-1]
-                engines[kind] = engines.get(kind, 0.0) + it.value
+        for name, value in items:
+            kind = name.split("_engtype_")[-1]
+            engines[kind] = engines.get(kind, 0.0) + value
         return min(max(engines.values(), default=0.0), 100.0)
 
 

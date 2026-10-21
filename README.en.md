@@ -21,8 +21,15 @@ process against it and tells you whether it is safe to disable, better left alon
   * [One-click optimization](#one-click-optimization)
   * [macOS System Data](#macos-system-data)
   * [Reinstalling the system](#reinstalling-the-system)
+  * [Hidden pests](#hidden-pests)
+
   * [Moving to a new PC](#moving-to-a-new-pc)
   * [Leaked passwords](#leaked-passwords)
+  * [Outlook: how long the hardware will last](#outlook-how-long-the-hardware-will-last)
+
+  * [Freeze X-ray and game mode](#freeze-x-ray-and-game-mode)
+
+  * [PC twin and risk cost (subscription)](#pc-twin-and-risk-cost-subscription)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -42,6 +49,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Entry format](#entry-format)
   * [When a program is not in the base](#when-a-program-is-not-in-the-base)
   * [Suggesting an entry](#suggesting-an-entry)
+  * [Hardware requirements](#hardware-requirements)
 * [How it is built](#how-it-is-built)
 
 ## What it does
@@ -53,13 +61,22 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Overview** | Live CPU, memory, disk and network tiles with charts, what is loading the system right now, and a single **Check** button that lists problems with explanations and a **Fix** button |
 | **Optimize** | A single **Optimize** button: WhySlow builds a fix plan on its own and applies the checked items after **Apply** |
 | **System** | CPU with every core separately, clock speeds, memory, integrated GPU load, disks, network, temperatures — last-minute charts with a scale and hover tooltips |
+| **Outlook** | Roughly how many more years the hardware will handle browsing, work, games and video editing, what runs out first, and what to upgrade when |
+| **Twin** | Subscription. What a new graphics card, memory, SSD or CPU would do for this exact computer: game frame rates, memory load, how many more years the hardware lasts |
+| **Risk cost** | Subscription. What might break (disks, battery, overheating), how likely it is, and what dealing with it now costs versus later |
 | **Startup** | Everything that starts with the system, plus the knowledge base verdict. Toggle items on or off right in the list, or remove them |
 | **Processes** | Programs grouped by name (a browser is dozens of processes), with the knowledge base verdict. If a program starts with the system, you can remove it from startup right here |
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day. Finds large files in a chosen folder and moves them to the Trash |
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
+| **Pests** (subscription) | Hidden miners, browser extensions that see every site, programs that go online at night, and a connection map |
+
 | **Move** | Move to a new PC with one button: programs, their settings and your files, without junk (subscription) |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
+| **Compare** | Subscription: anonymously compares your PC with computers on the same hardware (boot time, idle load, startup) and names the programs fast similar PCs don't have |
+
+| **X-ray** ⭐ | Press Ctrl+Alt+X the moment things freeze and WhySlow breaks down the last 20 seconds: which app, driver, disk, network or overheating ate that second |
+| **Games** ⭐ | Game mode: notices a game starting, with your consent gives it the CPU and power, restores everything afterwards and shows what it gave you |
 | **History** | When and why the computer was slow: WhySlow records long load spikes in the background, can live in the tray and start with the system |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
@@ -142,6 +159,27 @@ The backup folder has `restore.bat` (Windows) or `restore.command` (macOS), whic
 WhySlow. Or install WhySlow again and press “Restore from backup…”. Existing files are never overwritten on restore.
 Files that couldn't be copied (no access, in use) are listed in `whyslow-backup.json`, and WhySlow asks whether to go
 on with the reinstall without them. Programs and browser passwords aren't part of the backup: install the programs
+again, and turn on sync in your browser.
+### Hidden pests
+
+The Pests tab looks for what doesn't catch the eye. It is part of the subscription.
+
+* **Hidden miners.** A mining-pool address or algorithm on the command line, a connection to a pool port, CPU or GPU
+  load while nobody is at the computer, a file in a folder normal programs don't run from. Per-process GPU load comes
+  from the same counters Task Manager uses, and from `nvidia-smi`.
+* **Browser extensions** in Chrome, Edge, Brave, Yandex Browser, Opera, Vivaldi, Firefox and Safari. For each one you
+  see whether it can read every site and what else it can do (intercept requests, read cookies and history, set its
+  own proxy), and whether it came from the store, from another program, or was forced in through a browser policy.
+* **Online at night.** While WhySlow is open or in the tray, it notes every 5 minutes which programs hold internet
+  connections. Between midnight and 6 am this only counts if nobody is at the computer. Sync and updates are marked
+  as normal, unknown programs as suspicious.
+* **Connection map.** The computer in the middle, programs around it, and the addresses they connect to on the
+  outside. Red looks like a miner, yellow went online at night.
+
+WhySlow explains every finding from the knowledge base. Closing a program, removing it from startup, moving its file
+to quarantine or removing a forced extension install only happens after you confirm. Quarantine and removed policies
+can be restored in the Journal tab. Extensions are removed in the browser itself: WhySlow opens their page.
+
 again, and turn on sync in your browser, or use the **Move** tab below, which takes programs and settings too.
 
 ### Moving to a new PC
@@ -178,6 +216,72 @@ The **Passwords** tab finds passwords that already appear in data breaches and h
 
 The manager is updated only after the site is. Changing a password only in the manager would leave you with a
 password the site doesn't accept.
+
+### Outlook: how long the hardware will last
+
+The Outlook tab detects the CPU, graphics, amount of memory and the system disk type, and compares them with what
+operating systems, browsers, games and work apps require today and how fast those requirements grow.
+
+* For each task (browser and office, work, online games, new demanding games, video editing and 3D) — roughly how many
+  more years the hardware will handle it and what runs out first.
+* Pick what you mostly do and WhySlow tells you what to upgrade and when: an SSD instead of a hard drive, memory,
+  a graphics card, or the whole computer. It doesn't suggest replacing parts that can't be replaced in laptops and Macs.
+* Separately — how much longer the OS will get updates on this hardware (Windows 10, Intel Macs and so on).
+
+This is a rough estimate based on typical requirements, not a guarantee. The requirements live in
+[`whyslow/data/hardware.json`](whyslow/data/hardware.json) and are updated from the internet just like the knowledge base.
+
+### Comparison with similar PCs
+
+When you press Compare, WhySlow builds an anonymous snapshot and **shows it to you in full first**: it is sent only after you tick the consent box. The snapshot holds the CPU and GPU model, memory size, disk type, OS version, boot time, idle load, and the number of processes and startup programs. Programs are sent only as entries of the open knowledge base, others only as a count. No name, computer name, paths, IP or subscription key is stored next to the snapshot on the server.
+
+The server replies only with a summary (medians and program shares), and only if there are at least five similar PCs. «Delete my data from the server» erases the snapshot and withdraws consent.
+
+### Freeze X-ray and game mode
+
+⭐ — WhySlow Premium features: they're built into the app and unlock with a key.
+
+**Freeze X-ray.** WhySlow always keeps the last minute of samples in memory: CPU and each core, memory, disk,
+network, GPU, temperatures and the heaviest processes. When something freezes, press **Ctrl+Alt+X** (on Windows it
+works even over a game) or pick “Take a freeze X-ray” from the WhySlow tray icon. It saves the last 20 seconds, takes a
+one-second look at what's too costly to watch all the time (CPU time spent on driver interrupts, who is reading and
+writing the disk right now) and lists the suspects in order: an app, a single maxed-out core, low memory, the disk, the
+network, a driver, overheating or the GPU. If the whole system froze so hard that even the background sample was late,
+a snapshot is taken automatically. Nothing in the system is changed.
+
+**Game mode.** WhySlow recognizes a game by Steam, Epic, GOG and other store folders, by a list of known games, or by
+games you add yourself. The Games tab then shows a checklist:
+
+* lower the priority of heavy background apps (except what the database says to keep, system processes and what people
+  use while playing: Discord, OBS, overlays). On macOS and Linux only an administrator can raise a priority back,
+  so without those rights only pausing is offered there;
+* pause unneeded ones while you play (only if you tick it);
+* raise the game's own priority;
+* switch to the High performance power plan (Windows) or the performance profile (Linux).
+
+Nothing changes until you press “Turn on”. Tick “Turn on for this game without asking” and the plan applies by itself
+next time. When the game closes, priorities, paused apps and power come back as they were, even if WhySlow was closed
+or crashed mid-game. Afterwards you see how much CPU was freed for the game and, with the free
+[PresentMon](https://github.com/GameTechDev/PresentMon/releases) next to it, the FPS before and after.
+
+### PC twin and risk cost (subscription)
+
+**Twin.** Before buying a part, see what it would do for this exact computer. WhySlow takes your hardware, how much
+memory is in use right now and by whom, and how often the system ran out of CPU or memory over the past month
+(History tab), and swaps in the new part:
+
+* game frame rates before and after, and what limits them — graphics, CPU or video memory. Enter the FPS you
+  actually see and the estimate adjusts to your settings;
+* "14 of 16 GB in use right now, mostly Chrome; with 32 GB it would be 44%";
+* how many more years the hardware lasts for your task, and what remains the weak spot;
+* a rough price and a "best value" mark — the most benefit per dollar.
+
+**Risk cost.** Disks (SMART), battery, overheating, and whether there's a backup (Time Machine, OneDrive, File
+History). For each — the chance of trouble within a year, when to expect it, what dealing with it now costs, and
+what it costs if you wait: "backup — $0, data recovery after a failure — $300–1,500".
+
+Prices, part speeds and failure rates live in the same `hardware.json` and are updated from the internet. These are
+estimates, not measurements or guarantees.
 
 ### Problems it finds
 
@@ -322,7 +426,11 @@ No window, right in the terminal (from source; on macOS and Linux the app works 
 ```bash
 python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
+python3 -m whyslow --pests     # hidden miners, risky extensions, night-time network use (subscription, changes nothing)
 python3 -m whyslow --passwords export.csv   # which passwords from your manager are in breaches (changes nothing)
+python3 -m whyslow --forecast  # how long the hardware will last and what to upgrade first (changes nothing)
+python3 -m whyslow --twin      # subscription: what an upgrade would do for this computer (changes nothing)
+python3 -m whyslow --risks     # subscription: what might break and what it costs (changes nothing)
 python3 -m whyslow --storage   # macOS: what “System Data” is made of and which app data can go (changes nothing)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
@@ -440,6 +548,21 @@ Answers are cached in `online.json` next to the base cache (hits for a month, mi
   a ready-made issue opens with the found description already filled in.
 * Or send a pull request that edits [`known.json`](whyslow/data/known.json).
 
+### Hardware requirements
+
+The Outlook tab uses [`whyslow/data/hardware.json`](whyslow/data/hardware.json). The program downloads it from here
+when the tab is opened or on **Update requirements from the internet**. When new games and CPUs come out or requirements
+change, edit the file and bump `version`:
+
+* `cpu`, `gpu` — model recognition rules: a regular expression, release year and `tier` — a class bonus in years
+  (a top graphics card holds up like a mid-range one a few years newer). Year and class can come from part of the name:
+  `{"group": "gen", "map": {"12": 2021}}`.
+* `workloads` — tasks: how many years after the (adjusted) release year the hardware handles them (`cpu_years`,
+  `gpu_years`), how much memory they need today (`ram_gb`, `vram_gb`) and how many years it takes to double (`ram_double`).
+* `os` — OS support dates, `suggest` — current example models for advice, `market` — price notes.
+* `perf` — graphics and CPU speed relative to an RTX 3060 and Ryzen 5 3600, `games` — frame rates on that reference,
+  `upgrades` — parts for the Twin with prices (`rub`, `usd`), `health` — failure rates and repair prices.
+
 ## How it is built
 
 ```
@@ -463,7 +586,13 @@ whyslow/
   power.py       power saving mode and battery wear
   bigfiles.py    finding large files and moving them to the Trash
   watch.py       recording slowdowns in the background, starting with the system
+  gamerestore.py undoing game mode after a crash (works without a subscription too)
+  premium/xray.py      freeze X-ray: last minute of samples, culprit analysis, hotkey
+  premium/gamemode.py  game mode: game detection, plan, restore, report and FPS measuring
   sysinfo.py     hardware info, integrated GPU load
+  forecast.py    outlook: how long the hardware will last and what to upgrade
+  premium/twin.py          PC twin (subscription, encrypted in releases)
+  premium/health_money.py  health in money (subscription, encrypted in releases)
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
   passwords.py   breach check for passwords, new passwords, import file
@@ -472,10 +601,15 @@ whyslow/
   license_ui.py  Subscription window and lock on paid tabs
   seal.py        encrypts paid modules (unreadable and unrunnable without a subscription key)
   premium/       paid-feature code; encrypted in release builds (<feature>.wsl)
+
+    pests.py     hidden pests: miners, browser extensions, night network log, quarantine
+  restore.py     undo for paid-feature actions (quarantine, browser policies), works without a subscription
+
   updater.py     updating the program from GitHub
   settings.py    settings (language, updates, auto-clean on Mac)
   i18n.py        interface language: Russian and English
   data/known.json
+  data/hardware.json  software hardware requirements for the outlook
   data/icon.png  window icon
 tests/           tests (python -m pytest tests)
 owner/keys.py    issuing subscription keys (owner only)
