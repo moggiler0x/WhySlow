@@ -241,3 +241,20 @@ def risk_cost() -> int:
     for line in rep.notes + [healthcost.disclaimer()]:
         print("\n" + line)
     return 0
+def license_cmd(key: str = "") -> int:
+    """Состояние подписки; с ключом — активирует его."""
+    from . import license
+    if key:
+        try:
+            license.enter_key(key)
+        except license.LicenseError as e:
+            print(tr(f"Ключ не принят: {e}", f"Key not accepted: {e}"))
+            return 1
+    else:
+        license.refresh()
+    st = license.status()
+    print(license.status_text(st))
+    if st.error:
+        print(st.error)
+    print(tr(f"Код этого компьютера: {st.device}", f"This computer's code: {st.device}"))
+    return 0 if st.active else 1
