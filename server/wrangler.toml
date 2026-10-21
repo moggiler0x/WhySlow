@@ -9,6 +9,13 @@ compatibility_date = "2025-09-01"
 binding = "LICENSES"
 id = "REPLACE_WITH_KV_ID"
 
+# Сравнение с похожими ПК. id появится после «npx wrangler d1 create whyslow-compare»,
+# таблицы — «npx wrangler d1 execute whyslow-compare --remote --file=compare-schema.sql».
+[[d1_databases]]
+binding = "COMPARE_DB"
+database_name = "whyslow-compare"
+database_id = "REPLACE_WITH_D1_ID"
+
 [vars]
 # Открытый ключ — тот же, что PUBLIC_KEY в whyslow/license.py
 PUBLIC_KEY = ""

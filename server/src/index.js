@@ -8,15 +8,24 @@
 //
 // Другие функции подключаются строкой в ROUTES; проверка подписки — requireLicense из auth.js.
 
-import { json } from "./auth.js";
+import { json, requireLicense } from "./auth.js";
 import { handleTelegram } from "./bot.js";
 import { sameSecret } from "./crypto.js";
 import { activate, createCode, extend, getRecord, listRecords, resolveKid, setRevoked, unlink } from "./licenses.js";
-// import { handleCompareSubmit, handleCompareQuery } from "./compare.js";
+import { handleCompare, handleCompareForget } from "./compare.js";
+
+// Сравнение с похожими ПК живёт в отдельной базе D1; пока её не подключили — 503, а не падение
+const needCompareDb = (handler) => (request, env) =>
+  env.COMPARE_DB ? handler(request, env) : json({ error: "not_configured" }, 503);
 
 const ROUTES = {
-  // "/compare/submit": handleCompareSubmit,
-  // "/compare/query": handleCompareQuery,
+  "/compare": needCompareDb(async (request, env) => {
+    const a = await requireLicense(request, env);
+    if (!a.ok) return a.response;
+    return handleCompare(request, env, a.lic);
+  }),
+  // Удалить свой снимок можно и без подписки: id знает только сама установка
+  "/compare/forget": needCompareDb(handleCompareForget),
 };
 
 async function admin(request, env, action) {
