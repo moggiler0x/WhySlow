@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
-import json
+import threading
 import time
 import uuid
 from pathlib import Path
 
-from .util import app_dir
+from .util import app_dir, read_json, write_json
+
+# Записи добавляются и из фоновых задач: без замка две одновременные потеряли бы одна другую
+_lock = threading.RLock()
 
 
 def _path() -> Path:
@@ -16,15 +19,12 @@ def _path() -> Path:
 
 
 def load() -> list[dict]:
-    try:
-        data = json.loads(_path().read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (OSError, ValueError):
-        return []
+    data = read_json(_path(), [])
+    return data if isinstance(data, list) else []
 
 
 def _save(entries: list[dict]) -> None:
-    _path().write_text(json.dumps(entries, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_json(_path(), entries)
 
 
 def add(kind: str, title: str, data: dict, undoable: bool = True) -> dict:
@@ -37,15 +37,17 @@ def add(kind: str, title: str, data: dict, undoable: bool = True) -> dict:
         "undoable": undoable,
         "undone": False,
     }
-    entries = load()
-    entries.append(entry)
-    _save(entries)
+    with _lock:
+        entries = load()
+        entries.append(entry)
+        _save(entries)
     return entry
 
 
 def mark_undone(entry_id: str) -> None:
-    entries = load()
-    for e in entries:
-        if e["id"] == entry_id:
-            e["undone"] = True
-    _save(entries)
+    with _lock:
+        entries = load()
+        for e in entries:
+            if e["id"] == entry_id:
+                e["undone"] = True
+        _save(entries)

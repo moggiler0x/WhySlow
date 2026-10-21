@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import net
 from .i18n import pick, tr
-from .util import IS_WINDOWS, app_dir
+from .util import IS_WINDOWS, app_dir, write_json
 
 DB_URL = os.environ.get(
     "WHYSLOW_DB_URL",
@@ -167,7 +167,7 @@ def update(timeout: float = 6) -> tuple[KnowledgeBase, str]:
                            f"Database is up to date (version {current.version})")
     kb = KnowledgeBase(data, "GitHub")
     try:
-        _cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(_cache_path(), data)
     except OSError:
         return kb, tr(f"База обновлена до версии {kb.version}, но сохранить её на диск не удалось",
                       f"Database updated to version {kb.version}, but saving it to disk failed")

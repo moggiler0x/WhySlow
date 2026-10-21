@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 DEFAULTS = {
     "check_updates": True,   # искать новые версии при запуске
     "auto_update": False,    # ставить их без вопроса
@@ -20,13 +18,11 @@ def _path():
 
 
 def load() -> dict:
+    from .util import read_json
     data = dict(DEFAULTS)
-    try:
-        saved = json.loads(_path().read_text(encoding="utf-8"))
-        if isinstance(saved, dict):
-            data.update({k: v for k, v in saved.items() if k in DEFAULTS})
-    except (OSError, ValueError):
-        pass
+    saved = read_json(_path(), {})
+    if isinstance(saved, dict):
+        data.update({k: v for k, v in saved.items() if k in DEFAULTS})
     return data
 
 
@@ -35,9 +31,10 @@ def get(key: str):
 
 
 def set(key: str, value) -> None:  # noqa: A001 — settings.set(...) читается естественно
+    from .util import write_json
     data = load()
     data[key] = value
     try:
-        _path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        write_json(_path(), data)
     except OSError:
         pass

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from . import i18n, net
 from .i18n import tr
-from .util import IS_MAC, IS_WINDOWS, app_dir
+from .util import IS_MAC, IS_WINDOWS, app_dir, write_json
 
 TTL_FOUND = 30 * 86400    # найденное описание перепроверяем раз в месяц
 TTL_MISS = 3 * 86400      # «ничего не нашлось» — раз в три дня
@@ -240,7 +240,7 @@ def _store(name: str, info: Info | None) -> None:
             for k in sorted(data, key=lambda k: data[k].get("t", 0))[:len(data) - 2000]:
                 del data[k]
         try:
-            _cache_path().write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+            write_json(_cache_path(), data)
         except OSError:
             pass
 
