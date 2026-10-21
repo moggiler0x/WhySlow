@@ -17,7 +17,8 @@ OWNER_CHAT_ID = ""
 OWNER_CONTACT = ""
 
 # Секреты задаются командой «npx wrangler secret put ИМЯ», не здесь:
-#   PRIVATE_KEY      — вывод «python owner/keys.py server-secret»
+#   PRIVATE_KEY      — вывод «python owner/keys.py server-secret» (ключ подписи)
+#   SEAL_SECRET      — вывод «python owner/keys.py seal-secret» (секрет шифрования модулей)
 #   ADMIN_TOKEN      — длинный случайный пароль для owner/keys.py
 #   TG_TOKEN         — токен бота от @BotFather (если нужен бот)
 #   TG_SECRET        — случайная строка, защищает адрес бота от чужих запросов

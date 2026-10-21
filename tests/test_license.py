@@ -162,9 +162,11 @@ def test_owner_keys_issue(tmp_path, monkeypatch, capsys):
     keys = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(keys)
     monkeypatch.setattr(keys, "KEY_FILE", tmp_path / "private.key")
+    monkeypatch.setattr(keys, "SEAL_FILE", tmp_path / "seal.key")
     monkeypatch.setattr(keys, "LOG_FILE", tmp_path / "issued.jsonl")
     monkeypatch.setattr(keys, "HOME", tmp_path)
     (tmp_path / "private.key").write_text(SECRET.hex())
+    (tmp_path / "seal.key").write_text(("11" * 32))  # отдельный секрет шифрования
     monkeypatch.setattr("sys.argv", ["keys.py", "issue", "family", "1", "aaaaabbbbb", "CCCCC-DDDDD"])
     keys.main()
     tok = capsys.readouterr().out.strip().splitlines()[-1]
@@ -173,3 +175,27 @@ def test_owner_keys_issue(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         monkeypatch.setattr("sys.argv", ["keys.py", "issue", "solo", "1", "AAAAA-BBBBB", "CCCCC-DDDDD"])
         keys.main()
+
+
+def test_owner_init_makes_separate_secrets(tmp_path, monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    from whyslow import seal
+    spec = importlib.util.spec_from_file_location("owner_keys2", Path(__file__).parents[1] / "owner" / "keys.py")
+    keys = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(keys)
+    monkeypatch.setattr(keys, "KEY_FILE", tmp_path / "private.key")
+    monkeypatch.setattr(keys, "SEAL_FILE", tmp_path / "seal.key")
+    monkeypatch.setattr(keys, "HOME", tmp_path)
+    monkeypatch.setattr(keys, "ROOT", tmp_path)
+    (tmp_path / "whyslow").mkdir()
+    (tmp_path / "whyslow" / "license.py").write_text('PUBLIC_KEY = ""\n')
+    monkeypatch.delenv("WHYSLOW_SEAL_SEED", raising=False)
+    keys.cmd_init(None)
+    signing = bytes.fromhex((tmp_path / "private.key").read_text().strip())
+    sealing = keys.seal_secret()
+    assert signing != sealing and len(sealing) == 32   # секрет шифрования отдельный
+    # feature_keys берутся из секрета шифрования, а не из ключа подписи
+    fk = keys.feature_keys()
+    assert fk["compare"] == seal.feature_key(sealing, "compare").hex()
+    assert fk["compare"] != seal.feature_key(signing, "compare").hex()

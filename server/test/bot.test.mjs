@@ -17,6 +17,7 @@ const env = () => ({
   LICENSES: fakeKV(), TG_TOKEN: "t", TG_SECRET: "hook-secret", OWNER_CHAT_ID: "42", PAYMENT_TOKEN: "p",
   PUBLIC_KEY: "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
   PRIVATE_KEY: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  SEAL_SECRET: "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
 });
 
 const sent = [];

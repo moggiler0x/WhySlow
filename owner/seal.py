@@ -26,17 +26,18 @@ sys.path.insert(0, str(ROOT))
 from whyslow import seal  # noqa: E402
 
 PREMIUM = ROOT / "whyslow" / "premium"
-KEY_FILE = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner") / "private.key"
+SEAL_FILE = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner") / "seal.key"
 
 
 def seed() -> bytes:
+    # Секрет шифрования, отдельный от ключа подписи. В CI задаётся переменной WHYSLOW_SEAL_SEED.
     env = os.environ.get("WHYSLOW_SEAL_SEED")
     if env:
         return bytes.fromhex(env.strip())
     try:
-        return bytes.fromhex(KEY_FILE.read_text().strip())
+        return bytes.fromhex(SEAL_FILE.read_text().strip())
     except FileNotFoundError:
-        sys.exit(f"Нет закрытого ключа {KEY_FILE} и переменной WHYSLOW_SEAL_SEED. "
+        sys.exit(f"Нет секрета шифрования {SEAL_FILE} и переменной WHYSLOW_SEAL_SEED. "
                  "Сначала: python owner/keys.py init")
 
 
