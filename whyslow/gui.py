@@ -26,8 +26,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, bigfiles, checks, forecast, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords,
-    reinstall, settings, startup, sysinfo, updater, watch,
+    __version__, bigfiles, checks, forecast, gamerestore, journal, junk, knowledge, lhm, macapps, macstorage, network, online,
+    optimize, passwords, reinstall, settings, startup, sysinfo, updater, watch,
 )
 from .license_ui import PremiumButton, PremiumGate
 from .i18n import LANGS, lang, set_lang, tr
@@ -691,7 +691,7 @@ class Sampler(QThread):
                     "disk_r": max(disk1[0] - disk0[0], 0) / dt, "disk_w": max(disk1[1] - disk0[1], 0) / dt,
                     "net_rx": max(net1[0] - net0[0], 0) / dt, "net_tx": max(net1[1] - net0[1], 0) / dt,
                     "uptime": sysinfo.uptime(), "temps": temps, "disks": disks,
-                    "gpu": gpu, "gpu_ready": tick >= 4,
+                    "gpu": gpu, "gpu_ready": tick >= 4, "dt": dt,
                 })
                 disk0, net0 = disk1, net1
                 if tick % 2 == 1:
@@ -3999,18 +3999,23 @@ class MainWindow(QMainWindow):
         self.reinstall_tab = ReinstallTab(self)
         self.forecast_tab = ForecastTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
-        # Платные вкладки: код в whyslow/premium/<функция>.py, открывается замком подписки
+        # Платные вкладки: код в whyslow/premium/<функция>.py (в релизе зашифрован), сюда — только через замок
+        self._tray_target = "history"
         self.compare_tab = PremiumGate("compare", main=self)
+        self.xray_page = PremiumGate("xray", main=self)
+        self.games_page = PremiumGate("gamemode", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
-                         "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab}
+                         "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab,
+                         "xray": self.xray_page, "games": self.games_page}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
                  (self.compare_tab, tr("Сравнение", "Compare")),
+                 (self.xray_page, tr("Рентген", "X-ray")), (self.games_page, tr("Игры", "Games")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
@@ -4049,6 +4054,9 @@ class MainWindow(QMainWindow):
         self.sampler.procs.connect(self.on_procs)
         self.sampler.start()
         QApplication.instance().aboutToQuit.connect(self._stop_sampler)
+        # Игровой режим мог не успеть вернуть приоритеты и питание (падение, выключение) —
+        # возвращаем всегда, даже если подписка уже закончилась
+        run_async(lambda _p: gamerestore.recover(), self._game_recovered, lambda _e: None)
         QTimer.singleShot(200, self.update_db)
         if "--tray" not in sys.argv:  # при запуске вместе с системой не грузим её проверкой
             QTimer.singleShot(400, self.scan)
@@ -4088,6 +4096,7 @@ class MainWindow(QMainWindow):
             return
         self.history_tab.reload()
         if self.tray and not self.isVisible():
+            self._tray_target = "history"
             self.tray.showMessage(tr("Компьютер тормозил", "The computer was slow"),
                                   ep.headline(), QSystemTrayIcon.Warning, 8000)
 
@@ -4105,7 +4114,7 @@ class MainWindow(QMainWindow):
         self._tray_menu = menu
         tray.activated.connect(lambda reason: reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick)
                                and not IS_MAC and self.show_window())
-        tray.messageClicked.connect(lambda: (self.show_window(), self.go("history")))
+        tray.messageClicked.connect(lambda: (self.show_window(), self.go(self._tray_target)))
         tray.show()
         return tray
 
@@ -4140,6 +4149,16 @@ class MainWindow(QMainWindow):
     def _stop_sampler(self):
         self.sampler.stop()
         self.sampler.wait(3000)
+
+    def _game_recovered(self, game: str | None):
+        if game:
+            self.status(tr(f"Вернул приоритеты и питание после прошлой игры ({game})",
+                           f"Restored priorities and power after the last game ({game})"))
+
+    def notify(self, title: str, text: str, target: str):
+        if self.tray:
+            self._tray_target = target
+            self.tray.showMessage(title, text, QSystemTrayIcon.Information, 8000)
 
     def status(self, text: str):
         self.statusBar().showMessage(text, 8000)

@@ -23,6 +23,8 @@ process against it and tells you whether it is safe to disable, better left alon
   * [Reinstalling the system](#reinstalling-the-system)
   * [Leaked passwords](#leaked-passwords)
   * [Outlook: how long the hardware will last](#outlook-how-long-the-hardware-will-last)
+
+  * [Freeze X-ray and game mode](#freeze-x-ray-and-game-mode)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
   * [Platform support](#platform-support)
@@ -62,6 +64,9 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
 | **Compare** | Subscription: anonymously compares your PC with computers on the same hardware (boot time, idle load, startup) and names the programs fast similar PCs don't have |
+
+| **X-ray** ⭐ | Press Ctrl+Alt+X the moment things freeze and WhySlow breaks down the last 20 seconds: which app, driver, disk, network or overheating ate that second |
+| **Games** ⭐ | Game mode: notices a game starting, with your consent gives it the CPU and power, restores everything afterwards and shows what it gave you |
 | **History** | When and why the computer was slow: WhySlow records long load spikes in the background, can live in the tray and start with the system |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
@@ -181,6 +186,33 @@ This is a rough estimate based on typical requirements, not a guarantee. The req
 When you press Compare, WhySlow builds an anonymous snapshot and **shows it to you in full first**: it is sent only after you tick the consent box. The snapshot holds the CPU and GPU model, memory size, disk type, OS version, boot time, idle load, and the number of processes and startup programs. Programs are sent only as entries of the open knowledge base, others only as a count. No name, computer name, paths, IP or subscription key is stored next to the snapshot on the server.
 
 The server replies only with a summary (medians and program shares), and only if there are at least five similar PCs. «Delete my data from the server» erases the snapshot and withdraws consent.
+
+### Freeze X-ray and game mode
+
+⭐ — WhySlow Premium features: they're built into the app and unlock with a key.
+
+**Freeze X-ray.** WhySlow always keeps the last minute of samples in memory: CPU and each core, memory, disk,
+network, GPU, temperatures and the heaviest processes. When something freezes, press **Ctrl+Alt+X** (on Windows it
+works even over a game) or pick “Take a freeze X-ray” from the WhySlow tray icon. It saves the last 20 seconds, takes a
+one-second look at what's too costly to watch all the time (CPU time spent on driver interrupts, who is reading and
+writing the disk right now) and lists the suspects in order: an app, a single maxed-out core, low memory, the disk, the
+network, a driver, overheating or the GPU. If the whole system froze so hard that even the background sample was late,
+a snapshot is taken automatically. Nothing in the system is changed.
+
+**Game mode.** WhySlow recognizes a game by Steam, Epic, GOG and other store folders, by a list of known games, or by
+games you add yourself. The Games tab then shows a checklist:
+
+* lower the priority of heavy background apps (except what the database says to keep, system processes and what people
+  use while playing: Discord, OBS, overlays). On macOS and Linux only an administrator can raise a priority back,
+  so without those rights only pausing is offered there;
+* pause unneeded ones while you play (only if you tick it);
+* raise the game's own priority;
+* switch to the High performance power plan (Windows) or the performance profile (Linux).
+
+Nothing changes until you press “Turn on”. Tick “Turn on for this game without asking” and the plan applies by itself
+next time. When the game closes, priorities, paused apps and power come back as they were, even if WhySlow was closed
+or crashed mid-game. Afterwards you see how much CPU was freed for the game and, with the free
+[PresentMon](https://github.com/GameTechDev/PresentMon/releases) next to it, the FPS before and after.
 
 ### Problems it finds
 
@@ -479,6 +511,9 @@ whyslow/
   power.py       power saving mode and battery wear
   bigfiles.py    finding large files and moving them to the Trash
   watch.py       recording slowdowns in the background, starting with the system
+  gamerestore.py undoing game mode after a crash (works without a subscription too)
+  premium/xray.py      freeze X-ray: last minute of samples, culprit analysis, hotkey
+  premium/gamemode.py  game mode: game detection, plan, restore, report and FPS measuring
   sysinfo.py     hardware info, integrated GPU load
   forecast.py    outlook: how long the hardware will last and what to upgrade
   lhm.py         Windows temperatures via LibreHardwareMonitor
