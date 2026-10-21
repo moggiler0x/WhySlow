@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import psutil
 
-from . import conflicts, diskhealth, junk, lhm, network, startup, sysinfo
+from . import conflicts, diskhealth, junk, lhm, network, power, startup, sysinfo
 from .knowledge import KnowledgeBase
 from .i18n import tr
 from .processes import ProcessMonitor
@@ -85,6 +85,7 @@ def scan(kb: KnowledgeBase, progress=lambda text: None) -> ScanResult:
 
     progress(tr("Температуры и прочее…", "Temperatures and more…"))
     _temps(f)
+    _power(f, power.state())
     _uptime(f)
     if IS_LINUX:
         _failed_units(f)
@@ -370,6 +371,46 @@ def _temps(f):
     else:
         t = max(temps.values())
         f.append(Finding(OK, tr(f"Температуры в норме (максимум {t:.0f}°C)", f"Temperatures are normal (max {t:.0f}°C)")))
+
+
+def _power(f, st):
+    if st.saver:
+        f.append(Finding(WARN, tr(f"Включён режим «{st.saver_name}»", f"“{st.saver_name}” mode is on"),
+                         tr("В этом режиме система нарочно снижает частоту процессора и яркость, чтобы экономить "
+                            "заряд, — программы работают заметно медленнее.",
+                            "In this mode the system deliberately lowers CPU speed and brightness to save power — "
+                            "programs run noticeably slower."),
+                         by_os(tr("Выключите: «Параметры → Система → Питание и батарея → Режим питания» — "
+                                  "«Сбалансированный» или «Максимальная производительность».",
+                                  "Turn it off: Settings → System → Power & battery → Power mode — "
+                                  "Balanced or Best performance."),
+                               tr("Выключите: «Системные настройки → Аккумулятор → Режим энергосбережения» — "
+                                  "«Никогда».",
+                                  "Turn it off: System Settings → Battery → Low Power Mode — Never."),
+                               tr("Выключите: в настройках питания выберите «Сбалансированный» или "
+                                  "«Производительность» (powerprofilesctl set balanced).",
+                                  "Turn it off: choose Balanced or Performance in power settings "
+                                  "(powerprofilesctl set balanced)."))))
+    elif st.battery and not st.plugged and st.percent is not None and st.percent < 20:
+        f.append(Finding(INFO, tr(f"Заряд {st.percent:.0f}%, ноутбук не на зарядке",
+                                  f"Battery at {st.percent:.0f}%, laptop is unplugged"),
+                         tr("При низком заряде многие ноутбуки сами сбрасывают частоты процессора.",
+                            "With a low battery many laptops throttle the CPU on their own."),
+                         tr("Подключите зарядку.", "Plug in the charger.")))
+    worn = st.health is not None and st.health < 80
+    service = bool(st.condition) and st.condition.lower() not in ("normal", "good")
+    if worn or service:
+        cycles = tr(f", {st.cycles} циклов зарядки", f", {st.cycles} charge cycles") if st.cycles else ""
+        hp = tr(f"{st.health:.0f}% от исходной ёмкости", f"{st.health:.0f}% of original capacity") \
+            if st.health is not None else st.condition
+        f.append(Finding(WARN if (st.health or 100) < 60 or service else INFO,
+                         tr(f"Аккумулятор изношен: {hp}", f"Battery is worn: {hp}") + cycles,
+                         tr("Старый аккумулятор быстрее садится, а под нагрузкой не выдаёт нужной мощности — "
+                            "тогда система снижает частоты даже на зарядке у некоторых ноутбуков.",
+                            "A worn battery drains faster and can't deliver peak power under load — on some "
+                            "laptops the system then throttles even when plugged in."),
+                         tr("Замена аккумулятора вернёт и время работы, и производительность.",
+                            "Replacing the battery restores both runtime and performance.")))
 
 
 def _uptime(f):
