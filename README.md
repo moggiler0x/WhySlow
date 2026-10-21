@@ -6,8 +6,8 @@
 **Объясняет, почему тормозит компьютер, и помогает это исправить.**
 
 [![Release](https://img.shields.io/github/v/tag/moggiler0x/WhySlow?label=version&color=7c3aed)](https://github.com/moggiler0x/WhySlow/releases)
-![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)
 ![Platforms](https://img.shields.io/badge/Windows%20%7C%20macOS%20%7C%20Linux-informational)
+[![Tests](https://github.com/moggiler0x/WhySlow/actions/workflows/tests.yml/badge.svg)](https://github.com/moggiler0x/WhySlow/actions/workflows/tests.yml)
 
 ![WhySlow](docs/overview.png)
 
@@ -17,16 +17,18 @@
 |:---:|:---:|
 | [⬇ **Download**](README.en.md#download) | [⬇ **Скачать**](README.ru.md#скачать) |
 | [What it does](README.en.md#what-it-does) | [Что умеет](README.ru.md#что-умеет) |
-| [One-click optimization](README.en.md#one-click-optimization) | [Оптимизация в один клик](README.ru.md#оптимизация-в-один-клик) |
-| [macOS System Data](README.en.md#macos-system-data) | [Системные данные macOS](README.ru.md#системные-данные-macos) |
-| [Reinstalling the system](README.en.md#reinstalling-the-system) | [Переустановка системы](README.ru.md#переустановка-системы) |
-| [Hidden pests](README.en.md#hidden-pests) | [Тихие вредители](README.ru.md#тихие-вредители) |
-| [Moving to a new PC](README.en.md#moving-to-a-new-pc) | [Переезд на новый ПК](README.ru.md#переезд-на-новый-пк) |
-| [Leaked passwords](README.en.md#leaked-passwords) | [Пароли в утечках](README.ru.md#пароли-в-утечках) |
-| [Subscription](README.en.md#subscription) | [Подписка](README.ru.md#подписка) |
+| [Subscription: 200 ₽ / 800 ₽](README.en.md#subscription) | [Подписка: 200 ₽ / 800 ₽](README.ru.md#подписка) |
+| [Screenshots](README.en.md#screenshots) | [Скриншоты](README.ru.md#скриншоты) |
+| [Features in detail](README.en.md#features-in-detail) | [Подробно о функциях](README.ru.md#подробно-о-функциях) |
+| [Safety and privacy](README.en.md#safety-and-privacy) | [Безопасность и приватность](README.ru.md#безопасность-и-приватность) |
 | [Install and run](README.en.md#install-and-run) | [Установка и запуск](README.ru.md#установка-и-запуск) |
 | [Updates](README.en.md#updates) | [Обновление](README.ru.md#обновление) |
-| [Temperature sensors](README.en.md#temperature-sensors) | [Датчики температуры](README.ru.md#датчики-температуры) |
 | [Knowledge base](README.en.md#knowledge-base) | [База знаний](README.ru.md#база-знаний) |
+| [FAQ](README.en.md#faq) | [Вопросы и ответы](README.ru.md#вопросы-и-ответы) |
 
 </div>
+
+| | 🇬🇧 | 🇷🇺 |
+|---|---|---|
+| 🆓 | Live load, startup items and processes checked against an open knowledge base, cleanup, one-click optimization, hardware outlook, leaked passwords, one-click reinstall, slowdown history, rollback journal | Нагрузка в реальном времени, автозагрузка и процессы по открытой базе знаний, очистка, оптимизация в один клик, прогноз железа, пароли в утечках, переустановка одной кнопкой, история тормозов, журнал с откатом |
+| ⭐ | Freeze X-ray, game mode, PC twin, risk cost, hidden pests, moving to a new PC, comparison with similar PCs | Рентген фриза, игровой режим, двойник ПК, риски в рублях, тихие вредители, переезд на новый ПК, сравнение с похожими ПК |
