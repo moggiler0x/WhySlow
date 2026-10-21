@@ -81,6 +81,8 @@ def _bg_action(pid):
 def child():
     p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     time.sleep(0.2)
+    if sys.platform == "win32":  # раннер GitHub сам запускает всё с пониженным приоритетом
+        psutil.Process(p.pid).nice(psutil.NORMAL_PRIORITY_CLASS)
     yield p
     p.kill()
     p.wait()
