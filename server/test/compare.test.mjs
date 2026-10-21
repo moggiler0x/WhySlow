@@ -47,3 +47,15 @@ test("medians and program shares among fast peers", () => {
   assert.deepEqual(Object.keys(r.programs).sort(), ["steam", "updater_junk"]);
   assert.ok(MIN_PEERS >= 5);
 });
+
+test("router: /compare needs the database and a subscription, /compare/forget only the database", async () => {
+  const { default: worker } = await import("../src/index.js");
+  const post = (path, env, headers = {}) =>
+    worker.fetch(new Request(`https://x${path}`, { method: "POST", body: "{}", headers }), env);
+  const env = { PUBLIC_KEY: "00", PRIVATE_KEY: "00" };
+  assert.equal((await post("/compare", env)).status, 503);
+  assert.equal((await post("/compare/forget", env)).status, 503);
+  const db = { prepare: () => { throw new Error("must not touch the database"); } };
+  assert.equal((await post("/compare", { ...env, COMPARE_DB: db }, { Authorization: "Bearer WS1.bad.bad" })).status, 401);
+  assert.equal((await post("/compare/forget", { ...env, COMPARE_DB: db })).status, 400); // пустое тело — нет id
+});

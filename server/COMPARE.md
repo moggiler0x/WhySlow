@@ -4,38 +4,19 @@
 
 ## Подключение
 
-1. Создать базу D1 (один раз):
+Маршруты уже есть в `src/index.js`: `POST /compare` (только с подпиской) и `POST /compare/forget`
+(без подписки). Пока база не подключена, они отвечают 503. Один раз, из папки `server`:
 
-   ```
-   npx wrangler d1 create whyslow-compare
-   npx wrangler d1 execute whyslow-compare --remote --file=server/compare-schema.sql
-   ```
+```
+npx wrangler d1 create whyslow-compare
+```
 
-2. В `wrangler.toml` добавить привязку (id — из вывода первой команды):
+Скопируйте `database_id` из вывода в `wrangler.toml` вместо `REPLACE_WITH_D1_ID`, затем:
 
-   ```toml
-   [[d1_databases]]
-   binding = "COMPARE_DB"
-   database_name = "whyslow-compare"
-   database_id = "<id>"
-   ```
-
-3. В роутере `src/index.js` (обёртку с `requireLicense` для `/compare` добавляет модуль подписки):
-
-   ```js
-   import { handleCompare, handleCompareForget } from "./compare.js";
-   // ...
-   if (url.pathname === "/compare" && request.method === "POST") {
-     const a = await requireLicense(request, env);
-     if (!a.ok) return a.response;
-     return handleCompare(request, env, a.lic);
-   }
-   if (url.pathname === "/compare/forget" && request.method === "POST") {
-     return handleCompareForget(request, env); // удалить свои данные можно и без подписки
-   }
-   ```
-
-4. `npx wrangler deploy`.
+```
+npx wrangler d1 execute whyslow-compare --remote --file=compare-schema.sql
+npx wrangler deploy
+```
 
 ## Что хранится
 
