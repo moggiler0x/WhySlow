@@ -15,9 +15,23 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .i18n import tr
-from .twin import money, price
-from .util import IS_MAC, IS_WINDOWS, run
+from ..i18n import tr
+from .. import forecast
+from ..forecast import money, price
+from ..util import IS_MAC, IS_WINDOWS, run
+
+try:  # интерфейс вкладки; в текстовом режиме без Qt нужен только расчёт
+    from html import escape as _esc
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QBrush, QColor
+    from PySide6.QtWidgets import (
+        QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTableWidgetItem, QVBoxLayout, QWidget,
+    )
+
+    from ..gui import C, accent, make_table, muted, px, run_async
+except ImportError:
+    QWidget = object
 
 OK, WARN, BAD = "ok", "warn", "bad"
 SAVER_CYCLES = 20  # циклов зарядки в месяц у типичного ноутбука — если система не говорит, сколько их было
@@ -272,7 +286,7 @@ def assess(disks: list, ps, temps: dict, backup: bool | None, db: dict, mac: boo
 
 def collect(db: dict) -> Report:
     """Медленно (PowerShell, system_profiler) — звать в фоне."""
-    from . import diskhealth, power, sysinfo
+    from .. import diskhealth, power, sysinfo
     try:
         temps = sysinfo.temperatures(wait=True)
     except Exception:  # noqa: BLE001 — датчики не обязательны
@@ -306,3 +320,104 @@ def disclaimer() -> str:
               "для сервисов — диапазон по крупным городам.",
               "Chances come from failure statistics, not a prediction for this exact part. Prices are rough; "
               "service prices are a typical range for large cities.")
+
+
+# ------------------------------------------------------------- вкладка ---
+
+class HealthCostTab(QWidget):
+    """Здоровье в деньгах: что может сломаться и сколько стоит заняться этим сейчас или потом."""
+
+    def __init__(self, main):
+        super().__init__()
+        self.main = main
+        self.db = forecast.load()
+        self.rep: Report | None = None
+        self.started = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        title = QLabel(accent(tr("Здоровье ПК в деньгах", "PC health in money")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("Что в компьютере может сломаться, насколько это вероятно и сколько стоит заняться "
+                               "этим сейчас — против того, во сколько обойдётся, если ждать.",
+                               "What in the computer might break, how likely that is, and what it costs to deal "
+                               "with it now versus what it will cost if you wait.")))
+        self.head = QLabel(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
+        self.head.setObjectName("h2")
+        self.head.setWordWrap(True)
+        lay.addWidget(self.head)
+        self.table = make_table([tr("Что", "What"), tr("Состояние", "State"), tr("Риск за год", "Risk / year"),
+                                 tr("Сейчас", "Now"), tr("Если ждать", "If you wait")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2, 3, 4):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.table.itemSelectionChanged.connect(self.show_details)
+        lay.addWidget(self.table, 1)
+        box = QGroupBox(tr("Подробно", "Details"))
+        bl = QVBoxLayout(box)
+        self.details = QLabel()
+        self.details.setWordWrap(True)
+        self.details.setTextFormat(Qt.RichText)
+        bl.addWidget(self.details)
+        lay.addWidget(box)
+        self.notes = muted()
+        lay.addWidget(self.notes)
+        row = QHBoxLayout()
+        self.b_redo = QPushButton(tr("Проверить заново", "Check again"))
+        self.b_redo.clicked.connect(self.check)
+        row.addWidget(self.b_redo)
+        row.addStretch()
+        lay.addLayout(row)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self.started:
+            self.started = True
+            self.check()
+
+    def check(self):
+        self.b_redo.setEnabled(False)
+        self.head.setText(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
+        run_async(lambda _p: collect(self.db), self._done,
+                  lambda e: (self.b_redo.setEnabled(True), self.head.setText(e)))
+
+    def _done(self, rep: Report):
+        self.b_redo.setEnabled(True)
+        self.rep = rep
+        self.head.setText(headline(rep))
+        colors = {OK: C["ok"], WARN: C["warn"], BAD: C["bad"]}
+        self.table.setRowCount(len(rep.risks))
+        for r, risk in enumerate(rep.risks):
+            cells = [risk.title, risk.state, chance_text(risk.chance), money(*risk.now),
+                     money(*risk.later)]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 1:
+                    it.setForeground(QBrush(QColor(colors.get(risk.level, C["muted"]))))
+                self.table.setItem(r, c, it)
+        self.notes.setText("<br>".join(_esc(n) for n in rep.notes + [disclaimer()]))
+        self.notes.setTextFormat(Qt.RichText)
+        if rep.risks:
+            self.table.selectRow(0)
+        else:
+            self.details.setText("")
+
+    def show_details(self):
+        r = self.table.currentRow()
+        if not self.rep or not (0 <= r < len(self.rep.risks)):
+            return
+        k = self.rep.risks[r]
+        lines = [f"<b>{_esc(k.title)}</b>: {_esc(k.state)}",
+                 _esc(tr(f"Когда ждать: {k.when}.", f"When to expect it: {k.when}.")),
+                 _esc(tr(f"Сейчас: {k.now_what} — {money(*k.now)}.", f"Now: {k.now_what} — {money(*k.now)}.")),
+                 _esc(tr(f"Если случится: {k.later_what} — {money(*k.later)}.",
+                         f"If it happens: {k.later_what} — {money(*k.later)}."))]
+        if k.advice:
+            lines.append(f"<b>{_esc(k.advice)}</b>")
+        self.details.setText("".join(f"<p>{x}</p>" for x in lines))
+
+
+def build(main) -> QWidget:
+    return HealthCostTab(main)

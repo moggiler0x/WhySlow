@@ -2,7 +2,9 @@ import json
 
 import pytest
 
-from whyslow import forecast, healthcost, i18n, twin
+from whyslow import forecast, i18n
+from whyslow.premium import health_money as healthcost
+from whyslow.premium import twin
 from whyslow.diskhealth import PhysicalDisk
 from whyslow.power import PowerState
 
@@ -107,10 +109,10 @@ def test_hdd_limit_is_explained():
 
 
 def test_money_format():
-    assert twin.money(15000, 50000) == "15 000–50 000 ₽"
-    assert twin.money(0, 0) == "0 ₽"
+    assert forecast.money(15000, 50000) == "15 000–50 000 ₽"
+    assert forecast.money(0, 0) == "0 ₽"
     i18n.set_lang("en", save=False)
-    assert twin.money(300, 1500) == "$300–1,500"
+    assert forecast.money(300, 1500) == "$300–1,500"
 
 
 # ------------------------------------------------------- здоровье в деньгах ---

@@ -481,8 +481,8 @@ whyslow/
   watch.py       recording slowdowns in the background, starting with the system
   sysinfo.py     hardware info, integrated GPU load
   forecast.py    outlook: how long the hardware will last and what to upgrade
-  twin.py        PC twin: what an upgrade would do, on real data
-  healthcost.py  health in money: failure risk and the cost of now versus later
+  premium/twin.py          PC twin (subscription, encrypted in releases)
+  premium/health_money.py  health in money (subscription, encrypted in releases)
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
   passwords.py   breach check for passwords, new passwords, import file

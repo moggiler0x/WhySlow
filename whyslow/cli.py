@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, forecast, healthcost, knowledge, macapps, macstorage, online, optimize, passwords, settings, twin, updater
+from . import checks, forecast, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -178,22 +178,26 @@ def outlook() -> int:
     return 0
 
 
-def _premium(feature: str) -> bool:
-    """Платные функции открываются ключом подписки (license.py); без него — закрыты."""
+def _premium(feature: str):
+    """Модуль платной функции (whyslow/premium/<feature>.py, в релизе зашифрован).
+    Открывается только ключом подписки; без него — None."""
     try:
-        from .license import has_premium
-    except ImportError:
-        has_premium = None
-    if has_premium and has_premium(feature):
-        return True
-    print(tr("Эта функция доступна по подписке. Ключ вводится в окне программы.",
-             "This feature is available with a subscription. Enter the key in the app window."))
-    return False
+        from . import license, premium
+        if license.has_premium(feature):
+            return premium.load(feature)
+    except ImportError:  # сборка без подписки
+        pass
+    except Exception as e:  # noqa: BLE001 — premium.PremiumLocked и битый модуль
+        print(e)
+    print(tr("Эта функция доступна по подписке: python3 -m whyslow --license КЛЮЧ",
+             "This feature is available with a subscription: python3 -m whyslow --license KEY"))
+    return None
 
 
 def pc_twin() -> int:
     """python -m whyslow --twin: что дал бы апгрейд на реальных данных этого компьютера."""
-    if not _premium("twin"):
+    twin = _premium("twin")
+    if twin is None:
         return 3
     db, msg = forecast.update(timeout=4)
     print(msg)
@@ -218,7 +222,8 @@ def pc_twin() -> int:
 
 def risk_cost() -> int:
     """python -m whyslow --risks: здоровье компьютера в деньгах."""
-    if not _premium("health_money"):
+    healthcost = _premium("health_money")
+    if healthcost is None:
         return 3
     db, _msg = forecast.update(timeout=4)
     print(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
@@ -228,9 +233,9 @@ def risk_cost() -> int:
         print(f"\n{r.title}: {r.state}")
         print(tr(f"  Риск за год: {healthcost.chance_text(r.chance)} — {r.when}",
                  f"  Risk per year: {healthcost.chance_text(r.chance)} — {r.when}"))
-        print(tr(f"  Сейчас: {r.now_what} — {twin.money(*r.now)}", f"  Now: {r.now_what} — {twin.money(*r.now)}"))
-        print(tr(f"  Если случится: {r.later_what} — {twin.money(*r.later)}",
-                 f"  If it happens: {r.later_what} — {twin.money(*r.later)}"))
+        print(tr(f"  Сейчас: {r.now_what} — {healthcost.money(*r.now)}", f"  Now: {r.now_what} — {healthcost.money(*r.now)}"))
+        print(tr(f"  Если случится: {r.later_what} — {healthcost.money(*r.later)}",
+                 f"  If it happens: {r.later_what} — {healthcost.money(*r.later)}"))
         if r.advice:
             print("  → " + r.advice)
     for line in rep.notes + [healthcost.disclaimer()]:

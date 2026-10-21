@@ -18,9 +18,25 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import forecast
-from .i18n import lang, pick, tr
-from .util import human_size
+from .. import forecast
+from ..forecast import money, price
+from ..i18n import lang, pick, tr
+from ..util import human_size
+
+try:  # интерфейс вкладки; в текстовом режиме без Qt нужен только расчёт
+    from html import escape as _esc
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QBrush, QColor
+    from PySide6.QtWidgets import (
+        QComboBox, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QScrollArea, QSpinBox, QTableWidgetItem,
+        QVBoxLayout, QWidget,
+    )
+
+    from .. import settings
+    from ..gui import C, accent, make_table, muted, px, run_async
+except ImportError:
+    QWidget = object
 
 REF_EFF = {"gpu": 2020.5, "cpu": 2019.5}   # «год с поправкой» эталонных RTX 3060 и Ryzen 5 3600
 DOUBLE = {"gpu": 3.5, "cpu": 6.0}           # за сколько лет скорость в играх удваивается
@@ -86,8 +102,8 @@ def usage() -> Usage:
     """Медленно (обход процессов) — звать в фоне."""
     import psutil
 
-    from . import sysinfo, watch
-    from .processes import ProcessMonitor
+    from .. import sysinfo, watch
+    from ..processes import ProcessMonitor
     used, total, _ = sysinfo.memory()
     try:
         swap = psutil.swap_memory().used
@@ -113,22 +129,6 @@ def usage() -> Usage:
 
 
 # ------------------------------------------------------------ апгрейды ---
-
-def price(entry: dict) -> tuple[int, int]:
-    """Цена в валюте интерфейса: рубли для русского, доллары для английского."""
-    p = entry.get("price", entry) if isinstance(entry, dict) else {}
-    lo, hi = (p.get("usd") if lang() == "en" else p.get("rub")) or (0, 0)
-    return int(lo), int(hi)
-
-
-def money(lo: float, hi: float | None = None) -> str:
-    def one(x: float) -> str:
-        x = int(round(x, -2)) if x >= 1000 else int(round(x))
-        return f"${x:,}" if lang() == "en" else f"{x:,}".replace(",", " ")
-    hi = lo if hi is None else hi
-    text = one(lo) if round(lo) == round(hi) else (f"{one(lo)}–{one(hi).lstrip('$')}")
-    return text if lang() == "en" else text + " ₽"
-
 
 def apply(hw: dict, up: dict) -> dict:
     """Двойник: то же железо, но с новой деталью."""
@@ -363,3 +363,221 @@ def disclaimer() -> str:
               "Frame rates and years are estimates from typical 1080p high-settings benchmarks, not a measurement. "
               "If you enter the FPS you actually see, the estimate adjusts to your settings. "
               "Prices are approximate; check the store.")
+
+
+# ------------------------------------------------------------- вкладка ---
+
+class TwinTab(QWidget):
+    """Двойник ПК: что дал бы апгрейд на реальных данных этого компьютера."""
+
+    def __init__(self, main):
+        super().__init__()
+        self.main = main
+        self.db = forecast.load()
+        self.hw: dict | None = None
+        self.use: Usage | None = None
+        self.sims: list[Simulation] = []
+        self.started = False
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+
+        title = QLabel(accent(tr("Двойник вашего ПК", "Your PC's twin")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("Прежде чем покупать детали, посмотрите, что они дадут именно вашему компьютеру: "
+                               "WhySlow берёт ваше железо, занятую память и историю тормозов и подставляет к ним "
+                               "новую деталь.",
+                               "Before buying parts, see what they would do for this exact computer: WhySlow takes "
+                               "your hardware, memory use and slowdown history and swaps in the new part.")))
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("Чем вы чаще всего заняты:", "What you mostly do:")))
+        self.profile = QComboBox()
+        self.profile.currentIndexChanged.connect(self.on_profile)
+        row.addWidget(self.profile, 1)
+        lay.addLayout(row)
+        self.head = QLabel(tr("Определяю железо…", "Detecting hardware…"))
+        self.head.setObjectName("h2")
+        self.head.setWordWrap(True)
+        lay.addWidget(self.head)
+        self.hw_label = muted()
+        lay.addWidget(self.hw_label)
+
+        self.table = make_table([tr("Апгрейд", "Upgrade"), tr("Цена", "Price"), tr("Хватит лет", "Years"),
+                                 tr("Главное", "Main effect")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setMinimumHeight(px(200))
+        self.table.itemSelectionChanged.connect(self.show_details)
+        lay.addWidget(self.table)
+
+        box = QGroupBox(tr("Что изменится", "What changes"))
+        bl = QVBoxLayout(box)
+        self.details = QLabel()
+        self.details.setWordWrap(True)
+        self.details.setTextFormat(Qt.RichText)
+        bl.addWidget(self.details)
+        self.games = make_table([tr("Игра", "Game"), tr("Сейчас", "Now"), tr("С апгрейдом", "Upgraded"),
+                                 tr("Держит кадры", "Limited by")])
+        gh = self.games.horizontalHeader()
+        gh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2, 3):
+            gh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.games.setMinimumHeight(px(170))
+        bl.addWidget(self.games)
+        crow = QHBoxLayout()
+        crow.addWidget(QLabel(tr("Я сам вижу в", "I actually get in")))
+        self.game_box = QComboBox()
+        crow.addWidget(self.game_box, 1)
+        self.fps = QSpinBox()
+        self.fps.setRange(0, 999)
+        self.fps.setSuffix(" FPS")
+        self.fps.setSpecialValueText(tr("не знаю", "don't know"))
+        crow.addWidget(self.fps)
+        b_fps = QPushButton(tr("Учесть", "Use it"))
+        b_fps.clicked.connect(self.save_fps)
+        crow.addWidget(b_fps)
+        bl.addLayout(crow)
+        self.game_box.currentIndexChanged.connect(self.show_measured)
+        lay.addWidget(box)
+        self.notes = muted()
+        lay.addWidget(self.notes)
+        lay.addStretch()
+        brow = QHBoxLayout()
+        self.b_redo = QPushButton(tr("Пересчитать по текущей нагрузке", "Recalculate from the current load"))
+        self.b_redo.clicked.connect(self.detect)
+        brow.addWidget(self.b_redo)
+        brow.addStretch()
+        lay.addLayout(brow)
+        self.fill_profiles()
+
+    def fill_profiles(self):
+        saved = settings.get("forecast_profile")
+        self.profile.blockSignals(True)
+        self.profile.clear()
+        for w in self.db.get("workloads", []):
+            self.profile.addItem(pick(w, "title"), w.get("id"))
+        self.profile.setCurrentIndex(max(self.profile.findData(saved), 0))
+        self.profile.blockSignals(False)
+        self.game_box.blockSignals(True)
+        self.game_box.clear()
+        for g in self.db.get("games", []):
+            self.game_box.addItem(pick(g, "title"), g.get("id"))
+        self.game_box.blockSignals(False)
+        self.show_measured()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self.started:
+            self.started = True
+            self.detect()
+
+    def detect(self):
+        self.b_redo.setEnabled(False)
+        self.head.setText(tr("Определяю железо и нагрузку…", "Detecting hardware and load…"))
+        run_async(lambda _p: (self.hw or forecast.hardware(), usage()), self._got, self._failed)
+
+    def _failed(self, msg: str):
+        self.b_redo.setEnabled(True)
+        self.head.setText(tr("Не удалось определить железо: ", "Couldn't detect the hardware: ") + msg)
+
+    def _got(self, result):
+        self.b_redo.setEnabled(True)
+        self.hw, self.use = result
+        self.recalc()
+
+    def wid(self) -> str:
+        return self.profile.currentData() or "everyday"
+
+    def on_profile(self):
+        settings.set("forecast_profile", self.wid())
+        self.recalc()
+
+    def measured(self) -> dict:
+        saved = settings.get("twin_fps")
+        return saved if isinstance(saved, dict) else {}
+
+    def show_measured(self):
+        self.fps.setValue(int(self.measured().get(self.game_box.currentData() or "", 0)))
+
+    def save_fps(self):
+        m = dict(self.measured())
+        gid = self.game_box.currentData()
+        if not gid:
+            return
+        if self.fps.value():
+            m[gid] = self.fps.value()
+        else:
+            m.pop(gid, None)
+        settings.set("twin_fps", m)
+        self.recalc()
+
+    def recalc(self):
+        if not self.hw or not self.db.get("workloads"):
+            return
+        keep = self.table.currentRow()
+        base, self.sims = simulate_all(self.hw, self.db, self.use, self.wid(), self.measured())
+        self.base = base
+        self.hw_label.setText(forecast.summary(base.fc))
+        top = best(self.sims)
+        if not self.sims:
+            self.head.setText(no_options_text(self.hw))
+        elif top:
+            self.head.setText(tr(f"Лучшее вложение для вашей задачи: {top.title} ({money(*top.price)}).",
+                                 f"Best value for your task: {top.title} ({money(*top.price)})."))
+        else:
+            self.head.setText(tr("Для выбранной задачи ни один апгрейд почти ничего не даст: железа хватает.",
+                                 "For the chosen task no upgrade would make much difference: the hardware is enough."))
+        self.table.setRowCount(len(self.sims))
+        wid = self.wid()
+        for r, s in enumerate(self.sims):
+            before, after = s.get_years(wid)
+            years = f"{forecast.span(before) if before >= 0.5 else '0'} → {forecast.span(after)}"
+            cells = [("★ " if s is top else "") + s.title, money(*s.price), years,
+                     s.effects[0] if s.effects else "—"]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 2 and after > before + 0.4:
+                    it.setForeground(QBrush(QColor(C["ok"])))
+                self.table.setItem(r, c, it)
+        self.notes.setText(disclaimer() + (tr(f" Цены от {self.db['updated']}.", f" Prices as of {self.db['updated']}.")
+                                                if self.db.get("updated") else ""))
+        if self.sims:
+            self.table.selectRow(min(max(keep, 0), len(self.sims) - 1) if keep >= 0 else
+                                 self.sims.index(top) if top else 0)
+        else:
+            self.details.setText("")
+            self.games.setRowCount(0)
+
+    def show_details(self):
+        r = self.table.currentRow()
+        if not (0 <= r < len(self.sims)):
+            return
+        s = self.sims[r]
+        self.details.setText(f"<b>{_esc(s.title)}</b> — {_esc(money(*s.price))}"
+                             + "".join(f"<p>• {_esc(e)}</p>" for e in s.effects))
+        limits = {"gpu": tr("видеокарта", "graphics"), "cpu": tr("процессор", "CPU"),
+                  "vram": tr("видеопамять", "video memory")}
+        self.games.setRowCount(len(s.games))
+        for i, g in enumerate(s.games):
+            cells = [g.title, f"~{g.now:.0f}", f"~{g.after:.0f}", limits.get(g.limit_after, g.limit_after)]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 2 and g.after > g.now * 1.08:
+                    it.setForeground(QBrush(QColor(C["ok"])))
+                self.games.setItem(i, c, it)
+
+
+def build(main) -> QWidget:
+    return TwinTab(main)
