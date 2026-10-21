@@ -1,5 +1,5 @@
 {
- "version": 4,
+ "version": 5,
  "updated": "2026-10-21",
  "entries": [
   {
@@ -20,6 +20,35 @@
    ],
    "note": "Майнит криптовалюту на вашем железе — отсюда 100% загрузки CPU/GPU. Удалите и проверьте систему антивирусом.",
    "note_en": "Mines cryptocurrency on your hardware — hence 100% CPU/GPU load. Remove it and scan the system with an antivirus."
+  },
+  {
+   "id": "ext_hola",
+   "title": "Hola VPN",
+   "title_en": "Hola VPN",
+   "category": "Нежелательное ПО",
+   "category_en": "Unwanted software",
+   "verdict": "bad",
+   "match": [
+    "\\bhola\\b"
+   ],
+   "note": "Бесплатный VPN Hola расплачивается вашим интернетом: через компьютер ходит чужой трафик (сеть Bright Data, бывшая Luminati). Удалите и расширение, и программу.",
+   "note_en": "The free Hola VPN is paid for with your connection: other people's traffic goes through your computer (the Bright Data network, formerly Luminati). Remove both the extension and the app."
+  },
+  {
+   "id": "search_hijack",
+   "title": "Подмена поиска",
+   "title_en": "Search hijacker",
+   "category": "Нежелательное ПО",
+   "category_en": "Unwanted software",
+   "verdict": "bad",
+   "match": [
+    "search\\s*(manager|protect|baron|marquis|encrypt)",
+    "\\bmysearch\\b",
+    "safe\\s*finder",
+    "\\bsearch\\s*(helper|assistant)\\b"
+   ],
+   "note": "Меняет поисковик и стартовую страницу, подсовывает рекламу и следит за запросами. Ставится «в нагрузку» к бесплатным программам. Удалите.",
+   "note_en": "Changes the search engine and home page, injects ads and tracks searches. Comes bundled with free programs. Remove it."
   },
   {
    "id": "mailru",

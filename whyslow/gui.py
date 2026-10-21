@@ -26,11 +26,12 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, bigfiles, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize,
-    passwords, reinstall, settings, startup, sysinfo, updater, watch,
+    __version__, bigfiles, checks, forecast, gamerestore, journal, junk, knowledge, license, lhm, macapps, macstorage, network,
+    online, optimize, passwords, premium, reinstall, restore, settings, startup, sysinfo, updater, watch,
 )
 from .license_ui import PremiumButton, PremiumGate
 from .i18n import LANGS, lang, set_lang, tr
+from .i18n import pick as i18n_pick  # pick — поле записи базы на текущем языке
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
 
@@ -120,6 +121,7 @@ QGroupBox::title {{ subcontrol-origin: margin; left: 14px; padding: 0 6px; color
                     font-weight: 600; font-size: {pt(10.5)}; }}
 QLabel#muted {{ color: {C['muted']}; }}
 QLabel#h1 {{ font-size: {pt(19)}; font-weight: 300; }}
+QLabel#h2 {{ font-size: {pt(14)}; font-weight: 500; }}
 QLabel#hero {{ font-size: {pt(25)}; font-weight: 300; color: white; }}
 QLabel#heroSub {{ color: rgba(255, 255, 255, 180); font-weight: 300; }}
 QLabel#badge {{ background: rgba(255, 255, 255, 13); border: 1px solid rgba(255, 255, 255, 24);
@@ -689,7 +691,7 @@ class Sampler(QThread):
                     "disk_r": max(disk1[0] - disk0[0], 0) / dt, "disk_w": max(disk1[1] - disk0[1], 0) / dt,
                     "net_rx": max(net1[0] - net0[0], 0) / dt, "net_tx": max(net1[1] - net0[1], 0) / dt,
                     "uptime": sysinfo.uptime(), "temps": temps, "disks": disks,
-                    "gpu": gpu, "gpu_ready": tick >= 4,
+                    "gpu": gpu, "gpu_ready": tick >= 4, "dt": dt,
                 })
                 disk0, net0 = disk1, net1
                 if tick % 2 == 1:
@@ -3574,6 +3576,176 @@ class HistoryTab(QWidget):
             self.detail.setText("")
 
 
+class ForecastTab(QWidget):
+    """Сколько ещё лет железо будет тянуть программы и что обновлять первым."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.db = forecast.load()
+        self.hw: dict | None = None
+        self.fc: forecast.Forecast | None = None
+        self.started = False
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+
+        title = QLabel(accent(tr("Надолго ли хватит железа", "How long will the hardware last")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("WhySlow сравнивает процессор, видеокарту, память и диск с тем, что сейчас требуют "
+                               "системы, браузеры, игры и рабочие программы, и с тем, как быстро эти требования растут.",
+                               "WhySlow compares the CPU, graphics, memory and disk with what operating systems, "
+                               "browsers, games and work apps require today, and how fast those requirements grow.")))
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("Чем вы чаще всего заняты:", "What you mostly do:")))
+        self.profile = QComboBox()
+        self.profile.currentIndexChanged.connect(self.on_profile)
+        row.addWidget(self.profile, 1)
+        lay.addLayout(row)
+        self.head = QLabel(tr("Определяю железо…", "Detecting hardware…"))
+        self.head.setObjectName("h2")
+        self.head.setWordWrap(True)
+        lay.addWidget(self.head)
+        self.hw_label = muted()
+        self.hw_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(self.hw_label)
+
+        self.table = make_table([tr("Задача", "Task"), tr("Хватит", "Will last"), tr("Примерно", "Roughly"),
+                                 tr("Первым упрётся", "Runs out first")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2, 3):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.table.setMinimumHeight(px(200))
+        self.table.itemSelectionChanged.connect(self.on_select)
+        lay.addWidget(self.table)
+
+        box = QGroupBox(tr("Что и когда обновлять", "What to upgrade and when"))
+        bl = QVBoxLayout(box)
+        self.plan = QLabel()
+        self.plan.setWordWrap(True)
+        self.plan.setTextFormat(Qt.RichText)
+        bl.addWidget(self.plan)
+        lay.addWidget(box)
+        self.os_label = muted()
+        lay.addWidget(self.os_label)
+        self.notes = muted()
+        self.notes.setTextFormat(Qt.RichText)
+        lay.addWidget(self.notes)
+        lay.addStretch()
+
+        brow = QHBoxLayout()
+        self.b_update = QPushButton(tr("Обновить требования из интернета", "Update requirements from the internet"))
+        self.b_update.clicked.connect(self.refresh_db)
+        brow.addWidget(self.b_update)
+        self.b_redo = QPushButton(tr("Определить железо заново", "Detect hardware again"))
+        self.b_redo.clicked.connect(self.detect)
+        brow.addWidget(self.b_redo)
+        brow.addStretch()
+        lay.addLayout(brow)
+        self.fill_profiles()
+
+    def fill_profiles(self):
+        saved = settings.get("forecast_profile")
+        self.profile.blockSignals(True)
+        self.profile.clear()
+        for w in self.db.get("workloads", []):
+            self.profile.addItem(i18n_pick(w, "title"), w.get("id"))
+        self.profile.setCurrentIndex(max(self.profile.findData(saved), 0))
+        self.profile.blockSignals(False)
+
+    def activate(self):
+        if self.started:
+            return
+        self.started = True
+        self.detect()
+        # Требования меняются раз в несколько месяцев: свежие тянем тихо, при первом открытии
+        run_async(lambda _p: forecast.update(), self._db_updated, lambda _e: None)
+
+    def detect(self):
+        self.b_redo.setEnabled(False)
+        self.head.setText(tr("Определяю железо…", "Detecting hardware…"))
+        run_async(lambda _p: forecast.hardware(), self._got_hw, self._failed)
+
+    def _failed(self, msg: str):
+        self.b_redo.setEnabled(True)
+        self.head.setText(tr("Не удалось определить железо: ", "Couldn't detect the hardware: ") + msg)
+
+    def _got_hw(self, hw: dict):
+        self.b_redo.setEnabled(True)
+        self.hw = hw
+        self.recalc()
+
+    def refresh_db(self):
+        self.b_update.setEnabled(False)
+        run_async(lambda _p: forecast.update(), lambda r: (self._db_updated(r), self.main.status(r[1])),
+                  lambda e: (self.b_update.setEnabled(True), _show_error(e)))
+
+    def _db_updated(self, result):
+        self.b_update.setEnabled(True)
+        db, _msg = result
+        if db is not self.db and db.get("version") != self.db.get("version"):
+            self.db = db
+            self.fill_profiles()
+            self.recalc()
+
+    def wid(self) -> str:
+        return self.profile.currentData() or "everyday"
+
+    def on_profile(self):
+        settings.set("forecast_profile", self.wid())
+        self.show_plan()
+
+    def recalc(self):
+        if not self.hw or not self.db.get("workloads"):
+            return
+        self.fc = fc = forecast.estimate(self.hw, self.db)
+        self.hw_label.setText(forecast.summary(fc))
+        self.table.setRowCount(len(fc.workloads))
+        for r, w in enumerate(fc.workloads):
+            color = C["bad"] if w.years < 0.5 else C["warn"] if w.years < 2.5 else C["ok"]
+            cells = [w.title, forecast.years_text(w.years), forecast.until_text(fc.now, w.years),
+                     forecast.kind_label(w.by) if w.years < forecast.MAX_YEARS else "—"]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 1:
+                    it.setForeground(QBrush(QColor(color)))
+                self.table.setItem(r, c, it)
+        self.os_label.setText(fc.os_text)
+        notes = [_esc(n) for n in fc.notes + fc.market] + [_esc(forecast.disclaimer())]
+        if self.db.get("updated"):
+            notes.append(_esc(tr(f"Требования от {self.db['updated']}.", f"Requirements as of {self.db['updated']}.")))
+        self.notes.setText("<br>".join(notes))
+        self.show_plan()
+
+    def on_select(self):
+        rows = self.table.selectionModel().selectedRows()
+        if self.fc and rows and rows[0].row() < len(self.fc.workloads):
+            self.profile.setCurrentIndex(max(self.profile.findData(self.fc.workloads[rows[0].row()].id), 0))
+
+    def show_plan(self):
+        if not self.fc:
+            return
+        wid = self.wid()
+        self.head.setText(forecast.headline(self.fc, wid))
+        items = forecast.advice(self.fc, wid, self.db)
+        if items:
+            self.plan.setText("".join(f"<p>• {_esc(a.text)}</p>" for a in items))
+        else:
+            w = self.fc.get(wid)
+            self.plan.setText(_esc(tr(f"Ближайшие {forecast.span(min(w.years, 4))} ничего обновлять не нужно.",
+                                      f"Nothing needs upgrading for the next {forecast.span(min(w.years, 4))}.")))
+
+
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -3639,6 +3811,8 @@ class JournalTab(QWidget):
                 macstorage.undo(e)
             elif e["kind"] == "move_settings":
                 reinstall.undo_moves(e)
+            elif e["kind"].startswith("pest_"):
+                restore.undo(e)
         except Exception as ex:
             QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
             return
@@ -3827,23 +4001,37 @@ class MainWindow(QMainWindow):
         self.optimize_tab = OptimizeTab(self)
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
+        self.forecast_tab = ForecastTab(self)
         self.move_tab = PremiumGate("migrate", main=self)  # код вкладки — в whyslow/premium
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
+        # Платные вкладки: код в whyslow/premium/<функция>.py (в релизе зашифрован), сюда — только через замок
+        self._tray_target = "history"
+        self.compare_tab = PremiumGate("compare", main=self)
+        self.xray_page = PremiumGate("xray", main=self)
+        self.games_page = PremiumGate("gamemode", main=self)
+        self.twin_tab = PremiumGate("twin", main=self)
+        self.health_tab = PremiumGate("health_money", main=self)
+        self.pests_tab = PremiumGate("pests", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
-                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "move": self.move_tab,
-                         "journal": self.journal_tab,
-                         "history": self.history_tab}
+                         "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
+                         "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab,
+                         "xray": self.xray_page, "games": self.games_page,
+                         "twin": self.twin_tab, "health_money": self.health_tab, "pests": self.pests_tab,
+                         "move": self.move_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
-                 (self.system_tab, tr("Система", "System")),
+                 (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
+                 (self.twin_tab, tr("Двойник", "Twin")), (self.health_tab, tr("Риски в ₽", "Risk cost")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
-                 (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
-                 (self.move_tab, tr("Переезд", "Move")),
+                 (self.pests_tab, tr("Вредители", "Pests")), (self.passwords_tab, tr("Пароли", "Passwords")),
+                 (self.reinstall_tab, tr("Переустановка", "Reinstall")), (self.move_tab, tr("Переезд", "Move")),
+                 (self.compare_tab, tr("Сравнение", "Compare")),
+                 (self.xray_page, tr("Рентген", "X-ray")), (self.games_page, tr("Игры", "Games")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
-            pages.insert(6, (self.storage_tab, tr("Хранилище", "Storage")))
+            pages.insert(9, (self.storage_tab, tr("Хранилище", "Storage")))
         for w, title in pages:
             self.tabs.addTab(w, title)
             self.nav.addTab(title)
@@ -3878,10 +4066,17 @@ class MainWindow(QMainWindow):
         self.sampler.procs.connect(self.on_procs)
         self.sampler.start()
         QApplication.instance().aboutToQuit.connect(self._stop_sampler)
+        # Игровой режим мог не успеть вернуть приоритеты и питание (падение, выключение) —
+        # возвращаем всегда, даже если подписка уже закончилась
+        run_async(lambda _p: gamerestore.recover(), self._game_recovered, lambda _e: None)
         QTimer.singleShot(200, self.update_db)
         if "--tray" not in sys.argv:  # при запуске вместе с системой не грузим её проверкой
             QTimer.singleShot(400, self.scan)
         QTimer.singleShot(1500, self.check_updates)
+        # Ночной журнал сети для «Тихих вредителей»: замер раз в несколько минут, в фоне, только по подписке
+        self.pests_timer = QTimer(self)
+        self.pests_timer.timeout.connect(self.record_net)
+        self.pests_timer.start(5 * 60 * 1000)
         if IS_MAC:  # автоочистка по расписанию: проверяем при запуске и раз в час
             QTimer.singleShot(30000, self.autoclean_if_due)
             self.auto_timer = QTimer(self)
@@ -3917,6 +4112,7 @@ class MainWindow(QMainWindow):
             return
         self.history_tab.reload()
         if self.tray and not self.isVisible():
+            self._tray_target = "history"
             self.tray.showMessage(tr("Компьютер тормозил", "The computer was slow"),
                                   ep.headline(), QSystemTrayIcon.Warning, 8000)
 
@@ -3934,7 +4130,7 @@ class MainWindow(QMainWindow):
         self._tray_menu = menu
         tray.activated.connect(lambda reason: reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick)
                                and not IS_MAC and self.show_window())
-        tray.messageClicked.connect(lambda: (self.show_window(), self.go("history")))
+        tray.messageClicked.connect(lambda: (self.show_window(), self.go(self._tray_target)))
         tray.show()
         return tray
 
@@ -3969,6 +4165,16 @@ class MainWindow(QMainWindow):
     def _stop_sampler(self):
         self.sampler.stop()
         self.sampler.wait(3000)
+
+    def _game_recovered(self, game: str | None):
+        if game:
+            self.status(tr(f"Вернул приоритеты и питание после прошлой игры ({game})",
+                           f"Restored priorities and power after the last game ({game})"))
+
+    def notify(self, title: str, text: str, target: str):
+        if self.tray:
+            self._tray_target = target
+            self.tray.showMessage(title, text, QSystemTrayIcon.Information, 8000)
 
     def status(self, text: str):
         self.statusBar().showMessage(text, 8000)
@@ -4054,6 +4260,10 @@ class MainWindow(QMainWindow):
             set_lang(code)
             self.restart()
 
+    def record_net(self):
+        if license.has_premium("pests"):
+            run_async(lambda _p: premium.load("pests").record(), lambda _r: None, lambda _e: None)
+
     def go(self, key: str):
         self.tabs.setCurrentWidget(self.tab_keys[key])
 
@@ -4069,6 +4279,10 @@ class MainWindow(QMainWindow):
             self.reinstall_tab.activate()
         elif cur is self.history_tab:
             self.history_tab.activate()
+        elif cur is self.forecast_tab:
+            self.forecast_tab.activate()
+        elif cur is self.pests_tab and hasattr(self.pests_tab.content, "activate"):
+            self.pests_tab.content.activate()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():

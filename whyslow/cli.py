@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
+from . import checks, forecast, knowledge, macapps, macstorage, online, optimize, passwords, premium, settings, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -154,6 +154,127 @@ def check_passwords(path: str) -> int:
         print(f"  {e.leaks:>10}  {e.site}  {e.username}")
     print(tr("\nНовые пароли и файл для импорта в менеджер — в окне, вкладка «Пароли».",
              "\nNew passwords and a file to import into the manager are in the window, Passwords tab."))
+    return 0
+
+
+def outlook() -> int:
+    """python -m whyslow --forecast: надолго ли хватит железа и что обновлять первым."""
+    db, msg = forecast.update(timeout=4)
+    print(msg)
+    print(tr("Определяю железо…", "Detecting hardware…"))
+    fc = forecast.estimate(forecast.hardware(), db)
+    wid = settings.get("forecast_profile")
+    print("\n" + forecast.summary(fc) + "\n")
+    for w in fc.workloads:
+        by = forecast.kind_label(w.by) if w.years < forecast.MAX_YEARS else ""
+        print(f"  {forecast.years_text(w.years):<18} {forecast.until_text(fc.now, w.years):<10} {w.title}"
+              + (f"  ({by})" if by else ""))
+    print("\n" + forecast.headline(fc, wid))
+    for a in forecast.advice(fc, wid, db):
+        print("  • " + a.text)
+    for line in [fc.os_text] + fc.notes + fc.market + [forecast.disclaimer()]:
+        if line:
+            print("\n" + line)
+    return 0
+
+
+def _premium(feature: str):
+    """Модуль платной функции (whyslow/premium/<feature>.py, в релизе зашифрован).
+    Открывается только ключом подписки; без него — None."""
+    try:
+        from . import license, premium
+        if license.has_premium(feature):
+            return premium.load(feature)
+    except ImportError:  # сборка без подписки
+        pass
+    except Exception as e:  # noqa: BLE001 — premium.PremiumLocked и битый модуль
+        print(e)
+    print(tr("Эта функция доступна по подписке: python3 -m whyslow --license КЛЮЧ",
+             "This feature is available with a subscription: python3 -m whyslow --license KEY"))
+    return None
+
+
+def pc_twin() -> int:
+    """python -m whyslow --twin: что дал бы апгрейд на реальных данных этого компьютера."""
+    twin = _premium("twin")
+    if twin is None:
+        return 3
+    db, msg = forecast.update(timeout=4)
+    print(msg)
+    print(tr("Определяю железо и нагрузку…", "Detecting hardware and load…"))
+    hw, use = forecast.hardware(), twin.usage()
+    wid = settings.get("forecast_profile")
+    fps = settings.get("twin_fps")
+    base, sims = twin.simulate_all(hw, db, use, wid, fps if isinstance(fps, dict) else {})
+    print("\n" + forecast.summary(base.fc))
+    if not sims:
+        print("\n" + twin.no_options_text(hw))
+        return 0
+    best = twin.best(sims)
+    for s in sims:
+        mark = tr("  ← лучшее вложение", "  ← best value") if s is best else ""
+        print(f"\n{s.title} — {twin.money(*s.price)}{mark}")
+        for e in s.effects:
+            print("  • " + e)
+    print("\n" + twin.disclaimer())
+    return 0
+
+
+def risk_cost() -> int:
+    """python -m whyslow --risks: здоровье компьютера в деньгах."""
+    healthcost = _premium("health_money")
+    if healthcost is None:
+        return 3
+    db, _msg = forecast.update(timeout=4)
+    print(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
+    rep = healthcost.collect(db)
+    print("\n" + healthcost.headline(rep))
+    for r in rep.risks:
+        print(f"\n{r.title}: {r.state}")
+        print(tr(f"  Риск за год: {healthcost.chance_text(r.chance)} — {r.when}",
+                 f"  Risk per year: {healthcost.chance_text(r.chance)} — {r.when}"))
+        print(tr(f"  Сейчас: {r.now_what} — {healthcost.money(*r.now)}", f"  Now: {r.now_what} — {healthcost.money(*r.now)}"))
+        print(tr(f"  Если случится: {r.later_what} — {healthcost.money(*r.later)}",
+                 f"  If it happens: {r.later_what} — {healthcost.money(*r.later)}"))
+        if r.advice:
+            print("  → " + r.advice)
+    for line in rep.notes + [healthcost.disclaimer()]:
+        print("\n" + line)
+    return 0
+def find_pests() -> int:
+    """python -m whyslow --pests: скрытые майнеры, расширения браузеров, ночной выход в сеть.
+    Только показывает; закрыть, убрать в карантин или снять политику — в окне, после подтверждения."""
+    from . import license
+    try:
+        pests = premium.load("pests") if license.has_premium("pests") else None
+    except premium.PremiumLocked:
+        pests = None
+    if pests is None:
+        print(tr("«Тихие вредители» доступны по подписке. Ключ вводится в окне WhySlow.",
+                 "“Hidden pests” is part of the subscription. Enter your key in the WhySlow window."))
+        return 2
+    kb = knowledge.load()
+    r = pests.scan(kb, progress=lambda t: print("  " + t))
+    icons = {pests.OK: "[ OK ]", pests.INFO: "[ i  ]", pests.WARN: "[ !  ]", pests.BAD: "[!!!!]"}
+    print("\n" + r.headline())
+    print(tr("\nПохоже на майнеры:", "\nLooks like miners:") if r.miners else tr("\nМайнеров не видно.", "\nNo miners seen."))
+    for s in r.miners:
+        print(f"{icons[s.level]} {s.name}  {tr('ЦП', 'CPU')} {s.cpu:.0f}%  GPU {s.gpu:.0f}%")
+        for why in s.reasons:
+            print(f"        {why}")
+    print(tr(f"\nРасширения браузеров: {len(r.extensions)}", f"\nBrowser extensions: {len(r.extensions)}"))
+    for e in r.extensions:
+        if e.level in (pests.WARN, pests.BAD):
+            print(f"{icons[e.level]} {e.name} ({e.browser})")
+            for why in e.reasons:
+                print(f"        {why}")
+    if r.night:
+        print(tr("\nВыходили в сеть ночью, пока за компьютером никого не было:",
+                 "\nWent online at night while nobody was at the computer:"))
+        for n in r.night:
+            print(f"{icons[n.level]} {n.name}  {tr('ночей', 'nights')}: {n.nights}  {n.note}")
+    print(tr("\nЗакрыть, убрать в карантин или удалить расширение — в окне, вкладка «Вредители».",
+             "\nClose, quarantine or remove an extension in the window, Pests tab."))
     return 0
 
 
