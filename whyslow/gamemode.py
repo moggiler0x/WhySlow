@@ -29,7 +29,7 @@ import psutil
 
 from . import journal, settings
 from .i18n import tr
-from .util import IS_LINUX, IS_WINDOWS, app_dir, human_size, read_json, run, write_json
+from .util import IS_LINUX, IS_WINDOWS, app_dir, human_size, is_admin, read_json, run, write_json
 
 # Папки, куда магазины ставят игры
 GAME_DIRS = re.compile(
@@ -134,6 +134,12 @@ def detect_running() -> Game | None:
 
 # ------------------------------------------------------------------- план ---
 
+def can_lower() -> bool:
+    """В macOS и Linux понизить приоритет может любой, а вернуть обратно — только root.
+    Без прав такое изменение не откатить, поэтому его там и не предлагаем."""
+    return IS_WINDOWS or is_admin()
+
+
 def plan(game: Game, groups) -> list[Action]:
     """План для игры по текущим процессам (ProcGroup с оценками базы). Ничего не меняет."""
     acts = [Action("game_priority", tr(f"Поднять приоритет {game.name}", f"Raise {game.name}'s priority"),
@@ -154,6 +160,8 @@ def plan(game: Game, groups) -> list[Action]:
                                tr(f"Сейчас {load}. После игры продолжит работу с того же места.",
                                   f"Now {load}. Resumes where it left off after the game."),
                                False, g.name, list(g.pids)))
+        if not can_lower():
+            continue
         acts.append(Action("lower", tr(f"Понизить приоритет {g.name}", f"Lower {g.name}'s priority"),
                            tr(f"Сейчас {load}. Программа продолжит работать, но уступит процессор игре.",
                               f"Now {load}. Keeps running but yields the CPU to the game."),

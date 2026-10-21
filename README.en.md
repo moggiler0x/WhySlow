@@ -176,7 +176,8 @@ a snapshot is taken automatically. Nothing in the system is changed.
 games you add yourself. The Games tab then shows a checklist:
 
 * lower the priority of heavy background apps (except what the database says to keep, system processes and what people
-  use while playing: Discord, OBS, overlays);
+  use while playing: Discord, OBS, overlays). On macOS and Linux only an administrator can raise a priority back,
+  so without those rights only pausing is offered there;
 * pause unneeded ones while you play (only if you tick it);
 * raise the game's own priority;
 * switch to the High performance power plan (Windows) or the performance profile (Linux).

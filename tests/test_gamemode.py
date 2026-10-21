@@ -43,7 +43,7 @@ def _v(verdict):
     return Verdict(verdict, "", "")
 
 
-def test_plan_spares_keep_system_and_voice_chat():
+def test_plan_spares_keep_system_and_voice_chat(monkeypatch):
     game = gamemode.Game("cs2.exe", 100)
     groups = [
         ProcGroup("cs2.exe", [100], 60.0, 3 * 2**30),
@@ -54,6 +54,7 @@ def test_plan_spares_keep_system_and_voice_chat():
         ProcGroup("svchost.exe", [6], 3.0, 400 * 2**20, system=True),
         ProcGroup("tiny.exe", [7], 0.1, 10 * 2**20, verdict=_v("safe")),
     ]
+    monkeypatch.setattr(gamemode, "can_lower", lambda: True)
     acts = gamemode.plan(game, groups)
     names = {a.name for a in acts}
     assert "cs2.exe" in names  # приоритет самой игры
@@ -61,6 +62,19 @@ def test_plan_spares_keep_system_and_voice_chat():
     assert not names & {"MsMpEng.exe", "Discord.exe", "svchost.exe", "tiny.exe"}
     suspend = [a for a in acts if a.kind == "suspend"]
     assert [a.name for a in suspend] == ["OneDrive.exe"] and not suspend[0].checked  # пауза — только если отметить
+
+
+def test_no_lowering_when_it_cannot_be_undone(monkeypatch):
+    monkeypatch.setattr(gamemode, "can_lower", lambda: False)
+    groups = [ProcGroup("OneDrive.exe", [1], 8.0, 400 * 2**20, verdict=_v("safe"))]
+    acts = gamemode.plan(gamemode.Game("cs2.exe", 100), groups)
+    assert [a.kind for a in acts if a.name == "OneDrive.exe"] == ["suspend"]
+
+
+def _bg_action(pid):
+    """Понижение приоритета там, где его можно откатить, иначе пауза."""
+    kind = "lower" if gamemode.can_lower() else "suspend"
+    return gamemode.Action(kind, kind, name="bg", pids=[pid])
 
 
 @pytest.fixture
@@ -77,11 +91,10 @@ def test_apply_and_restore_roundtrip(child, monkeypatch):
     proc = psutil.Process(child.pid)
     before = proc.nice()
     game = gamemode.Game("fake.exe", os.getpid())
-    acts = [gamemode.Action("lower", "lower", name="bg", pids=[child.pid]),
-            gamemode.Action("suspend", "pause", name="bg", pids=[child.pid])]
+    acts = [_bg_action(child.pid), gamemode.Action("suspend", "pause", name="bg", pids=[child.pid])]
     s, errors = gamemode.apply(game, acts, gamemode.start(game))
     assert errors == []
-    assert proc.nice() != before
+    assert proc.nice() != before or not gamemode.can_lower()
     assert proc.status() == psutil.STATUS_STOPPED or sys.platform == "win32"
     assert gamemode._state_path().exists()
     assert any(e["kind"] == "gamemode" for e in journal.load())
@@ -95,10 +108,11 @@ def test_recover_after_crash(child):
     proc = psutil.Process(child.pid)
     before = proc.nice()
     game = gamemode.Game("fake.exe", os.getpid())
-    gamemode.apply(game, [gamemode.Action("lower", "lower", name="bg", pids=[child.pid])], gamemode.start(game))
+    gamemode.apply(game, [_bg_action(child.pid)], gamemode.start(game))
     s = gamemode.recover()  # как будто WhySlow упал и запустился снова
     assert s and s.game["name"] == "fake.exe"
     assert proc.nice() == before
+    assert proc.status() != psutil.STATUS_STOPPED
     assert gamemode.recover() is None
 
 
