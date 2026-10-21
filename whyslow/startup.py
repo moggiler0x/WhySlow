@@ -5,7 +5,6 @@ LaunchDaemons). Отключение сделано так же, как в си�
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import struct
@@ -16,7 +15,7 @@ from pathlib import Path
 from . import journal
 from .i18n import tr
 from .knowledge import KnowledgeBase, Verdict
-from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, is_admin, run
+from .util import IS_LINUX, IS_MAC, IS_WINDOWS, backup_dir, is_admin, ps_json as _ps_json, run
 
 
 class ActionError(Exception):
@@ -230,20 +229,6 @@ def _win_restore_value(b: dict) -> None:
     import winreg
     with winreg.CreateKeyEx(_hive(b["hive"]), b["path"], 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as k:
         winreg.SetValueEx(k, b["value"], 0, b["type"], b["data"])
-
-
-def _ps_json(script: str, timeout: float = 60) -> list[dict]:
-    """Выполняет PowerShell и разбирает ConvertTo-Json. Один объект тоже даёт список."""
-    code, out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script], timeout=timeout)
-    if code != 0 or not out.strip():
-        return []
-    try:
-        data = json.loads(out)
-    except ValueError:
-        return []
-    data = data if isinstance(data, list) else [data]
-    return [d for d in data if isinstance(d, dict)]
 
 
 def _ours(kind: str) -> dict[str, dict]:

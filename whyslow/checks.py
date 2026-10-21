@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import psutil
 
-from . import junk, lhm, network, startup, sysinfo
+from . import conflicts, junk, lhm, network, startup, sysinfo
 from .knowledge import KnowledgeBase
 from .i18n import tr
 from .processes import ProcessMonitor
@@ -69,6 +69,13 @@ def scan(kb: KnowledgeBase, progress=lambda text: None) -> ScanResult:
     progress(tr("Проверяю сеть и прокси…", "Checking network and proxy…"))
     r.proxy = network.proxy_state()
     _proxy(f, r.proxy)
+
+    progress(tr("Ищу конфликты между программами…", "Looking for conflicts between programs…"))
+    try:
+        for c in conflicts.detect(procs):
+            f.append(Finding(c.level, c.title, c.detail, c.advice, c.tab))
+    except Exception:  # noqa: BLE001 — необязательная проверка не должна ронять всю диагностику
+        pass
 
     progress(tr("Температуры и прочее…", "Temperatures and more…"))
     _temps(f)

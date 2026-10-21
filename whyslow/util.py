@@ -54,6 +54,20 @@ def run(cmd: list[str], timeout: float = 10, cwd=None) -> tuple[int, str]:
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
+def ps_json(script: str, timeout: float = 60) -> list[dict]:
+    """Выполняет PowerShell и разбирает ConvertTo-Json. Один объект тоже даёт список."""
+    code, out = run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + script], timeout=timeout)
+    if code != 0 or not out.strip():
+        return []
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return []
+    data = data if isinstance(data, list) else [data]
+    return [d for d in data if isinstance(d, dict)]
+
+
 def is_admin() -> bool:
     if IS_WINDOWS:
         try:
