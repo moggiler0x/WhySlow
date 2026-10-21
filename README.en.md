@@ -21,6 +21,7 @@ process against it and tells you whether it is safe to disable, better left alon
   * [One-click optimization](#one-click-optimization)
   * [macOS System Data](#macos-system-data)
   * [Reinstalling the system](#reinstalling-the-system)
+  * [Hidden pests](#hidden-pests)
   * [Leaked passwords](#leaked-passwords)
   * [Problems it finds](#problems-it-finds)
   * [Safety](#safety)
@@ -56,6 +57,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Cleanup** | Temporary files, caches, recycle bin. Only removes your own files older than one day. Finds large files in a chosen folder and moves them to the Trash |
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
+| **Pests** (subscription) | Hidden miners, browser extensions that see every site, programs that go online at night, and a connection map |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
 | **History** | When and why the computer was slow: WhySlow records long load spikes in the background, can live in the tray and start with the system |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
@@ -140,6 +142,26 @@ WhySlow. Or install WhySlow again and press “Restore from backup…”. Existi
 Files that couldn't be copied (no access, in use) are listed in `whyslow-backup.json`, and WhySlow asks whether to go
 on with the reinstall without them. Programs and browser passwords aren't part of the backup: install the programs
 again, and turn on sync in your browser.
+### Hidden pests
+
+The Pests tab looks for what doesn't catch the eye. It is part of the subscription.
+
+* **Hidden miners.** A mining-pool address or algorithm on the command line, a connection to a pool port, CPU or GPU
+  load while nobody is at the computer, a file in a folder normal programs don't run from. Per-process GPU load comes
+  from the same counters Task Manager uses, and from `nvidia-smi`.
+* **Browser extensions** in Chrome, Edge, Brave, Yandex Browser, Opera, Vivaldi, Firefox and Safari. For each one you
+  see whether it can read every site and what else it can do (intercept requests, read cookies and history, set its
+  own proxy), and whether it came from the store, from another program, or was forced in through a browser policy.
+* **Online at night.** While WhySlow is open or in the tray, it notes every 5 minutes which programs hold internet
+  connections. Between midnight and 6 am this only counts if nobody is at the computer. Sync and updates are marked
+  as normal, unknown programs as suspicious.
+* **Connection map.** The computer in the middle, programs around it, and the addresses they connect to on the
+  outside. Red looks like a miner, yellow went online at night.
+
+WhySlow explains every finding from the knowledge base. Closing a program, removing it from startup, moving its file
+to quarantine or removing a forced extension install only happens after you confirm. Quarantine and removed policies
+can be restored in the Journal tab. Extensions are removed in the browser itself: WhySlow opens their page.
+
 ### Leaked passwords
 
 The **Passwords** tab finds passwords that already appear in data breaches and helps replace them.
@@ -282,6 +304,7 @@ No window, right in the terminal (from source; on macOS and Linux the app works 
 ```bash
 python3 -m whyslow --cli       # check, report and optimization plan (changes nothing)
 python3 -m whyslow --optimize  # the same, then apply the checked items (asks for confirmation)
+python3 -m whyslow --pests     # hidden miners, risky extensions, night-time network use (subscription, changes nothing)
 python3 -m whyslow --passwords export.csv   # which passwords from your manager are in breaches (changes nothing)
 python3 -m whyslow --storage   # macOS: what “System Data” is made of and which app data can go (changes nothing)
 python3 -m whyslow --version   # version
@@ -426,6 +449,7 @@ whyslow/
   lhm.py         Windows temperatures via LibreHardwareMonitor
   macsensors.py  Mac temperatures and GPU load without admin rights
   passwords.py   breach check for passwords, new passwords, import file
+  pests.py       hidden pests: miners, browser extensions, night network log, quarantine
   journal.py     change journal for rollback
   updater.py     updating the program from GitHub
   settings.py    settings (language, updates, auto-clean on Mac)

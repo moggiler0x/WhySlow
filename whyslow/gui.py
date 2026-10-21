@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, bigfiles, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
+    __version__, bigfiles, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, pests, reinstall,
     settings, startup, sysinfo, updater, watch,
 )
 from .i18n import LANGS, lang, set_lang, tr
@@ -3573,6 +3573,552 @@ class HistoryTab(QWidget):
             self.detail.setText("")
 
 
+# ------------------------------------------------------- Тихие вредители ---
+
+PEST_COLORS = {pests.OK: C["ok"], pests.INFO: C["info"], pests.WARN: C["warn"], pests.BAD: C["bad"]}
+PEST_LABELS = {pests.OK: tr("Порядок", "Fine"), pests.INFO: tr("Для сведения", "FYI"),
+               pests.WARN: tr("Подозрительно", "Suspicious"), pests.BAD: tr("Опасно", "Dangerous")}
+
+
+def _level_item(level: str) -> QTableWidgetItem:
+    it = QTableWidgetItem(PEST_LABELS[level])
+    it.setForeground(QColor(PEST_COLORS[level]))
+    return it
+
+
+class ConnMap(QWidget):
+    """Карта соединений: в центре компьютер, вокруг — программы, снаружи — куда они подключены.
+    Красным — то, что похоже на майнер или вредителя, жёлтым — выходившее в сеть ночью."""
+
+    MAX_PROCS = 14
+    MAX_HOSTS = 6
+
+    def __init__(self, on_pick):
+        super().__init__()
+        self.on_pick = on_pick
+        self.conns: list[pests.Conn] = []
+        self.marks: dict[str, str] = {}   # имя программы → уровень
+        self.nodes: list[tuple[QPointF, float, str, object]] = []
+        self.setMinimumHeight(px(320))
+        self.setCursor(Qt.PointingHandCursor)
+
+    def set_data(self, conns: list[pests.Conn], marks: dict[str, str]):
+        self.conns, self.marks = conns, marks
+        self.update()
+
+    def _level(self, name: str, conn: pests.Conn | None = None) -> str:
+        if conn is not None and conn.pool_port:
+            return pests.BAD
+        return self.marks.get(name.lower(), pests.OK)
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        center = QPointF(w / 2, h / 2)
+        r_out = min(w, h) / 2 - px(46)
+        r_in = r_out * 0.48
+        self.nodes = []
+        by_proc: dict[str, list[pests.Conn]] = {}
+        for c in self.conns:
+            by_proc.setdefault(c.name, []).append(c)
+        procs = sorted(by_proc.items(), key=lambda kv: (-pests.RANK[self._level(kv[0])], -len(kv[1])))[:self.MAX_PROCS]
+        f = p.font()
+        f.setPointSizeF(f.pointSizeF() * 0.85)
+        p.setFont(f)
+        if not procs:
+            p.setPen(QColor(C["muted"]))
+            p.drawText(self.rect(), Qt.AlignCenter, tr("Нет соединений с интернетом", "No internet connections"))
+            return
+        sector = 2 * math.pi / len(procs)
+        for i, (name, cs) in enumerate(procs):
+            a = -math.pi / 2 + i * sector
+            pp = QPointF(center.x() + r_in * math.cos(a), center.y() + r_in * math.sin(a))
+            plevel = max([self._level(name)] + [self._level(name, c) for c in cs], key=pests.RANK.get)
+            hosts: dict[str, pests.Conn] = {}
+            for c in cs:
+                hosts.setdefault(c.host or c.ip, c)
+            shown = list(hosts.items())[:self.MAX_HOSTS]
+            for j, (label, c) in enumerate(shown):
+                b = a + (j - (len(shown) - 1) / 2) * min(sector / max(len(shown), 1), 0.22)
+                hp = QPointF(center.x() + r_out * math.cos(b), center.y() + r_out * math.sin(b))
+                color = QColor(PEST_COLORS[self._level(name, c)] if self._level(name, c) != pests.OK else C["accent2"])
+                color.setAlpha(110)
+                p.setPen(QPen(color, 1.2))
+                p.drawLine(pp, hp)
+                p.setPen(Qt.NoPen)
+                color.setAlpha(230)
+                p.setBrush(color)
+                p.drawEllipse(hp, px(4), px(4))
+                self.nodes.append((hp, px(8), "host", (name, label, c)))
+                short = label if len(label) <= 26 else "…" + label[-25:]
+                p.setPen(QColor(C["muted"]))
+                tw = QFontMetrics(p.font()).horizontalAdvance(short)
+                tx = hp.x() + px(7) if math.cos(b) >= 0 else hp.x() - px(7) - tw
+                p.drawText(QPointF(max(2, min(tx, w - tw - 2)), hp.y() + px(4)), short)
+            if len(hosts) > self.MAX_HOSTS:
+                p.setPen(QColor(C["muted"]))
+                op = QPointF(center.x() + (r_out + px(22)) * math.cos(a), center.y() + (r_out + px(22)) * math.sin(a))
+                p.drawText(op, f"+{len(hosts) - self.MAX_HOSTS}")
+            p.setPen(QPen(QColor(255, 255, 255, 40), 1.5))
+            p.drawLine(center, pp)
+            col = QColor(PEST_COLORS[plevel] if plevel != pests.OK else C["accent"])
+            p.setPen(QPen(QColor("white"), 1))
+            p.setBrush(col)
+            rad = px(7) + min(len(cs), 10) * 0.6
+            p.drawEllipse(pp, rad, rad)
+            self.nodes.append((pp, rad + px(4), "proc", (name, cs)))
+            p.setPen(QColor(C["text"]))
+            tw = QFontMetrics(p.font()).horizontalAdvance(name)
+            p.drawText(QPointF(pp.x() - tw / 2, pp.y() - rad - px(4)), name)
+        p.setPen(QPen(QColor("white"), 1.5))
+        p.setBrush(QColor(C["panel2"]))
+        p.drawEllipse(center, px(18), px(18))
+        p.setPen(QColor("white"))
+        p.drawText(QRectF(center.x() - px(40), center.y() + px(20), px(80), px(20)), Qt.AlignCenter,
+                   tr("Этот ПК", "This PC"))
+
+    def mousePressEvent(self, e):
+        pos = e.position() if hasattr(e, "position") else QPointF(e.pos())
+        for pt_, rad, kind, data in reversed(self.nodes):
+            if (pt_.x() - pos.x()) ** 2 + (pt_.y() - pos.y()) ** 2 <= rad * rad:
+                self.on_pick(kind, data)
+                return
+
+
+class PremiumLocked(QWidget):
+    """Замок на месте вкладки, если модуля подписки нет в этой сборке."""
+
+    def __init__(self, title: str, text: str):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        lay.addStretch()
+        t = QLabel("🔒 " + title)
+        t.setObjectName("h1")
+        t.setAlignment(Qt.AlignCenter)
+        lay.addWidget(t)
+        m = muted(text)
+        m.setAlignment(Qt.AlignCenter)
+        lay.addWidget(m)
+        lay.addStretch()
+
+
+def premium_tab(feature: str, build, title: str, text: str) -> QWidget:
+    """Вкладка по подписке: без ключа — замок с кнопкой «Ввести ключ», с ключом — сама вкладка."""
+    try:
+        from .license_ui import PremiumGate
+    except ImportError:
+        return PremiumLocked(title, text)
+    return PremiumGate(feature, build)
+
+
+class PestsTab(QWidget):
+    """Скрытые майнеры, опасные расширения браузеров и программы, которые выходят в сеть по ночам."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.report: pests.Report | None = None
+        self._picked = None  # точка, выбранная на карте
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+
+        head = QHBoxLayout()
+        text = QVBoxLayout()
+        text.setSpacing(px(4))
+        title = QLabel(accent(tr("Тихие вредители", "Hidden pests")))
+        title.setObjectName("h1")
+        text.addWidget(title)
+        text.addWidget(muted(tr(
+            "Ищет то, что не бросается в глаза: майнеры, которые грузят процессор и видеокарту, пока вы отошли; "
+            "расширения браузера, которые видят все сайты; программы, которые выходят в интернет по ночам. "
+            "Ничего не удаляется без вашего подтверждения.",
+            "Finds what doesn't catch the eye: miners that load the CPU and GPU while you're away, browser "
+            "extensions that see every site, programs that go online at night. Nothing is removed without "
+            "your confirmation.")))
+        head.addLayout(text, 1)
+        self.b_scan = QPushButton(tr("Проверить", "Scan"))
+        self.b_scan.setObjectName("primary")
+        self.b_scan.setCursor(Qt.PointingHandCursor)
+        self.b_scan.clicked.connect(self.scan)
+        head.addWidget(self.b_scan, 0, Qt.AlignVCenter)
+        lay.addLayout(head)
+        self.summary = muted()
+        self.summary.setTextFormat(Qt.RichText)
+        lay.addWidget(self.summary)
+
+        body = QHBoxLayout()
+        body.setSpacing(px(14))
+        self.pages = QTabWidget()
+        self.t_miners = make_table([tr("Программа", "Program"), tr("ЦП", "CPU"), "GPU", tr("Оценка", "Rating")])
+        self.t_ext = make_table([tr("Расширение", "Extension"), tr("Браузер", "Browser"), tr("Профиль", "Profile"),
+                                 tr("Оценка", "Rating")])
+        self.t_night = make_table([tr("Программа", "Program"), tr("Ночей", "Nights"), tr("Куда", "Where to"),
+                                   tr("Оценка", "Rating")])
+        for t in (self.t_miners, self.t_ext, self.t_night):
+            hh = t.horizontalHeader()
+            hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+            hh.setSectionResizeMode(0, QHeaderView.Stretch)
+            t.itemSelectionChanged.connect(self.on_select)
+        self.t_night.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.map = ConnMap(self.on_map_pick)
+        self.pages.addTab(self.t_miners, tr("Майнеры", "Miners"))
+        self.pages.addTab(self.t_ext, tr("Расширения", "Extensions"))
+        self.pages.addTab(self.t_night, tr("Ночью в сети", "Online at night"))
+        self.pages.addTab(self.map, tr("Карта соединений", "Connection map"))
+        self.pages.currentChanged.connect(lambda _i: self.on_select())
+        body.addWidget(self.pages, 5)
+
+        side = QFrame()
+        side.setObjectName("card")
+        sl = QVBoxLayout(side)
+        sl.setContentsMargins(px(14), px(12), px(14), px(12))
+        sl.setSpacing(px(8))
+        self.d_title = QLabel()
+        self.d_title.setTextFormat(Qt.PlainText)
+        self.d_title.setWordWrap(True)
+        self.d_title.setStyleSheet(f"font-size: {pt(12)}; font-weight: 600;")
+        sl.addWidget(self.d_title)
+        self.d_text = muted()
+        self.d_text.setTextFormat(Qt.RichText)
+        self.d_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        sl.addWidget(self.d_text)
+        self.b_kill = QPushButton(tr("Закрыть программу", "Close program"))
+        self.b_kill.setObjectName("danger")
+        self.b_kill.clicked.connect(self.kill)
+        self.b_autostart = QPushButton(tr("Убрать из автозагрузки", "Remove from startup"))
+        self.b_autostart.clicked.connect(self.disable_autostart)
+        self.b_quarantine = QPushButton(tr("Закрыть и убрать файл в карантин", "Close and quarantine the file"))
+        self.b_quarantine.setObjectName("danger")
+        self.b_quarantine.clicked.connect(self.quarantine)
+        self.b_manage = QPushButton(tr("Открыть в браузере, чтобы удалить", "Open in the browser to remove"))
+        self.b_manage.clicked.connect(self.open_manager)
+        self.b_policy = QPushButton(tr("Снять принудительную установку", "Remove the forced install"))
+        self.b_policy.setObjectName("danger")
+        self.b_policy.clicked.connect(self.remove_policy)
+        self.b_reveal = QPushButton(tr("Показать файл", "Show file"))
+        self.b_reveal.clicked.connect(self.reveal)
+        self.b_clear = QPushButton(tr("Очистить ночной журнал", "Clear the night log"))
+        self.b_clear.clicked.connect(self.clear_log)
+        self.actions = [self.b_kill, self.b_autostart, self.b_quarantine, self.b_manage, self.b_policy, self.b_reveal,
+                        self.b_clear]
+        for b in self.actions:
+            sl.addWidget(b)
+        sl.addStretch()
+        body.addWidget(side, 3)
+        lay.addLayout(body, 1)
+        self.refill()
+
+    def activate(self):
+        if self.report is None:
+            self.scan()
+
+    # --- проверка ---
+
+    def scan(self):
+        if not pests.unlocked():
+            return
+        self.b_scan.setEnabled(False)
+        self.summary.setText(tr("Проверяю… это займёт несколько секунд.", "Scanning… this takes a few seconds."))
+
+        def done(r):
+            self.report = r
+            self.b_scan.setEnabled(True)
+            self.refill()
+
+        def failed(e):
+            self.b_scan.setEnabled(True)
+            self.summary.setText(tr("Проверка не удалась: ", "The scan failed: ") + _esc(e))
+
+        run_async(lambda p: pests.scan(self.main.kb, p), done, failed, self.summary.setText)
+
+    def refill(self):
+        r = self.report
+        if r is None:
+            self.summary.setText(tr("Нажмите «Проверить».", "Click “Scan”."))
+            self.on_select()
+            return
+        color = PEST_COLORS[r.worst]
+        parts = [tr(f"соединений сейчас: {len(r.conns)}", f"connections now: {len(r.conns)}")]
+        if r.idle and r.idle >= 60:
+            parts.append(tr(f"вы не трогали компьютер {human_duration(r.idle)}", f"idle for {human_duration(r.idle)}"))
+        parts.append(tr(f"ночной журнал: {r.log_night_samples} ночных замеров из {r.log_samples}",
+                        f"night log: {r.log_night_samples} night samples of {r.log_samples}")
+                     if r.log_night_samples else
+                     tr("ночных замеров пока нет — оставьте WhySlow на ночь в трее, и здесь появится, кто выходит "
+                        "в сеть, пока вы спите",
+                        "no night samples yet — leave WhySlow in the tray overnight to see who goes online while "
+                        "you sleep"))
+        self.summary.setText(f"<b style='color:{color}'>{_esc(r.headline())}</b> · " + _esc(" · ".join(parts)))
+        self._fill(self.t_miners, [[s.name, f"{s.cpu:.0f}%", f"{s.gpu:.0f}%" if s.gpu else "—", s.level]
+                                   for s in r.miners])
+        self._fill(self.t_ext, [[e.name + ("" if e.enabled else tr(" (выключено)", " (disabled)")), e.browser,
+                                 e.profile, e.level] for e in r.extensions])
+        self._fill(self.t_night, [[n.name, str(n.nights), ", ".join(h for h, _ in n.hosts[:3]), n.level]
+                                  for n in r.night])
+        self.pages.setTabText(0, tr("Майнеры", "Miners") + (f" · {len(r.miners)}" if r.miners else ""))
+        risky = sum(e.level in (pests.WARN, pests.BAD) for e in r.extensions)
+        self.pages.setTabText(1, tr("Расширения", "Extensions") + f" · {len(r.extensions)}"
+                              + (f" ({risky}!)" if risky else ""))
+        self.pages.setTabText(2, tr("Ночью в сети", "Online at night") + (f" · {len(r.night)}" if r.night else ""))
+        marks = {}
+        for s in r.miners:
+            marks[s.name.lower()] = s.level
+        for n in r.night:
+            if pests.RANK[n.level] >= pests.RANK[pests.WARN]:
+                marks[n.name.lower()] = max(n.level, marks.get(n.name.lower(), pests.OK), key=pests.RANK.get)
+        self.map.set_data(r.conns, marks)
+        self.on_select()
+
+    @staticmethod
+    def _fill(table: QTableWidget, rows: list[list[str]]):
+        table.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            for c, text in enumerate(row[:-1]):
+                table.setItem(i, c, QTableWidgetItem(text))
+            table.setItem(i, len(row) - 1, _level_item(row[-1]))
+
+    # --- выбор и подробности ---
+
+    def _current(self):
+        if not self.report:
+            return None, None
+        page = self.pages.currentIndex()
+        table, items = {0: (self.t_miners, self.report.miners), 1: (self.t_ext, self.report.extensions),
+                        2: (self.t_night, self.report.night)}.get(page, (None, None))
+        if table is None:
+            return "map", self._picked
+        rows = table.selectionModel().selectedRows()
+        if not rows or rows[0].row() >= len(items):
+            return None, None
+        return ("miner", "ext", "night")[page], items[rows[0].row()]
+
+    def _autostart(self, name: str, exe: str) -> list:
+        return startup.find_for_process(self.main.startup_tab.items, name, exe)
+
+    def on_select(self):
+        kind, obj = self._current()
+        for b in self.actions:
+            b.setVisible(False)
+        self.b_clear.setVisible(self.pages.currentIndex() == 2)
+        if obj is None:
+            self.d_title.setText("")
+            hint = {0: tr("Майнеры прячутся: работают, когда вы отошли, и замолкают, когда открываете Диспетчер "
+                          "задач. Проверьте ещё раз, вернувшись к компьютеру через 5–10 минут — WhySlow учтёт, "
+                          "сколько он простоял без дела.",
+                          "Miners hide: they work when you're away and go quiet when you open Task Manager. "
+                          "Scan again after leaving the computer alone for 5–10 minutes — WhySlow takes idle time "
+                          "into account."),
+                    1: tr("Выберите расширение, чтобы увидеть, что оно может.",
+                          "Pick an extension to see what it can do."),
+                    2: tr("Пока WhySlow в трее, он раз в 5 минут записывает, кто держит соединения с интернетом. "
+                          "Ночью (с 0 до 6) это засчитывается, только если за компьютером никого нет.",
+                          "While WhySlow is in the tray, it notes every 5 minutes who holds internet connections. "
+                          "At night (0–6 am) this only counts if nobody is at the computer."),
+                    3: tr("Нажмите на точку: в центре — компьютер, вокруг — программы, снаружи — куда они подключены. "
+                          "Красное похоже на майнер или вредителя, жёлтое — выходило в сеть ночью.",
+                          "Click a dot: the computer is in the middle, programs around it, and where they connect on "
+                          "the outside. Red looks like a miner or pest, yellow went online at night.")}
+            self.d_text.setText(hint.get(self.pages.currentIndex(), ""))
+            return
+        if kind == "miner":
+            self._show_proc(obj.name, obj.exe, obj.level, obj.reasons, obj.verdict, obj.remotes)
+            self.b_kill.setVisible(True)
+            self.b_quarantine.setVisible(bool(obj.exe) and obj.level == pests.BAD)
+        elif kind == "night":
+            hosts = [f"{h} ×{n}" for h, n in obj.hosts[:8]]
+            self._show_proc(obj.name, obj.exe, obj.level, [obj.note], obj.verdict, hosts,
+                            extra=tr(f"Выходила в сеть ночью: {obj.nights} ноч., замеров: {obj.samples}.",
+                                     f"Went online at night: {obj.nights} night(s), samples: {obj.samples}."))
+            self.b_kill.setVisible(self._running(obj.name))
+        elif kind == "ext":
+            self.d_title.setText(f"{obj.name} — {obj.browser}")
+            lines = [f"<b style='color:{PEST_COLORS[obj.level]}'>{_esc(PEST_LABELS[obj.level])}</b>"]
+            lines += [_esc(r) for r in obj.reasons if r]
+            if not obj.reasons:
+                lines.append(tr("Обычных прав, ничего подозрительного.", "Ordinary permissions, nothing suspicious."))
+            meta = [f"ID: {obj.id}"] + ([tr("версия ", "version ") + obj.version] if obj.version else [])
+            lines.append(f"<span style='color:{C['muted']}'>{_esc(' · '.join(meta))}</span>")
+            self.d_text.setText("<br>".join(lines))
+            self.b_manage.setVisible(bool(obj.manage_url))
+            self.b_policy.setVisible(bool(obj.policy))
+            self.b_reveal.setVisible(bool(obj.path))
+        elif kind == "map":
+            self._show_map(obj)
+
+    def _show_proc(self, name, exe, level, reasons, verdict, remotes, extra=""):
+        self.d_title.setText(name)
+        lines = [f"<b style='color:{PEST_COLORS[level]}'>{_esc(PEST_LABELS[level])}</b>"]
+        lines += [_esc(r) for r in reasons if r]
+        if extra:
+            lines.append(_esc(extra))
+        if verdict and verdict.verdict != "unknown" and verdict.note not in reasons:
+            lines.append(f"<i>{_esc(verdict.title or name)}</i>: {_esc(verdict.note)}")
+        elif verdict and verdict.verdict == "unknown":
+            lines.append(online_note(name, exe, self.on_select))
+        if remotes:
+            lines.append(tr("Подключения: ", "Connections: ") + _esc(", ".join(remotes[:8])))
+        if exe:
+            lines.append(f"<span style='color:{C['muted']}'>{_esc(exe)}</span>")
+        self.d_text.setText("<br>".join(lines))
+        self.b_autostart.setVisible(bool(self._autostart(name, exe)))
+        self.b_reveal.setVisible(bool(exe))
+
+    def _show_map(self, picked):
+        if not picked:
+            return
+        kind, data = picked
+        if kind == "proc":
+            name, cs = data
+            hosts = sorted({c.host or c.ip for c in cs})
+            v = self.main.kb.lookup(name, cs[0].exe)
+            self.d_title.setText(name)
+            lines = [tr(f"Соединений: {len(cs)}", f"Connections: {len(cs)}")]
+            if v.verdict != "unknown":
+                lines.append(f"<i>{_esc(v.title or name)}</i>: {_esc(v.note)}")
+            lines.append(_esc(", ".join(hosts[:12])) + (" …" if len(hosts) > 12 else ""))
+            if cs[0].exe:
+                lines.append(f"<span style='color:{C['muted']}'>{_esc(cs[0].exe)}</span>")
+            self.d_text.setText("<br>".join(lines))
+            self.b_kill.setVisible(True)
+        else:
+            name, label, c = data
+            self.d_title.setText(label)
+            lines = [f"{_esc(name)} → {_esc(c.ip)}:{c.port}"]
+            if c.host:
+                lines.append(_esc(c.host))
+            if c.pool_port:
+                lines.append(f"<b style='color:{C['bad']}'>" + tr("Порт, на котором обычно работают майнинг-пулы.",
+                                                                 "A port mining pools usually use.") + "</b>")
+            self.d_text.setText("<br>".join(lines))
+
+    def on_map_pick(self, kind, data):
+        self._picked = (kind, data)
+        self.on_select()
+
+    @staticmethod
+    def _running(name: str) -> bool:
+        return any((p.info.get("name") or "").lower() == name.lower() for p in psutil.process_iter(["name"]))
+
+    def _target(self) -> tuple[str, str]:
+        kind, obj = self._current()
+        if kind == "map" and obj and obj[0] == "proc":
+            return obj[1][0], obj[1][1][0].exe
+        if kind in ("miner", "night"):
+            return obj.name, obj.exe
+        if kind == "ext":
+            return obj.name, obj.path
+        return "", ""
+
+    # --- действия: всё только после подтверждения ---
+
+    def _group(self, name: str):
+        from .processes import ProcGroup
+        g = ProcGroup(name)
+        for p in psutil.process_iter(["name"]):
+            if (p.info.get("name") or "").lower() == name.lower():
+                g.pids.append(p.pid)
+        return g
+
+    def kill(self):
+        name, _exe = self._target()
+        if not name or not confirm(self, tr("Закрыть программу?", "Close program?"),
+                                   tr(f"Закрыть «{name}»? Несохранённые данные в ней будут потеряны.",
+                                      f"Close “{name}”? Any unsaved data in it will be lost."), danger=True):
+            return
+
+        def done(r):
+            closed, failed = r
+            msg = tr(f"«{name}»: закрыто процессов — {closed}", f"“{name}”: processes closed — {closed}")
+            if failed:
+                msg += tr(f", не удалось — {failed} ({ADMIN_HINT})", f", failed — {failed} ({ADMIN_HINT})")
+            self.main.status(msg)
+            self.main.journal_tab.reload()
+
+        run_async(lambda _p: kill(self._group(name)), done)
+
+    def disable_autostart(self):
+        name, exe = self._target()
+        items = self._autostart(name, exe)
+        if items:
+            self.main.startup_tab.toggle(items[0], False)  # подтверждение и журнал — как на вкладке «Автозагрузка»
+            self.on_select()
+
+    def quarantine(self):
+        name, exe = self._target()
+        if not exe or not confirm(
+                self, tr("Убрать в карантин?", "Quarantine?"),
+                tr(f"WhySlow закроет «{name}» и переместит файл\n{exe}\nв свою папку карантина. Файл не удаляется: "
+                   "вернуть его можно на вкладке «Журнал». Убедитесь, что это не нужная вам программа.",
+                   f"WhySlow will close “{name}” and move the file\n{exe}\nto its quarantine folder. The file is not "
+                   "deleted: you can restore it in the Journal tab. Make sure it isn't a program you need."),
+                danger=True):
+            return
+
+        def work(_p):
+            kill(self._group(name))
+            return pests.quarantine(exe)
+
+        def done(dst):
+            self.main.status(tr(f"«{name}» в карантине: {dst}", f"“{name}” quarantined: {dst}"))
+            self.main.journal_tab.reload()
+            self.scan()
+
+        run_async(work, done)
+
+    def open_manager(self):
+        kind, ext = self._current()
+        if kind != "ext":
+            return
+        if ext.browser != "Safari":
+            QApplication.clipboard().setText(ext.manage_url)
+        opened = pests.open_manager(ext)
+        QMessageBox.information(self, tr("Удаление расширения", "Removing the extension"),
+                                pests.manager_hint(ext) + "\n\n" + (
+                                    tr("Браузер открыт; адрес также скопирован — вставьте его в строку адреса, "
+                                       "если страница не открылась сама.",
+                                       "The browser is open; the address is also copied — paste it into the address "
+                                       "bar if the page didn't open by itself.") if opened else
+                                    tr("Адрес скопирован — вставьте его в строку адреса браузера.",
+                                       "The address is copied — paste it into the browser's address bar.")
+                                    if ext.browser != "Safari" else ""))
+
+    def remove_policy(self):
+        kind, ext = self._current()
+        if kind != "ext" or not ext.policy:
+            return
+        if not confirm(self, tr("Снять принудительную установку?", "Remove the forced install?"),
+                       tr(f"Удалить запись политики, которая ставит «{ext.name}» в {ext.browser} принудительно? "
+                          "Если компьютер рабочий и это поставил администратор — не надо. "
+                          "Откатить можно на вкладке «Журнал». После этого перезапустите браузер и удалите расширение.",
+                          f"Delete the policy entry that force-installs “{ext.name}” in {ext.browser}? "
+                          "If this is a work computer and your admin set it up, don't. "
+                          "You can undo it in the Journal tab. Then restart the browser and remove the extension."),
+                       danger=True):
+            return
+        try:
+            n = pests.remove_policy(ext)
+        except pests.ActionError as e:
+            QMessageBox.warning(self, tr("Не получилось", "Failed"), str(e))
+            return
+        self.main.status(tr(f"Снято записей политики: {n}", f"Policy entries removed: {n}"))
+        self.main.journal_tab.reload()
+        self.scan()
+
+    def reveal(self):
+        _name, path = self._target()
+        if path:
+            bigfiles.reveal(path)
+
+    def clear_log(self):
+        if confirm(self, tr("Очистить ночной журнал?", "Clear the night log?"),
+                   tr("Все записи о том, кто выходил в сеть ночью, будут удалены.",
+                      "All records of who went online at night will be deleted.")):
+            pests.clear_log()
+            self.scan()
+
+
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -3636,6 +4182,8 @@ class JournalTab(QWidget):
                 lhm.uninstall()
             elif e["kind"] == "macdata_trash":
                 macstorage.undo(e)
+            elif e["kind"].startswith("pest_"):
+                pests.undo(e)
         except Exception as ex:
             QMessageBox.warning(self, tr("Не получилось", "Failed"), str(ex))
             return
@@ -3824,16 +4372,21 @@ class MainWindow(QMainWindow):
         self.optimize_tab = OptimizeTab(self)
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
+        self.pests_tab = premium_tab(pests.FEATURE, lambda: PestsTab(self), tr("Тихие вредители", "Hidden pests"),
+                                     tr("Поиск скрытых майнеров, опасных расширений браузера и программ, которые "
+                                        "выходят в сеть по ночам, доступен по подписке.",
+                                        "Finding hidden miners, risky browser extensions and programs that go online "
+                                        "at night is part of the subscription."))
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
-                         "history": self.history_tab}
+                         "history": self.history_tab, "pests": self.pests_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
-                 (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
+                 (self.pests_tab, tr("Вредители", "Pests")), (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
@@ -3874,6 +4427,10 @@ class MainWindow(QMainWindow):
         if "--tray" not in sys.argv:  # при запуске вместе с системой не грузим её проверкой
             QTimer.singleShot(400, self.scan)
         QTimer.singleShot(1500, self.check_updates)
+        # Ночной журнал сети для «Тихих вредителей»: замер раз в несколько минут, в фоне, только по подписке
+        self.pests_timer = QTimer(self)
+        self.pests_timer.timeout.connect(self.record_net)
+        self.pests_timer.start(pests.RECORD_EVERY * 1000)
         if IS_MAC:  # автоочистка по расписанию: проверяем при запуске и раз в час
             QTimer.singleShot(30000, self.autoclean_if_due)
             self.auto_timer = QTimer(self)
@@ -4046,6 +4603,10 @@ class MainWindow(QMainWindow):
             set_lang(code)
             self.restart()
 
+    def record_net(self):
+        if pests.unlocked():
+            run_async(lambda _p: pests.record(), lambda _r: None, lambda _e: None)
+
     def go(self, key: str):
         self.tabs.setCurrentWidget(self.tab_keys[key])
 
@@ -4061,6 +4622,10 @@ class MainWindow(QMainWindow):
             self.reinstall_tab.activate()
         elif cur is self.history_tab:
             self.history_tab.activate()
+        elif cur is self.pests_tab:
+            inner = cur if isinstance(cur, PestsTab) else cur.findChild(PestsTab)
+            if inner:
+                inner.activate()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():
