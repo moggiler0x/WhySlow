@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import checks, forecast, knowledge, macapps, macstorage, online, optimize, passwords, settings, updater
+from . import checks, forecast, healthcost, knowledge, macapps, macstorage, online, optimize, passwords, settings, twin, updater
 from .i18n import tr
 from .util import IS_MAC, human_size
 
@@ -175,4 +175,64 @@ def outlook() -> int:
     for line in [fc.os_text] + fc.notes + fc.market + [forecast.disclaimer()]:
         if line:
             print("\n" + line)
+    return 0
+
+
+def _premium(feature: str) -> bool:
+    """Платные функции открываются ключом подписки (license.py); без него — закрыты."""
+    try:
+        from .license import has_premium
+    except ImportError:
+        has_premium = None
+    if has_premium and has_premium(feature):
+        return True
+    print(tr("Эта функция доступна по подписке. Ключ вводится в окне программы.",
+             "This feature is available with a subscription. Enter the key in the app window."))
+    return False
+
+
+def pc_twin() -> int:
+    """python -m whyslow --twin: что дал бы апгрейд на реальных данных этого компьютера."""
+    if not _premium("twin"):
+        return 3
+    db, msg = forecast.update(timeout=4)
+    print(msg)
+    print(tr("Определяю железо и нагрузку…", "Detecting hardware and load…"))
+    hw, use = forecast.hardware(), twin.usage()
+    wid = settings.get("forecast_profile")
+    fps = settings.get("twin_fps")
+    base, sims = twin.simulate_all(hw, db, use, wid, fps if isinstance(fps, dict) else {})
+    print("\n" + forecast.summary(base.fc))
+    if not sims:
+        print("\n" + twin.no_options_text(hw))
+        return 0
+    best = twin.best(sims)
+    for s in sims:
+        mark = tr("  ← лучшее вложение", "  ← best value") if s is best else ""
+        print(f"\n{s.title} — {twin.money(*s.price)}{mark}")
+        for e in s.effects:
+            print("  • " + e)
+    print("\n" + twin.disclaimer())
+    return 0
+
+
+def risk_cost() -> int:
+    """python -m whyslow --risks: здоровье компьютера в деньгах."""
+    if not _premium("health_money"):
+        return 3
+    db, _msg = forecast.update(timeout=4)
+    print(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
+    rep = healthcost.collect(db)
+    print("\n" + healthcost.headline(rep))
+    for r in rep.risks:
+        print(f"\n{r.title}: {r.state}")
+        print(tr(f"  Риск за год: {healthcost.chance_text(r.chance)} — {r.when}",
+                 f"  Risk per year: {healthcost.chance_text(r.chance)} — {r.when}"))
+        print(tr(f"  Сейчас: {r.now_what} — {twin.money(*r.now)}", f"  Now: {r.now_what} — {twin.money(*r.now)}"))
+        print(tr(f"  Если случится: {r.later_what} — {twin.money(*r.later)}",
+                 f"  If it happens: {r.later_what} — {twin.money(*r.later)}"))
+        if r.advice:
+            print("  → " + r.advice)
+    for line in rep.notes + [healthcost.disclaimer()]:
+        print("\n" + line)
     return 0

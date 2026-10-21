@@ -22,12 +22,12 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractButton, QAbstractItemView, QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
     QComboBox, QFileDialog, QHeaderView, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QRadioButton, QScrollArea,
-    QMenu, QSizePolicy, QSystemTrayIcon, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QMenu, QSizePolicy, QSpinBox, QSystemTrayIcon, QTabBar, QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from . import (
-    __version__, bigfiles, checks, forecast, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords,
-    reinstall, settings, startup, sysinfo, updater, watch,
+    __version__, bigfiles, checks, forecast, healthcost, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize,
+    passwords, reinstall, settings, startup, sysinfo, twin, updater, watch,
 )
 from .i18n import LANGS, lang, set_lang, tr
 from .i18n import pick as i18n_pick  # pick — поле записи базы на текущем языке
@@ -3745,6 +3745,328 @@ class ForecastTab(QWidget):
                                       f"Nothing needs upgrading for the next {forecast.span(min(w.years, 4))}.")))
 
 
+class TwinTab(QWidget):
+    """Двойник ПК: что дал бы апгрейд на реальных данных этого компьютера."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.db = forecast.load()
+        self.hw: dict | None = None
+        self.use: twin.Usage | None = None
+        self.sims: list[twin.Simulation] = []
+        self.started = False
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+
+        title = QLabel(accent(tr("Двойник вашего ПК", "Your PC's twin")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("Прежде чем покупать детали, посмотрите, что они дадут именно вашему компьютеру: "
+                               "WhySlow берёт ваше железо, занятую память и историю тормозов и подставляет к ним "
+                               "новую деталь.",
+                               "Before buying parts, see what they would do for this exact computer: WhySlow takes "
+                               "your hardware, memory use and slowdown history and swaps in the new part.")))
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("Чем вы чаще всего заняты:", "What you mostly do:")))
+        self.profile = QComboBox()
+        self.profile.currentIndexChanged.connect(self.on_profile)
+        row.addWidget(self.profile, 1)
+        lay.addLayout(row)
+        self.head = QLabel(tr("Определяю железо…", "Detecting hardware…"))
+        self.head.setObjectName("h2")
+        self.head.setWordWrap(True)
+        lay.addWidget(self.head)
+        self.hw_label = muted()
+        lay.addWidget(self.hw_label)
+
+        self.table = make_table([tr("Апгрейд", "Upgrade"), tr("Цена", "Price"), tr("Хватит лет", "Years"),
+                                 tr("Главное", "Main effect")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.table.setMinimumHeight(px(200))
+        self.table.itemSelectionChanged.connect(self.show_details)
+        lay.addWidget(self.table)
+
+        box = QGroupBox(tr("Что изменится", "What changes"))
+        bl = QVBoxLayout(box)
+        self.details = QLabel()
+        self.details.setWordWrap(True)
+        self.details.setTextFormat(Qt.RichText)
+        bl.addWidget(self.details)
+        self.games = make_table([tr("Игра", "Game"), tr("Сейчас", "Now"), tr("С апгрейдом", "Upgraded"),
+                                 tr("Держит кадры", "Limited by")])
+        gh = self.games.horizontalHeader()
+        gh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2, 3):
+            gh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.games.setMinimumHeight(px(170))
+        bl.addWidget(self.games)
+        crow = QHBoxLayout()
+        crow.addWidget(QLabel(tr("Я сам вижу в", "I actually get in")))
+        self.game_box = QComboBox()
+        crow.addWidget(self.game_box, 1)
+        self.fps = QSpinBox()
+        self.fps.setRange(0, 999)
+        self.fps.setSuffix(" FPS")
+        self.fps.setSpecialValueText(tr("не знаю", "don't know"))
+        crow.addWidget(self.fps)
+        b_fps = QPushButton(tr("Учесть", "Use it"))
+        b_fps.clicked.connect(self.save_fps)
+        crow.addWidget(b_fps)
+        bl.addLayout(crow)
+        self.game_box.currentIndexChanged.connect(self.show_measured)
+        lay.addWidget(box)
+        self.notes = muted()
+        lay.addWidget(self.notes)
+        lay.addStretch()
+        brow = QHBoxLayout()
+        self.b_redo = QPushButton(tr("Пересчитать по текущей нагрузке", "Recalculate from the current load"))
+        self.b_redo.clicked.connect(self.detect)
+        brow.addWidget(self.b_redo)
+        brow.addStretch()
+        lay.addLayout(brow)
+        self.fill_profiles()
+
+    def fill_profiles(self):
+        saved = settings.get("forecast_profile")
+        self.profile.blockSignals(True)
+        self.profile.clear()
+        for w in self.db.get("workloads", []):
+            self.profile.addItem(i18n_pick(w, "title"), w.get("id"))
+        self.profile.setCurrentIndex(max(self.profile.findData(saved), 0))
+        self.profile.blockSignals(False)
+        self.game_box.blockSignals(True)
+        self.game_box.clear()
+        for g in self.db.get("games", []):
+            self.game_box.addItem(i18n_pick(g, "title"), g.get("id"))
+        self.game_box.blockSignals(False)
+        self.show_measured()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self.started:
+            self.started = True
+            self.detect()
+
+    def detect(self):
+        self.b_redo.setEnabled(False)
+        self.head.setText(tr("Определяю железо и нагрузку…", "Detecting hardware and load…"))
+        run_async(lambda _p: (self.hw or forecast.hardware(), twin.usage()), self._got, self._failed)
+
+    def _failed(self, msg: str):
+        self.b_redo.setEnabled(True)
+        self.head.setText(tr("Не удалось определить железо: ", "Couldn't detect the hardware: ") + msg)
+
+    def _got(self, result):
+        self.b_redo.setEnabled(True)
+        self.hw, self.use = result
+        self.recalc()
+
+    def wid(self) -> str:
+        return self.profile.currentData() or "everyday"
+
+    def on_profile(self):
+        settings.set("forecast_profile", self.wid())
+        self.recalc()
+
+    def measured(self) -> dict:
+        saved = settings.get("twin_fps")
+        return saved if isinstance(saved, dict) else {}
+
+    def show_measured(self):
+        self.fps.setValue(int(self.measured().get(self.game_box.currentData() or "", 0)))
+
+    def save_fps(self):
+        m = dict(self.measured())
+        gid = self.game_box.currentData()
+        if not gid:
+            return
+        if self.fps.value():
+            m[gid] = self.fps.value()
+        else:
+            m.pop(gid, None)
+        settings.set("twin_fps", m)
+        self.recalc()
+
+    def recalc(self):
+        if not self.hw or not self.db.get("workloads"):
+            return
+        keep = self.table.currentRow()
+        base, self.sims = twin.simulate_all(self.hw, self.db, self.use, self.wid(), self.measured())
+        self.base = base
+        self.hw_label.setText(forecast.summary(base.fc))
+        best = twin.best(self.sims)
+        if not self.sims:
+            self.head.setText(twin.no_options_text(self.hw))
+        elif best:
+            self.head.setText(tr(f"Лучшее вложение для вашей задачи: {best.title} ({twin.money(*best.price)}).",
+                                 f"Best value for your task: {best.title} ({twin.money(*best.price)})."))
+        else:
+            self.head.setText(tr("Для выбранной задачи ни один апгрейд почти ничего не даст: железа хватает.",
+                                 "For the chosen task no upgrade would make much difference: the hardware is enough."))
+        self.table.setRowCount(len(self.sims))
+        wid = self.wid()
+        for r, s in enumerate(self.sims):
+            before, after = s.get_years(wid)
+            years = f"{forecast.span(before) if before >= 0.5 else '0'} → {forecast.span(after)}"
+            cells = [("★ " if s is best else "") + s.title, twin.money(*s.price), years,
+                     s.effects[0] if s.effects else "—"]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 2 and after > before + 0.4:
+                    it.setForeground(QBrush(QColor(C["ok"])))
+                self.table.setItem(r, c, it)
+        self.notes.setText(twin.disclaimer() + (tr(f" Цены от {self.db['updated']}.", f" Prices as of {self.db['updated']}.")
+                                                if self.db.get("updated") else ""))
+        if self.sims:
+            self.table.selectRow(min(max(keep, 0), len(self.sims) - 1) if keep >= 0 else
+                                 self.sims.index(best) if best else 0)
+        else:
+            self.details.setText("")
+            self.games.setRowCount(0)
+
+    def show_details(self):
+        r = self.table.currentRow()
+        if not (0 <= r < len(self.sims)):
+            return
+        s = self.sims[r]
+        self.details.setText(f"<b>{_esc(s.title)}</b> — {_esc(twin.money(*s.price))}"
+                             + "".join(f"<p>• {_esc(e)}</p>" for e in s.effects))
+        limits = {"gpu": tr("видеокарта", "graphics"), "cpu": tr("процессор", "CPU"),
+                  "vram": tr("видеопамять", "video memory")}
+        self.games.setRowCount(len(s.games))
+        for i, g in enumerate(s.games):
+            cells = [g.title, f"~{g.now:.0f}", f"~{g.after:.0f}", limits.get(g.limit_after, g.limit_after)]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 2 and g.after > g.now * 1.08:
+                    it.setForeground(QBrush(QColor(C["ok"])))
+                self.games.setItem(i, c, it)
+
+
+class HealthCostTab(QWidget):
+    """Здоровье в деньгах: что может сломаться и сколько стоит заняться этим сейчас или потом."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.db = forecast.load()
+        self.rep: healthcost.Report | None = None
+        self.started = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        title = QLabel(accent(tr("Здоровье ПК в деньгах", "PC health in money")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("Что в компьютере может сломаться, насколько это вероятно и сколько стоит заняться "
+                               "этим сейчас — против того, во сколько обойдётся, если ждать.",
+                               "What in the computer might break, how likely that is, and what it costs to deal "
+                               "with it now versus what it will cost if you wait.")))
+        self.head = QLabel(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
+        self.head.setObjectName("h2")
+        self.head.setWordWrap(True)
+        lay.addWidget(self.head)
+        self.table = make_table([tr("Что", "What"), tr("Состояние", "State"), tr("Риск за год", "Risk / year"),
+                                 tr("Сейчас", "Now"), tr("Если ждать", "If you wait")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2, 3, 4):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.table.itemSelectionChanged.connect(self.show_details)
+        lay.addWidget(self.table, 1)
+        box = QGroupBox(tr("Подробно", "Details"))
+        bl = QVBoxLayout(box)
+        self.details = QLabel()
+        self.details.setWordWrap(True)
+        self.details.setTextFormat(Qt.RichText)
+        bl.addWidget(self.details)
+        lay.addWidget(box)
+        self.notes = muted()
+        lay.addWidget(self.notes)
+        row = QHBoxLayout()
+        self.b_redo = QPushButton(tr("Проверить заново", "Check again"))
+        self.b_redo.clicked.connect(self.check)
+        row.addWidget(self.b_redo)
+        row.addStretch()
+        lay.addLayout(row)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self.started:
+            self.started = True
+            self.check()
+
+    def check(self):
+        self.b_redo.setEnabled(False)
+        self.head.setText(tr("Проверяю диски, аккумулятор и температуры…", "Checking disks, battery and temperatures…"))
+        run_async(lambda _p: healthcost.collect(self.db), self._done,
+                  lambda e: (self.b_redo.setEnabled(True), self.head.setText(e)))
+
+    def _done(self, rep: healthcost.Report):
+        self.b_redo.setEnabled(True)
+        self.rep = rep
+        self.head.setText(healthcost.headline(rep))
+        colors = {healthcost.OK: C["ok"], healthcost.WARN: C["warn"], healthcost.BAD: C["bad"]}
+        self.table.setRowCount(len(rep.risks))
+        for r, risk in enumerate(rep.risks):
+            cells = [risk.title, risk.state, healthcost.chance_text(risk.chance), twin.money(*risk.now),
+                     twin.money(*risk.later)]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 1:
+                    it.setForeground(QBrush(QColor(colors.get(risk.level, C["muted"]))))
+                self.table.setItem(r, c, it)
+        self.notes.setText("<br>".join(_esc(n) for n in rep.notes + [healthcost.disclaimer()]))
+        self.notes.setTextFormat(Qt.RichText)
+        if rep.risks:
+            self.table.selectRow(0)
+        else:
+            self.details.setText("")
+
+    def show_details(self):
+        r = self.table.currentRow()
+        if not self.rep or not (0 <= r < len(self.rep.risks)):
+            return
+        k = self.rep.risks[r]
+        lines = [f"<b>{_esc(k.title)}</b>: {_esc(k.state)}",
+                 _esc(tr(f"Когда ждать: {k.when}.", f"When to expect it: {k.when}.")),
+                 _esc(tr(f"Сейчас: {k.now_what} — {twin.money(*k.now)}.", f"Now: {k.now_what} — {twin.money(*k.now)}.")),
+                 _esc(tr(f"Если случится: {k.later_what} — {twin.money(*k.later)}.",
+                         f"If it happens: {k.later_what} — {twin.money(*k.later)}."))]
+        if k.advice:
+            lines.append(f"<b>{_esc(k.advice)}</b>")
+        self.details.setText("".join(f"<p>{x}</p>" for x in lines))
+
+
+def premium(feature: str, build):
+    """Платная вкладка: замок с вводом ключа, пока подписки нет (license_ui из ветки подписки)."""
+    try:
+        from .license_ui import PremiumGate
+    except ImportError:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.addWidget(muted(tr("Эта функция доступна по подписке. Ввод ключа появится в следующей версии.",
+                               "This feature is available with a subscription. Key entry arrives in the next version.")))
+        lay.addStretch()
+        return page
+    return PremiumGate(feature, build)
+
+
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -3997,20 +4319,24 @@ class MainWindow(QMainWindow):
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
         self.forecast_tab = ForecastTab(self)
+        self.twin_tab = premium("twin", lambda: TwinTab(self))
+        self.health_tab = premium("health_money", lambda: HealthCostTab(self))
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
-                         "history": self.history_tab, "forecast": self.forecast_tab}
+                         "history": self.history_tab, "forecast": self.forecast_tab,
+                         "twin": self.twin_tab, "health_money": self.health_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
+                 (self.twin_tab, tr("Двойник", "Twin")), (self.health_tab, tr("Риски в ₽", "Risk cost")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
-            pages.insert(7, (self.storage_tab, tr("Хранилище", "Storage")))
+            pages.insert(9, (self.storage_tab, tr("Хранилище", "Storage")))
         for w, title in pages:
             self.tabs.addTab(w, title)
             self.nav.addTab(title)

@@ -8,7 +8,7 @@ def selfcheck() -> int:
     from . import __version__
     names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
              "lhm", "macapps", "macstorage", "journal", "passwords", "optimize", "reinstall", "settings", "net", "online", "updater", "cli",
-             "conflicts", "diskhealth", "power", "bigfiles", "watch", "forecast"]
+             "conflicts", "diskhealth", "power", "bigfiles", "watch", "forecast", "twin", "healthcost"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
         names.append("gui")
@@ -56,6 +56,12 @@ def main() -> int:
     if "--forecast" in sys.argv:
         from .cli import outlook
         return outlook()
+    if "--twin" in sys.argv:
+        from .cli import pc_twin
+        return pc_twin()
+    if "--risks" in sys.argv:
+        from .cli import risk_cost
+        return risk_cost()
     if "--cli" in sys.argv:
         from .cli import main as cli_main
         return cli_main()
