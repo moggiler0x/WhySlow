@@ -33,3 +33,13 @@ def test_excluded_folder_is_untouched(tmp_path):
 def test_categories_have_titles():
     for c in junk.categories():
         assert c.key and c.title and c.note
+
+
+def test_all_browser_profiles(tmp_path):
+    data = tmp_path / r"Google\Chrome" / "User Data"
+    (data / "Profile 2").mkdir(parents=True)
+    (tmp_path / r"Mozilla\Firefox\Profiles" / "abc.default").mkdir(parents=True)
+    paths = junk._win_browser_caches(tmp_path)
+    assert data / "Default" / "Cache" in paths
+    assert data / "Profile 2" / "Cache" in paths
+    assert tmp_path / r"Mozilla\Firefox\Profiles" / "abc.default" / "cache2" in paths

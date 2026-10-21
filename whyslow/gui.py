@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
+    __version__, bigfiles, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
     settings, startup, sysinfo, updater,
 )
 from .i18n import LANGS, lang, set_lang, tr
@@ -1991,7 +1991,6 @@ class JunkTab(QWidget):
         self.box_lay.setVerticalSpacing(px(10))
         self.box_lay.setHorizontalSpacing(px(14))
         lay.addWidget(self.box)
-        lay.addStretch()
         row = QHBoxLayout()
         self.b_clean = QPushButton(tr("Очистить выбранное", "Clean selected"))
         self.b_clean.setObjectName("primary")
@@ -2000,6 +1999,129 @@ class JunkTab(QWidget):
         row.addWidget(self.b_clean)
         row.addStretch()
         lay.addLayout(row)
+        lay.addWidget(self._big_box(), 1)
+
+    # ------------------------------------------------------------ большие файлы
+
+    BIG_COLS = [tr("Файл", "File"), tr("Размер", "Size"), tr("Изменён", "Modified"), tr("Папка", "Folder")]
+
+    def _big_box(self) -> QGroupBox:
+        box = QGroupBox(tr("Большие файлы", "Large files"))
+        v = QVBoxLayout(box)
+        self.big_root = Path.home()
+        self.big_files: list[bigfiles.BigFile] = []
+        self.big_note = muted(tr(f"Файлы крупнее {human_size(bigfiles.MIN_SIZE)} в ваших папках: старые загрузки, "
+                                 "образы дисков, видео. Служебные папки программ не трогаются. Удаление — в Корзину.",
+                                 f"Files over {human_size(bigfiles.MIN_SIZE)} in your folders: old downloads, disk "
+                                 "images, videos. App data folders are skipped. Deleting moves to the Trash."))
+        v.addWidget(self.big_note)
+        top = QHBoxLayout()
+        self.b_big_find = QPushButton(tr("Найти большие файлы", "Find large files"))
+        self.b_big_find.clicked.connect(self.find_big)
+        top.addWidget(self.b_big_find)
+        self.b_big_root = QPushButton(tr("Папка: ", "Folder: ") + str(self.big_root))
+        self.b_big_root.clicked.connect(self.choose_big_root)
+        top.addWidget(self.b_big_root)
+        top.addStretch()
+        v.addLayout(top)
+        self.big_table = make_table(self.BIG_COLS)
+        hh = self.big_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.big_table.setSortingEnabled(True)
+        self.big_table.itemSelectionChanged.connect(self._big_select)
+        self.big_table.setVisible(False)
+        v.addWidget(self.big_table, 1)
+        acts = QHBoxLayout()
+        self.b_big_show = QPushButton(tr("Показать в папке", "Show in folder"))
+        self.b_big_show.clicked.connect(lambda: (f := self._big_current()) and bigfiles.reveal(f.path))
+        self.b_big_trash = QPushButton(tr("В Корзину", "Move to Trash"))
+        self.b_big_trash.setObjectName("danger")
+        self.b_big_trash.clicked.connect(self.trash_big)
+        for b in (self.b_big_show, self.b_big_trash):
+            b.setEnabled(False)
+            acts.addWidget(b)
+        acts.addStretch()
+        v.addLayout(acts)
+        return box
+
+    def choose_big_root(self):
+        d = QFileDialog.getExistingDirectory(self, tr("Где искать большие файлы", "Where to look for large files"),
+                                             str(self.big_root))
+        if d:
+            self.big_root = Path(d)
+            self.b_big_root.setText(tr("Папка: ", "Folder: ") + d)
+
+    def find_big(self):
+        self.b_big_find.setEnabled(False)
+        self.b_big_find.setText(tr("Ищу…", "Searching…"))
+        root = self.big_root
+
+        def done(files):
+            self.b_big_find.setEnabled(True)
+            self.b_big_find.setText(tr("Найти заново", "Search again"))
+            self.set_big(files)
+
+        def failed(msg):
+            self.b_big_find.setEnabled(True)
+            self.b_big_find.setText(tr("Найти большие файлы", "Find large files"))
+            _show_error(msg)
+
+        run_async(lambda p: bigfiles.find(root, progress=p), done, failed,
+                  lambda text: self.main.status(tr("Смотрю ", "Looking in ") + text))
+
+    def set_big(self, files):
+        self.big_files = files
+        t = self.big_table
+        t.setSortingEnabled(False)
+        t.setRowCount(len(files))
+        for r, f in enumerate(files):
+            name = QTableWidgetItem(f.name)
+            name.setData(Qt.UserRole, r)
+            name.setToolTip(f.path)
+            when = NumItem(time.strftime("%d.%m.%Y", time.localtime(f.mtime)), f.mtime)
+            for c, it in enumerate([name, NumItem(human_size(f.size), f.size), when, QTableWidgetItem(f.folder)]):
+                t.setItem(r, c, it)
+        t.setSortingEnabled(True)
+        t.sortItems(1, Qt.DescendingOrder)
+        t.setVisible(bool(files))
+        total = sum(f.size for f in files)
+        self.main.status(tr(f"Больших файлов: {len(files)}, вместе {human_size(total)}",
+                            f"Large files: {len(files)}, {human_size(total)} in total") if files
+                         else tr("Больших файлов не найдено", "No large files found"))
+        self._big_select()
+
+    def _big_current(self):
+        rows = self.big_table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        idx = self.big_table.item(rows[0].row(), 0).data(Qt.UserRole)
+        return self.big_files[idx] if idx is not None and idx < len(self.big_files) else None
+
+    def _big_select(self):
+        f = self._big_current()
+        self.b_big_show.setEnabled(f is not None)
+        self.b_big_trash.setEnabled(f is not None)
+
+    def trash_big(self):
+        f = self._big_current()
+        if not f or not confirm(self, tr("Переместить в Корзину?", "Move to Trash?"),
+                                tr(f"«{f.name}» — {human_size(f.size)}\n{f.folder}\n\n"
+                                   "Файл уйдёт в Корзину, вернуть его можно оттуда. Место освободится после "
+                                   "очистки Корзины.",
+                                   f"“{f.name}” — {human_size(f.size)}\n{f.folder}\n\n"
+                                   "The file goes to the Trash and can be restored from there. The space is freed "
+                                   "once the Trash is emptied.")):
+            return
+
+        def done(_r):
+            self.set_big([x for x in self.big_files if x.path != f.path])
+            self.main.journal_tab.reload()
+            self.main.status(tr(f"«{f.name}» в Корзине", f"“{f.name}” moved to Trash"))
+
+        run_async(lambda _p: bigfiles.to_trash(f), done)
 
     def set_cats(self, cats):
         self.cats = cats

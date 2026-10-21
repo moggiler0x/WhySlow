@@ -36,14 +36,17 @@ def categories() -> list[JunkCategory]:
             JunkCategory("temp", tr("Временные файлы", "Temporary files"), tr("Остатки установщиков и программ", "Leftovers from installers and apps"),
                          [Path(os.environ.get("TEMP", local / "Temp")), windir / "Temp"]),
             JunkCategory("browser", tr("Кеш браузеров", "Browser cache"), tr("Браузер скачает заново то, что нужно", "The browser re-downloads what it needs"),
-                         [local / r"Google\Chrome\User Data\Default\Cache",
-                          local / r"Microsoft\Edge\User Data\Default\Cache",
-                          local / r"Yandex\YandexBrowser\User Data\Default\Cache",
-                          local / r"BraveSoftware\Brave-Browser\User Data\Default\Cache"]),
+                         _win_browser_caches(local)),
+            JunkCategory("shaders", tr("Кеш шейдеров", "Shader cache"),
+                         tr("Видеодрайвер и игры пересоберут его при запуске", "The graphics driver and games rebuild it on launch"),
+                         [local / "D3DSCache", local / r"NVIDIA\DXCache", local / r"NVIDIA\GLCache",
+                          local / r"AMD\DxCache", local / r"AMD\DxcCache", local / r"AMD\GLCache",
+                          local / r"Intel\ShaderCache"]),
             JunkCategory("crash", tr("Дампы падений", "Crash dumps"), tr("Отчёты об ошибках программ", "App error reports"),
                          [local / "CrashDumps", windir / "Minidump", local / r"Microsoft\Windows\WER"]),
-            JunkCategory("wu", tr("Загрузки обновлений Windows", "Windows Update downloads"), tr("Уже установленные обновления (нужны права админа)", "Already installed updates (admin rights needed)"),
-                         [windir / r"SoftwareDistribution\Download"]),
+            JunkCategory("wu", tr("Загрузки обновлений Windows", "Windows Update downloads"), tr("Уже установленные обновления и кеш их доставки (нужны права админа)", "Already installed updates and their delivery cache (admin rights needed)"),
+                         [windir / r"SoftwareDistribution\Download",
+                          windir / r"ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache"]),
             JunkCategory("recycle", tr("Корзина", "Recycle Bin" if IS_WINDOWS else "Trash"), tr("Удалённые файлы", "Deleted files"), [], min_age_hours=0),
         ]
     elif IS_MAC:
@@ -67,6 +70,26 @@ def categories() -> list[JunkCategory]:
             JunkCategory("trash", tr("Корзина", "Recycle Bin" if IS_WINDOWS else "Trash"), tr("Удалённые файлы", "Deleted files"), [home / ".local/share/Trash"], min_age_hours=0),
         ]
     return cats
+
+
+_CHROMIUM = [r"Google\Chrome", r"Microsoft\Edge", r"Yandex\YandexBrowser", r"BraveSoftware\Brave-Browser",
+             r"Vivaldi", r"Chromium"]
+
+
+def _win_browser_caches(local: Path) -> list[Path]:
+    """Кеш всех профилей браузеров, а не только основного: «Profile 1», «Profile 2»…"""
+    out = []
+    for b in _CHROMIUM:
+        data = local / b / "User Data"
+        profiles = [data / "Default"] + (sorted(data.glob("Profile *")) if data.is_dir() else [])
+        for prof in profiles:
+            out += [prof / "Cache", prof / "Code Cache", prof / "GPUCache"]
+    for opera in ("Opera Stable", "Opera GX Stable"):
+        out += [local / "Opera Software" / opera / "Cache"]
+    ff = local / r"Mozilla\Firefox\Profiles"
+    if ff.is_dir():
+        out += [p / "cache2" for p in sorted(ff.iterdir())]
+    return out
 
 
 # что удаляется целиком, без ограничения по возрасту
