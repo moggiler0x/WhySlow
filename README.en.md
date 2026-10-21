@@ -57,6 +57,7 @@ process against it and tells you whether it is safe to disable, better left alon
 | **Storage** (macOS only) | What “System Data” is made of: categories with sizes, each marked important, safe to delete, or removed automatically; deleting to the Trash and auto-clean |
 | **Reinstall** | Reinstall the system with one button: the chosen folders are copied to another disk first, then the Windows or macOS reinstall window opens |
 | **Passwords** | Checks passwords from your password manager against breach databases and replaces leaked ones with new random ones |
+| **Compare** | Subscription: anonymously compares your PC with computers on the same hardware (boot time, idle load, startup) and names the programs fast similar PCs don't have |
 | **History** | When and why the computer was slow: WhySlow records long load spikes in the background, can live in the tray and start with the system |
 | **Journal** | Everything WhySlow changed. Any startup or proxy change can be rolled back with one click |
 
@@ -156,6 +157,12 @@ The **Passwords** tab finds passwords that already appear in data breaches and h
 
 The manager is updated only after the site is. Changing a password only in the manager would leave you with a
 password the site doesn't accept.
+
+### Comparison with similar PCs
+
+When you press Compare, WhySlow builds an anonymous snapshot and **shows it to you in full first**: it is sent only after you tick the consent box. The snapshot holds the CPU and GPU model, memory size, disk type, OS version, boot time, idle load, and the number of processes and startup programs. Programs are sent only as entries of the open knowledge base, others only as a count. No name, computer name, paths, IP or subscription key is stored next to the snapshot on the server.
+
+The server replies only with a summary (medians and program shares), and only if there are at least five similar PCs. «Delete my data from the server» erases the snapshot and withdraws consent.
 
 ### Problems it finds
 
