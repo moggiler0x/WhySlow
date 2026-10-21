@@ -219,7 +219,7 @@ use "Turn off on this computer".
 
 Text mode: `python -m whyslow --license` shows the status, `python -m whyslow --license KEY` enters a key.
 
-How keys work and how they are issued: [server/README.md](server/README.md) (in Russian).
+Paid-feature code is encrypted in the build: without a subscription key it cannot be read or run, so removing the check from the open source is pointless. How keys and protection work: [server/README.md](server/README.md) (in Russian).
 
 ## Install and run
 
@@ -448,6 +448,8 @@ whyslow/
   journal.py     change journal for rollback
   license.py     subscription: key checks (Ed25519), device code, online activation
   license_ui.py  Subscription window and lock on paid tabs
+  seal.py        encrypts paid modules (unreadable and unrunnable without a subscription key)
+  premium/       paid-feature code; encrypted in release builds (<feature>.wsl)
   updater.py     updating the program from GitHub
   settings.py    settings (language, updates, auto-clean on Mac)
   i18n.py        interface language: Russian and English
@@ -455,6 +457,7 @@ whyslow/
   data/icon.png  window icon
 tests/           tests (python -m pytest tests)
 owner/keys.py    issuing subscription keys (owner only)
+owner/seal.py    encrypting paid modules before a build (owner only)
 server/          key activation server and Telegram bot (Cloudflare Workers)
 packaging/
   build.py       builds the ready-made app for the current OS (PyInstaller)

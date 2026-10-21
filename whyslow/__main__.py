@@ -8,7 +8,7 @@ def selfcheck() -> int:
     from . import __version__
     names = ["i18n", "util", "knowledge", "online", "checks", "startup", "processes", "junk", "network", "sysinfo",
              "lhm", "macapps", "macstorage", "journal", "passwords", "optimize", "reinstall", "settings", "net", "online", "updater", "cli",
-             "conflicts", "diskhealth", "power", "bigfiles", "watch", "ed25519", "license"]
+             "conflicts", "diskhealth", "power", "bigfiles", "watch", "ed25519", "seal", "license", "premium"]
     try:
         import PySide6.QtWidgets  # noqa: F401 — без Qt (сервер, только --cli) окно не проверяем
         names += ["gui", "license_ui"]

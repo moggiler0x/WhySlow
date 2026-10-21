@@ -35,7 +35,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from whyslow import ed25519, license  # noqa: E402
+from whyslow import ed25519, license, seal  # noqa: E402
+
+
+def feature_keys(seed: bytes) -> dict:
+    """Ключи расшифровки всех платных модулей — кладём в подписанный ключ, чтобы функции
+    открывались без интернета сразу после ввода ключа."""
+    return {f: seal.feature_key(seed, f).hex() for f in license.FEATURES}
 
 HOME = Path(os.environ.get("WHYSLOW_OWNER_DIR") or Path.home() / ".whyslow-owner")
 KEY_FILE = HOME / "private.key"
@@ -80,12 +86,12 @@ def cmd_issue(a):
         sys.exit(f"Тариф {a.plan} — не больше {limit} устройств.")
     now = int(time.time())
     payload = {"v": 1, "kid": "off-" + secrets.token_hex(4), "plan": a.plan, "iat": now,
-               "exp": now + int(a.months * MONTH), "dev": devices}
+               "exp": now + int(a.months * MONTH), "dev": devices, "keys": feature_keys(secret())}
     token = license.make_token(secret(), payload)
     license.read_token(token, public=ed25519.public_key(secret()).hex(), device=devices[0])
     HOME.mkdir(parents=True, exist_ok=True)
     with LOG_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({**payload, "note": a.note}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({**payload, "keys": sorted(payload["keys"]), "note": a.note}, ensure_ascii=False) + "\n")
     until = datetime.datetime.fromtimestamp(payload["exp"]).strftime("%d.%m.%Y")
     print(f"Лицензия «{license.PLANS[a.plan]['name'][0]}» до {until} для {', '.join(devices)}:\n")
     print(token)

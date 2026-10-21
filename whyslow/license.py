@@ -265,6 +265,21 @@ def auth_headers() -> dict:
     return {"Authorization": f"Bearer {token}", "X-WhySlow-Device": device_id()} if token else {}
 
 
+def active_keys() -> dict[str, bytes]:
+    """Ключи расшифровки платных модулей из действующей подписки (из подписанного токена).
+    Нет подписки — пустой словарь, и зашифрованный модуль не открыть."""
+    st = status()
+    if not st.active:
+        return {}
+    out = {}
+    for feature, hexkey in (st.extra.get("keys") or {}).items():
+        try:
+            out[feature] = bytes.fromhex(hexkey)
+        except (ValueError, TypeError):
+            pass
+    return out
+
+
 def _date(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts).strftime("%d.%m.%Y")
 

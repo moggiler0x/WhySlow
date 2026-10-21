@@ -82,6 +82,23 @@ print(d["plan"], d["kid"] == license.code_kid(license.normalize_code(sys.argv[3]
   assert.equal(out.toString().trim(), "solo True");
 });
 
+test("ключ функции с сервера расшифровывает модуль в программе", async () => {
+  const e = env();
+  const { data: rec } = await call(e, "/admin/create", { plan: "family", days: 31 }, adm);
+  const { data } = await call(e, "/v1/activate", { code: rec.code, device: "AAAAA-BBBBB" });
+  // Токен несёт ключи функций; они должны совпасть с whyslow.seal.feature_key и открыть .wsl
+  const out = execFileSync("python3", ["-c", `
+import sys, json
+from whyslow import license, seal
+d = license.read_token(sys.argv[1], public=sys.argv[2], device="AAAAA-BBBBB")
+seed = bytes.fromhex(sys.argv[3])
+key = bytes.fromhex(d["keys"]["compare"])
+assert key == seal.feature_key(seed, "compare")
+blob = seal.seal_bytes(b"def build(m): return m", key)
+print(seal.open_sealed(blob, key) == b"def build(m): return m")`, data.token, PUBLIC_KEY, PRIVATE_KEY], { cwd: ROOT });
+  assert.equal(out.toString().trim(), "True");
+});
+
 test("подделанная лицензия не проходит", async () => {
   const e = env();
   const { data: rec } = await call(e, "/admin/create", { plan: "solo", days: 31 }, adm);

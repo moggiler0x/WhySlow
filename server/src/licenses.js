@@ -1,12 +1,14 @@
 // Коды активации и их устройства. В базе лежит не сам код, а его хеш (kid):
 // даже утечка базы не даст готовых кодов.
 
-import { makeToken, sha256hex } from "./crypto.js";
+import { featureKeys, makeToken, sha256hex } from "./crypto.js";
 
 export const PLANS = {
   solo: { name: "Соло", price: 200, devices: 1 },
   family: { name: "Все устройства", price: 800, devices: 10 },
 };
+// Платные функции — тот же список, что whyslow/license.py FEATURES. Любая подписка открывает все.
+export const FEATURES = ["twin", "health_money", "xray", "gamemode", "compare", "pests", "migrate"];
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const TOKEN_DAYS = 7; // столько лицензия работает без связи с сервером
 const DAY = 86400;
@@ -121,7 +123,7 @@ export async function activate(env, { code, device, name }, mode) {
   await putRecord(env, rec);
   const token = await makeToken(env, {
     v: 1, kid: rec.kid, plan: rec.plan, iat: now(), exp: Math.min(rec.exp, now() + TOKEN_DAYS * DAY),
-    sub: rec.exp, max: rec.max, dev: [device], src: "online",
+    sub: rec.exp, max: rec.max, dev: [device], src: "online", keys: await featureKeys(env, FEATURES),
   });
   return { token };
 }

@@ -184,8 +184,13 @@ def show_license_dialog(parent=None) -> None:
 class PremiumGate(QStackedWidget):
     """Платная вкладка: замок без подписки, сама вкладка с подпиской."""
 
-    def __init__(self, feature: str, build: Callable[[], QWidget], parent=None):
+    def __init__(self, feature: str, build: Callable[[], QWidget] | None = None, parent=None, *, main=None):
         super().__init__(parent)
+        # build задаёт, как построить вкладку. Если не задан — грузим защищённый модуль
+        # whyslow/premium/<feature>.py (в релизе зашифрованный), ему нужен main.
+        if build is None:
+            from . import premium
+            build = lambda: premium.widget(feature, main)  # noqa: E731
         self.feature, self.build, self.content = feature, build, None
         self.lock = self._lock_page()
         self.addWidget(self.lock)
@@ -223,13 +228,17 @@ class PremiumGate(QStackedWidget):
         return w
 
     def refresh(self):
-        if license.has_premium(self.feature):
-            if self.content is None:
+        # Вкладку строим, только если подписка открыта И модуль удалось расшифровать
+        # (ключ функции есть). Без ключа build() бросит premium.PremiumLocked — остаётся замок.
+        if license.has_premium(self.feature) and self.content is None:
+            try:
                 self.content = self.build()
                 self.addWidget(self.content)
-            self.setCurrentWidget(self.content)
-        else:
-            self.setCurrentWidget(self.lock)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                self.content = None
+        self.setCurrentWidget(self.content if self.content is not None else self.lock)
 
 
 class PremiumButton(QPushButton):

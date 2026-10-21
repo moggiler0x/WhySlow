@@ -35,6 +35,43 @@ async function verifyKey(env) {
   return keys.get("verify");
 }
 
+function concatBytes(...arrays) {
+  const total = arrays.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+async function hmacSha256(keyBytes, data) {
+  const k = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, data));
+}
+
+// HKDF-SHA256 (RFC 5869) — тот же вывод, что whyslow/seal.py._hkdf
+async function hkdf(ikm, salt, info, length = 32) {
+  const prk = await hmacSha256(salt, ikm);
+  let out = new Uint8Array(0), block = new Uint8Array(0);
+  for (let counter = 1; out.length < length; counter++) {
+    block = await hmacSha256(prk, concatBytes(block, info, Uint8Array.of(counter)));
+    out = concatBytes(out, block);
+  }
+  return out.slice(0, length);
+}
+
+function toHex(bytes) {
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Ключи расшифровки платных модулей для списка функций — кладём их в подписанный токен
+export async function featureKeys(env, features) {
+  const seed = Uint8Array.from((env.PRIVATE_KEY || "").match(/../g) || [], (h) => parseInt(h, 16));
+  const salt = enc.encode("whyslow-seal-key");
+  const out = {};
+  for (const f of features) out[f] = toHex(await hkdf(seed, salt, enc.encode(f)));
+  return out;
+}
+
 export async function makeToken(env, payload) {
   const body = enc.encode(JSON.stringify(payload));
   const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, await signingKey(env), body));
