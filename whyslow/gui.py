@@ -26,10 +26,11 @@ from PySide6.QtWidgets import (
 )
 
 from . import (
-    __version__, bigfiles, checks, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords, reinstall,
-    settings, startup, sysinfo, updater, watch,
+    __version__, bigfiles, checks, forecast, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords,
+    reinstall, settings, startup, sysinfo, updater, watch,
 )
 from .i18n import LANGS, lang, set_lang, tr
+from .i18n import pick as i18n_pick  # pick — поле записи базы на текущем языке
 from .processes import ProcessMonitor, kill
 from .util import ADMIN_HINT, IS_LINUX, IS_MAC, IS_WINDOWS, by_os, human_duration, human_size, is_admin
 
@@ -119,6 +120,7 @@ QGroupBox::title {{ subcontrol-origin: margin; left: 14px; padding: 0 6px; color
                     font-weight: 600; font-size: {pt(10.5)}; }}
 QLabel#muted {{ color: {C['muted']}; }}
 QLabel#h1 {{ font-size: {pt(19)}; font-weight: 300; }}
+QLabel#h2 {{ font-size: {pt(14)}; font-weight: 500; }}
 QLabel#hero {{ font-size: {pt(25)}; font-weight: 300; color: white; }}
 QLabel#heroSub {{ color: rgba(255, 255, 255, 180); font-weight: 300; }}
 QLabel#badge {{ background: rgba(255, 255, 255, 13); border: 1px solid rgba(255, 255, 255, 24);
@@ -3573,6 +3575,176 @@ class HistoryTab(QWidget):
             self.detail.setText("")
 
 
+class ForecastTab(QWidget):
+    """Сколько ещё лет железо будет тянуть программы и что обновлять первым."""
+
+    def __init__(self, main: "MainWindow"):
+        super().__init__()
+        self.main = main
+        self.db = forecast.load()
+        self.hw: dict | None = None
+        self.fc: forecast.Forecast | None = None
+        self.started = False
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(px(20), px(18), px(20), px(18))
+        lay.setSpacing(px(10))
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+
+        title = QLabel(accent(tr("Надолго ли хватит железа", "How long will the hardware last")))
+        title.setObjectName("h1")
+        lay.addWidget(title)
+        lay.addWidget(muted(tr("WhySlow сравнивает процессор, видеокарту, память и диск с тем, что сейчас требуют "
+                               "системы, браузеры, игры и рабочие программы, и с тем, как быстро эти требования растут.",
+                               "WhySlow compares the CPU, graphics, memory and disk with what operating systems, "
+                               "browsers, games and work apps require today, and how fast those requirements grow.")))
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("Чем вы чаще всего заняты:", "What you mostly do:")))
+        self.profile = QComboBox()
+        self.profile.currentIndexChanged.connect(self.on_profile)
+        row.addWidget(self.profile, 1)
+        lay.addLayout(row)
+        self.head = QLabel(tr("Определяю железо…", "Detecting hardware…"))
+        self.head.setObjectName("h2")
+        self.head.setWordWrap(True)
+        lay.addWidget(self.head)
+        self.hw_label = muted()
+        self.hw_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(self.hw_label)
+
+        self.table = make_table([tr("Задача", "Task"), tr("Хватит", "Will last"), tr("Примерно", "Roughly"),
+                                 tr("Первым упрётся", "Runs out first")])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in (1, 2, 3):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        self.table.setMinimumHeight(px(200))
+        self.table.itemSelectionChanged.connect(self.on_select)
+        lay.addWidget(self.table)
+
+        box = QGroupBox(tr("Что и когда обновлять", "What to upgrade and when"))
+        bl = QVBoxLayout(box)
+        self.plan = QLabel()
+        self.plan.setWordWrap(True)
+        self.plan.setTextFormat(Qt.RichText)
+        bl.addWidget(self.plan)
+        lay.addWidget(box)
+        self.os_label = muted()
+        lay.addWidget(self.os_label)
+        self.notes = muted()
+        self.notes.setTextFormat(Qt.RichText)
+        lay.addWidget(self.notes)
+        lay.addStretch()
+
+        brow = QHBoxLayout()
+        self.b_update = QPushButton(tr("Обновить требования из интернета", "Update requirements from the internet"))
+        self.b_update.clicked.connect(self.refresh_db)
+        brow.addWidget(self.b_update)
+        self.b_redo = QPushButton(tr("Определить железо заново", "Detect hardware again"))
+        self.b_redo.clicked.connect(self.detect)
+        brow.addWidget(self.b_redo)
+        brow.addStretch()
+        lay.addLayout(brow)
+        self.fill_profiles()
+
+    def fill_profiles(self):
+        saved = settings.get("forecast_profile")
+        self.profile.blockSignals(True)
+        self.profile.clear()
+        for w in self.db.get("workloads", []):
+            self.profile.addItem(i18n_pick(w, "title"), w.get("id"))
+        self.profile.setCurrentIndex(max(self.profile.findData(saved), 0))
+        self.profile.blockSignals(False)
+
+    def activate(self):
+        if self.started:
+            return
+        self.started = True
+        self.detect()
+        # Требования меняются раз в несколько месяцев: свежие тянем тихо, при первом открытии
+        run_async(lambda _p: forecast.update(), self._db_updated, lambda _e: None)
+
+    def detect(self):
+        self.b_redo.setEnabled(False)
+        self.head.setText(tr("Определяю железо…", "Detecting hardware…"))
+        run_async(lambda _p: forecast.hardware(), self._got_hw, self._failed)
+
+    def _failed(self, msg: str):
+        self.b_redo.setEnabled(True)
+        self.head.setText(tr("Не удалось определить железо: ", "Couldn't detect the hardware: ") + msg)
+
+    def _got_hw(self, hw: dict):
+        self.b_redo.setEnabled(True)
+        self.hw = hw
+        self.recalc()
+
+    def refresh_db(self):
+        self.b_update.setEnabled(False)
+        run_async(lambda _p: forecast.update(), lambda r: (self._db_updated(r), self.main.status(r[1])),
+                  lambda e: (self.b_update.setEnabled(True), _show_error(e)))
+
+    def _db_updated(self, result):
+        self.b_update.setEnabled(True)
+        db, _msg = result
+        if db is not self.db and db.get("version") != self.db.get("version"):
+            self.db = db
+            self.fill_profiles()
+            self.recalc()
+
+    def wid(self) -> str:
+        return self.profile.currentData() or "everyday"
+
+    def on_profile(self):
+        settings.set("forecast_profile", self.wid())
+        self.show_plan()
+
+    def recalc(self):
+        if not self.hw or not self.db.get("workloads"):
+            return
+        self.fc = fc = forecast.estimate(self.hw, self.db)
+        self.hw_label.setText(forecast.summary(fc))
+        self.table.setRowCount(len(fc.workloads))
+        for r, w in enumerate(fc.workloads):
+            color = C["bad"] if w.years < 0.5 else C["warn"] if w.years < 2.5 else C["ok"]
+            cells = [w.title, forecast.years_text(w.years), forecast.until_text(fc.now, w.years),
+                     forecast.kind_label(w.by) if w.years < forecast.MAX_YEARS else "—"]
+            for c, text in enumerate(cells):
+                it = QTableWidgetItem(text)
+                if c == 1:
+                    it.setForeground(QBrush(QColor(color)))
+                self.table.setItem(r, c, it)
+        self.os_label.setText(fc.os_text)
+        notes = [_esc(n) for n in fc.notes + fc.market] + [_esc(forecast.disclaimer())]
+        if self.db.get("updated"):
+            notes.append(_esc(tr(f"Требования от {self.db['updated']}.", f"Requirements as of {self.db['updated']}.")))
+        self.notes.setText("<br>".join(notes))
+        self.show_plan()
+
+    def on_select(self):
+        rows = self.table.selectionModel().selectedRows()
+        if self.fc and rows and rows[0].row() < len(self.fc.workloads):
+            self.profile.setCurrentIndex(max(self.profile.findData(self.fc.workloads[rows[0].row()].id), 0))
+
+    def show_plan(self):
+        if not self.fc:
+            return
+        wid = self.wid()
+        self.head.setText(forecast.headline(self.fc, wid))
+        items = forecast.advice(self.fc, wid, self.db)
+        if items:
+            self.plan.setText("".join(f"<p>• {_esc(a.text)}</p>" for a in items))
+        else:
+            w = self.fc.get(wid)
+            self.plan.setText(_esc(tr(f"Ближайшие {forecast.span(min(w.years, 4))} ничего обновлять не нужно.",
+                                      f"Nothing needs upgrading for the next {forecast.span(min(w.years, 4))}.")))
+
+
 class JournalTab(QWidget):
     def __init__(self, main: "MainWindow"):
         super().__init__()
@@ -3824,20 +3996,21 @@ class MainWindow(QMainWindow):
         self.optimize_tab = OptimizeTab(self)
         self.passwords_tab = PasswordsTab(self)
         self.reinstall_tab = ReinstallTab(self)
+        self.forecast_tab = ForecastTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
-                         "history": self.history_tab}
+                         "history": self.history_tab, "forecast": self.forecast_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
-                 (self.system_tab, tr("Система", "System")),
+                 (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
-            pages.insert(6, (self.storage_tab, tr("Хранилище", "Storage")))
+            pages.insert(7, (self.storage_tab, tr("Хранилище", "Storage")))
         for w, title in pages:
             self.tabs.addTab(w, title)
             self.nav.addTab(title)
@@ -4061,6 +4234,8 @@ class MainWindow(QMainWindow):
             self.reinstall_tab.activate()
         elif cur is self.history_tab:
             self.history_tab.activate()
+        elif cur is self.forecast_tab:
+            self.forecast_tab.activate()
 
     def autoclean_if_due(self):
         if macstorage.autoclean_due():
