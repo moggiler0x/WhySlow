@@ -29,7 +29,7 @@ from . import (
     __version__, bigfiles, checks, forecast, journal, junk, knowledge, lhm, macapps, macstorage, network, online, optimize, passwords,
     reinstall, settings, startup, sysinfo, updater, watch,
 )
-from .license_ui import PremiumButton
+from .license_ui import PremiumButton, PremiumGate
 from .i18n import LANGS, lang, set_lang, tr
 from .i18n import pick as i18n_pick  # pick — поле записи базы на текущем языке
 from .processes import ProcessMonitor, kill
@@ -3999,15 +3999,18 @@ class MainWindow(QMainWindow):
         self.reinstall_tab = ReinstallTab(self)
         self.forecast_tab = ForecastTab(self)
         self.storage_tab = StorageTab(self) if IS_MAC else None  # «Системные данные» есть только в macOS
+        # Платные вкладки: код в whyslow/premium/<функция>.py, открывается замком подписки
+        self.compare_tab = PremiumGate("compare", main=self)
         self.tab_keys = {"overview": self.overview, "optimize": self.optimize_tab, "system": self.system_tab,
                          "startup": self.startup_tab, "procs": self.procs_tab, "junk": self.junk_tab,
                          "passwords": self.passwords_tab, "reinstall": self.reinstall_tab, "journal": self.journal_tab,
-                         "history": self.history_tab, "forecast": self.forecast_tab}
+                         "history": self.history_tab, "forecast": self.forecast_tab, "compare": self.compare_tab}
         pages = [(self.overview, tr("Обзор", "Overview")), (self.optimize_tab, tr("Оптимизация", "Optimize")),
                  (self.system_tab, tr("Система", "System")), (self.forecast_tab, tr("Прогноз", "Outlook")),
                  (self.startup_tab, tr("Автозагрузка", "Startup")), (self.procs_tab, tr("Процессы", "Processes")),
                  (self.junk_tab, tr("Очистка", "Cleanup")),
                  (self.passwords_tab, tr("Пароли", "Passwords")), (self.reinstall_tab, tr("Переустановка", "Reinstall")),
+                 (self.compare_tab, tr("Сравнение", "Compare")),
                  (self.history_tab, tr("История", "History")), (self.journal_tab, tr("Журнал", "Journal"))]
         if self.storage_tab:
             self.tab_keys["storage"] = self.storage_tab
