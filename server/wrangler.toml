@@ -7,18 +7,18 @@ compatibility_date = "2025-09-01"
 # База ключей. id появится после «npx wrangler kv namespace create LICENSES» — впишите его сюда.
 [[kv_namespaces]]
 binding = "LICENSES"
-id = "REPLACE_WITH_KV_ID"
+id = "7a53598674764533944b985b26c2b160"
 
 # Сравнение с похожими ПК. id появится после «npx wrangler d1 create whyslow-compare»,
 # таблицы — «npx wrangler d1 execute whyslow-compare --remote --file=compare-schema.sql».
 [[d1_databases]]
 binding = "COMPARE_DB"
 database_name = "whyslow-compare"
-database_id = "REPLACE_WITH_D1_ID"
+database_id = "d8bbb5e0-93fd-46f2-911d-7e17ec206647"
 
 [vars]
 # Открытый ключ — тот же, что PUBLIC_KEY в whyslow/license.py
-PUBLIC_KEY = ""
+PUBLIC_KEY = "c8330862f212f43a65db9a709eed28a9b2929341a4c166785f656b6fc9735b25"
 # Telegram-бот (необязательно): ваш числовой id в Telegram и контакт для покупателей
 OWNER_CHAT_ID = ""
 OWNER_CONTACT = ""
