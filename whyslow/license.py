@@ -48,8 +48,8 @@ from .util import IS_MAC, IS_WINDOWS, app_dir, read_json, run, write_json
 PUBLIC_KEY = "c8330862f212f43a65db9a709eed28a9b2929341a4c166785f656b6fc9735b25"
 # Сервер активации кодов. Пусто — коды не принимаются, работают только готовые лицензии.
 SERVER_URL = "https://whyslow-license.whyslow-license.workers.dev"
-# Где купить подписку: страница с тарифами и контактом владельца
-PREMIUM_URL = "https://github.com/moggiler0x/WhySlow/blob/main/README.ru.md#подписка"
+# Где купить подписку: Telegram-бот с тарифами, оплатой и связью с владельцем
+PREMIUM_URL = "https://t.me/WhySlowPCbot"
 
 PLANS = {
     "solo": {"name": ("Соло", "Solo"), "price": 200, "devices": 1},

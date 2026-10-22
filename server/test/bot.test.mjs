@@ -57,3 +57,15 @@ test("оплата в боте: код один раз и только за ве
   assert.ok(sent.some((m) => m.chat_id === 7 && /^WS-/.test(m.text)));
   assert.ok(sent.some((m) => m.chat_id === "42"));
 });
+
+test("без оплаты и контакта заявка покупателя уходит владельцу, он отвечает /reply", async () => {
+  const e = { ...env(), PAYMENT_TOKEN: "" };
+  sent.length = 0;
+  await hook(e, { message: { chat: { id: 7 }, from: { id: 7, first_name: "Иван", username: "ivan" }, text: "/start" } });
+  assert.match(sent.at(-1).text, /напишите сюда/);
+  await hook(e, { message: { chat: { id: 7 }, from: { id: 7, first_name: "Иван", username: "ivan" }, text: "Хочу Соло" } });
+  assert.ok(sent.some((m) => m.chat_id === "42" && /Хочу Соло/.test(m.text) && /\/reply 7/.test(m.text)));
+  assert.equal(sent.at(-1).chat_id, 7);
+  await hook(e, { message: { chat: { id: 42 }, from: { id: 42 }, text: "/reply 7 Реквизиты: ..." } });
+  assert.ok(sent.some((m) => m.chat_id === "7" && m.text === "Реквизиты: ..."));
+});

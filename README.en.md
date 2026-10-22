@@ -123,10 +123,8 @@ there is nothing else to buy.
 <img src="docs/subscription-en.png" alt="Subscription window" width="440" align="right">
 
 1. Open WhySlow and click **“★ Subscription”** at the bottom of the window (or **Buy** on any paid tab).
-2. Pick a plan and pay. To subscribe, contact the owner:
-   [open a “Subscription” request](https://github.com/moggiler0x/WhySlow/issues/new?title=Subscription&body=Plan%3A%20Solo%20%2F%20All%20devices)
-   on GitHub — you'll get payment details and a key in reply.
-   <!-- Once the Telegram bot is live, put its link here: payment and the key arrive there instantly. -->
+2. Pick a plan and pay in the Telegram bot [@WhySlowPCbot](https://t.me/WhySlowPCbot): tell it which plan you want,
+   and you'll get payment details and a key in reply.
 3. Paste the key into the **Key** field and press **Activate**. The paid tabs open right away, no restart needed.
 
 There are two kinds of keys:
@@ -661,9 +659,9 @@ This section is only for the repository owner. The full step-by-step guide (in R
    put the server address into `SERVER_URL` in `whyslow/license.py`.
 5. **Comparison with similar PCs** runs on the same server: create its database once with [server/COMPARE.md](server/COMPARE.md)
    (three commands).
-6. **The Buy link.** Buy buttons in the app open `PREMIUM_URL` from `whyslow/license.py` — currently the
-   [Subscription](README.ru.md#подписка) section of the Russian page. Once the bot is live, update the link under
-   “How to buy” or `PREMIUM_URL` itself.
+6. **The Buy link.** Buy buttons in the app open `PREMIUM_URL` from `whyslow/license.py` — currently the bot
+   [@WhySlowPCbot](https://t.me/WhySlowPCbot). Until the bot has payments or `OWNER_CONTACT`, it forwards buyers' messages
+   to the owner, who answers with `/reply ID text`.
 
 ### Publishing a new version
 
