@@ -17,6 +17,7 @@ def keys(monkeypatch):
     monkeypatch.setattr(license, "_listeners", [])
     monkeypatch.setattr(license, "_last_active", None)
     monkeypatch.delenv("WHYSLOW_LICENSE_SERVER", raising=False)
+    monkeypatch.setattr(license, "SERVER_URL", "")  # тесты не ходят на настоящий сервер
 
 
 def token(**kw):
