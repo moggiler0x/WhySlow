@@ -4,8 +4,9 @@
 import { featureKeys, makeToken, sha256hex } from "./crypto.js";
 
 export const PLANS = {
-  solo: { name: "Соло", price: 200, devices: 1 },
-  family: { name: "Все устройства", price: 800, devices: 10 },
+  // price — в звёздах Telegram (XTR) за месяц
+  solo: { name: "Соло", price: 50, devices: 1 },
+  family: { name: "3 устройства", price: 120, devices: 3 },
 };
 // Платные функции — тот же список, что whyslow/license.py FEATURES. Любая подписка открывает все.
 export const FEATURES = ["twin", "health_money", "xray", "gamemode", "compare", "pests", "migrate"];

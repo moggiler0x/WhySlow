@@ -1,6 +1,6 @@
-// Telegram-бот: владелец выпускает и отзывает коды из чата, покупатели видят тарифы
-// и, если подключена оплата, платят прямо в боте и сразу получают код. Без оплаты и
-// контакта (OWNER_CONTACT) сообщения покупателей пересылаются владельцу, он отвечает /reply.
+// Telegram-бот: владелец выпускает и отзывает коды из чата, покупатели платят звёздами
+// Telegram (XTR, провайдер не нужен) и сразу получают код. Остальные сообщения покупателей
+// пересылаются владельцу, он отвечает /reply.
 
 import { sameSecret } from "./crypto.js";
 import { PLANS, createCode, extend, formatCode, getRecord, listRecords, now, resolveKid, setRevoked, unlink } from "./licenses.js";
@@ -27,7 +27,7 @@ function describe(rec) {
 
 const OWNER_HELP = `Команды владельца:
 /solo 1 заметка — код «Соло» на 1 месяц
-/family 12 заметка — код «Все устройства» на 12 месяцев
+/family 12 заметка — код «3 устройства» на 12 месяцев
 /extend КОД 1 — продлить на месяц
 /revoke КОД — отозвать
 /unlink КОД XXXXX-XXXXX — отвязать устройство
@@ -36,11 +36,11 @@ const OWNER_HELP = `Команды владельца:
 /reply ID текст — ответить покупателю`;
 
 function pricesText(env) {
-  const lines = Object.values(PLANS).map((p) => `• ${p.name} — ${p.price} ₽ в месяц, устройств: ${p.devices === 1 ? "1" : `до ${p.devices}`}`);
-  const pay = env.PAYMENT_TOKEN ? "\n\nОплатить: /buy_solo или /buy_family — код придёт сюда сразу после оплаты." :
-    env.OWNER_CONTACT ? `\n\nЧтобы купить, напишите ${env.OWNER_CONTACT}.` :
-    env.OWNER_CHAT_ID ? "\n\nЧтобы купить, напишите сюда, какой тариф нужен, — владелец ответит в этом чате." : "";
-  return `Подписка WhySlow открывает платные функции программы.\n\n${lines.join("\n")}${pay}\n\n` +
+  const lines = Object.values(PLANS).map((p) => `• ${p.name} — ${p.price} ⭐ в месяц, устройств: ${p.devices === 1 ? "1" : `до ${p.devices}`}`);
+  const pay = "\n\nОплатить звёздами Telegram: /buy_solo или /buy_family — код придёт сюда сразу после оплаты.";
+  const ask = env.OWNER_CONTACT ? `\nВопросы: ${env.OWNER_CONTACT}.` :
+    env.OWNER_CHAT_ID ? "\nВопрос владельцу можно написать прямо сюда." : "";
+  return `Подписка WhySlow открывает платные функции программы.\n\n${lines.join("\n")}${pay}${ask}\n\n` +
     "Код вводится в WhySlow: кнопка «★ Подписка» внизу окна → поле «Ключ».";
 }
 
@@ -74,8 +74,8 @@ async function sendInvoice(env, chat, plan) {
   const p = PLANS[plan];
   return tg(env, "sendInvoice", {
     chat_id: chat, title: `WhySlow — ${p.name}`, description: `Подписка на 1 месяц, устройств: ${p.devices === 1 ? "1" : `до ${p.devices}`}`,
-    payload: `sub:${plan}:1`, provider_token: env.PAYMENT_TOKEN, currency: "RUB",
-    prices: [{ label: `${p.name}, 1 месяц`, amount: p.price * 100 }],
+    payload: `sub:${plan}:1`, currency: "XTR", // звёзды Telegram: provider_token не нужен
+    prices: [{ label: `${p.name}, 1 месяц`, amount: p.price }],
   });
 }
 
@@ -86,7 +86,7 @@ async function paid(env, msg) {
   const months = Number(monthsStr) || 1;
   // Код выдаём один раз на платёж и только если сумма совпала с тарифом
   const seen = `pay:${pay.telegram_payment_charge_id}`;
-  if (!p || pay.currency !== "RUB" || pay.total_amount !== p.price * 100 * months || (await env.LICENSES.get(seen))) return;
+  if (!p || pay.currency !== "XTR" || pay.total_amount !== p.price * months || (await env.LICENSES.get(seen))) return;
   const who = msg.from?.username ? `@${msg.from.username}` : `id ${msg.from?.id}`;
   const rec = await createCode(env, plan, months * 31, `оплата в боте ${who}, ${pay.provider_payment_charge_id}`);
   await env.LICENSES.put(seen, rec.kid, { expirationTtl: 400 * 86400 });
@@ -105,7 +105,7 @@ export async function handleTelegram(request, env, pathSecret) {
   if (upd.pre_checkout_query) {
     const q = upd.pre_checkout_query;
     const [, plan, m] = String(q.invoice_payload).split(":");
-    const ok = PLANS[plan] && q.currency === "RUB" && q.total_amount === PLANS[plan].price * 100 * (Number(m) || 1);
+    const ok = PLANS[plan] && q.currency === "XTR" && q.total_amount === PLANS[plan].price * (Number(m) || 1);
     await tg(env, "answerPreCheckoutQuery", { pre_checkout_query_id: q.id, ok: !!ok, error_message: ok ? undefined : "Неверная сумма" });
     return new Response("ok");
   }
@@ -120,10 +120,10 @@ export async function handleTelegram(request, env, pathSecret) {
   const isOwner = env.OWNER_CHAT_ID && String(msg.from?.id) === String(env.OWNER_CHAT_ID);
   if (isOwner && command !== "/start" && command !== "/buy_solo" && command !== "/buy_family") {
     await ownerCommand(env, msg.chat.id, command, args);
-  } else if (env.PAYMENT_TOKEN && (command === "/buy_solo" || command === "/buy_family")) {
+  } else if (command === "/buy_solo" || command === "/buy_family") {
     await sendInvoice(env, msg.chat.id, command.slice(5));
-  } else if (!isOwner && command !== "/start" && msg.text && env.OWNER_CHAT_ID && !env.PAYMENT_TOKEN && !env.OWNER_CONTACT) {
-    // Оплаты и контакта нет — заявку покупателя передаём владельцу
+  } else if (!isOwner && msg.text && !msg.text.startsWith("/") && env.OWNER_CHAT_ID) {
+    // Не команда — вопрос покупателя, передаём владельцу
     const who = [msg.from?.first_name, msg.from?.username && `@${msg.from.username}`].filter(Boolean).join(" ");
     await say(env, env.OWNER_CHAT_ID, `Заявка от ${who || "покупателя"} (id ${msg.from?.id}):\n${msg.text}\n\nОтветить: /reply ${msg.chat.id} текст`);
     await say(env, msg.chat.id, "Передал владельцу, ответ придёт сюда.");

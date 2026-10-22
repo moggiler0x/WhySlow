@@ -75,14 +75,16 @@ class LicenseDialog(QDialog):
             bl = QVBoxLayout(box)
             name = QLabel(tr(*p["name"]))
             name.setStyleSheet(f"font-weight: 700; font-size: {pt(12)};")
-            price = QLabel(tr(f"{p['price']} ₽ в месяц", f"{p['price']} ₽ per month"))
+            price = QLabel(tr(f"{p['price']} ⭐ в месяц", f"{p['price']} ⭐ per month"))
             price.setStyleSheet(f"color: {C['accent2']}; font-size: {pt(13)}; font-weight: 600;")
             bl.addWidget(name)
             bl.addWidget(price)
             bl.addWidget(g.muted(tr("1 компьютер", "1 computer") if p["devices"] == 1 else
-                                 tr(f"все ваши устройства (до {p['devices']})", f"all your devices (up to {p['devices']})")))
+                                 tr(f"до {p['devices']} компьютеров", f"up to {p['devices']} computers")))
             plans.addWidget(box)
         lay.addLayout(plans)
+        lay.addWidget(g.muted(tr("Оплата звёздами Telegram в боте @WhySlowPCbot (кнопка «Купить подписку») — код придёт сразу.",
+                                 "Pay with Telegram Stars in the @WhySlowPCbot bot (the Buy button) — the code arrives at once.")))
 
         feats = ", ".join(tr(*v) for v in license.FEATURES.values())
         lay.addWidget(g.muted(tr(f"Подписка открывает: {feats}.", f"The subscription unlocks: {feats}.")))
@@ -207,7 +209,7 @@ class PremiumGate(QStackedWidget):
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"font-size: {g.pt(18)}; font-weight: 700;")
         lay.addWidget(title)
-        prices = " · ".join(f"{tr(*p['name'])} — {p['price']} ₽/{tr('мес', 'mo')}" for p in license.PLANS.values())
+        prices = " · ".join(f"{tr(*p['name'])} — {p['price']} ⭐/{tr('мес', 'mo')}" for p in license.PLANS.values())
         note = g.muted(tr(f"Доступно по подписке: {prices}", f"Available with a subscription: {prices}"))
         note.setAlignment(Qt.AlignCenter)
         lay.addWidget(note)

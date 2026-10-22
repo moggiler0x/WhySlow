@@ -115,16 +115,18 @@ there is nothing else to buy.
 
 | Plan | Price | Devices |
 |---|---|---|
-| **Solo** | **200 ₽ per month** | 1 computer |
-| **All devices** | **800 ₽ per month** | up to 10 of your computers: Windows, Mac and Linux mixed |
+| **Solo** | **50 ⭐ per month** | 1 computer |
+| **3 devices** | **120 ⭐ per month** | up to 3 of your computers: Windows, Mac and Linux mixed |
+
+You pay with Telegram Stars (⭐) right in the [@WhySlowPCbot](https://t.me/WhySlowPCbot) bot. Stars are bought inside Telegram.
 
 ### How to buy and enter a key
 
 <img src="docs/subscription-en.png" alt="Subscription window" width="440" align="right">
 
 1. Open WhySlow and click **“★ Subscription”** at the bottom of the window (or **Buy** on any paid tab).
-2. Pick a plan and pay in the Telegram bot [@WhySlowPCbot](https://t.me/WhySlowPCbot): tell it which plan you want,
-   and you'll get payment details and a key in reply.
+2. In the Telegram bot [@WhySlowPCbot](https://t.me/WhySlowPCbot) pick a plan (`/buy_solo` or `/buy_family`)
+   and pay with Stars — the activation code arrives in the chat right after payment.
 3. Paste the key into the **Key** field and press **Activate**. The paid tabs open right away, no restart needed.
 
 There are two kinds of keys:
@@ -630,11 +632,11 @@ send an entry so everyone gets it.
 
 **Does the subscription renew automatically?**
 No. It lasts for the paid period; when it ends, the paid tabs lock again, while your data and the free features stay.
-To extend, pay for another month the same way.
+To extend, pay for another month in the bot and enter the new code.
 
 **Can I move my subscription to a new computer?**
-Yes. Turn the activation code off with “Turn off on this computer” and enter it on the new one. With All devices
-you can use it on ten computers at once.
+Yes. Turn the activation code off with “Turn off on this computer” and enter it on the new one. With 3 devices
+you can use it on three computers at once.
 
 **Do paid features work offline?**
 Yes, except Compare (it runs on the server). An activation code is checked once a day and works offline for up to a
@@ -660,8 +662,9 @@ This section is only for the repository owner. The full step-by-step guide (in R
 5. **Comparison with similar PCs** runs on the same server: create its database once with [server/COMPARE.md](server/COMPARE.md)
    (three commands).
 6. **The Buy link.** Buy buttons in the app open `PREMIUM_URL` from `whyslow/license.py` — currently the bot
-   [@WhySlowPCbot](https://t.me/WhySlowPCbot). Until the bot has payments or `OWNER_CONTACT`, it forwards buyers' messages
-   to the owner, who answers with `/reply ID text`.
+   [@WhySlowPCbot](https://t.me/WhySlowPCbot). Buyers pay there with Telegram Stars and get a code at once;
+   questions are forwarded to the owner, who answers with `/reply ID text`. Prices are `PLANS` in `whyslow/license.py`
+   and `server/src/licenses.js` (Stars per month).
 
 ### Publishing a new version
 

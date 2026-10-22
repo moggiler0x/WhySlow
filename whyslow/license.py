@@ -52,8 +52,9 @@ SERVER_URL = "https://whyslow-license.whyslow-license.workers.dev"
 PREMIUM_URL = "https://t.me/WhySlowPCbot"
 
 PLANS = {
-    "solo": {"name": ("Соло", "Solo"), "price": 200, "devices": 1},
-    "family": {"name": ("Все устройства", "All devices"), "price": 800, "devices": 10},
+    # price — в звёздах Telegram за месяц, оплата в боте (PREMIUM_URL)
+    "solo": {"name": ("Соло", "Solo"), "price": 50, "devices": 1},
+    "family": {"name": ("3 устройства", "3 devices"), "price": 120, "devices": 3},
 }
 
 # Платные функции: id → (название по-русски, по-английски). Доступ даёт любая активная подписка.
@@ -431,9 +432,9 @@ _ERRORS = {
     "revoked": ("ключ отозван", "the key was revoked"),
     "expired": ("срок подписки закончился", "the subscription has expired"),
     "limit": ("ключ уже активирован на максимальном числе устройств. Отключите его на другом компьютере "
-              "(кнопка «Отключить на этом компьютере») или возьмите тариф «Все устройства»",
+              "(кнопка «Отключить на этом компьютере») или возьмите тариф «3 устройства»",
               "the key is already active on the maximum number of devices. Turn it off on another computer "
-              "or switch to the All devices plan"),
+              "or switch to the 3 devices plan"),
     "device": ("этот компьютер отвязан от ключа — введите ключ снова", "this computer was unlinked from the key — enter it again"),
 }
 

@@ -7,7 +7,7 @@
 Команды:
   python owner/keys.py init                       создать ключи (подпись + шифрование), вписать открытый в whyslow/license.py
   python owner/keys.py issue solo 1 K7Q2M-9XWPA   лицензия «Соло» на 1 месяц для кода устройства
-  python owner/keys.py issue family 12 A..., B... «Все устройства» на год для нескольких кодов
+  python owner/keys.py issue family 12 A..., B... «3 устройства» на год для нескольких кодов
   python owner/keys.py server-secret              ключ подписи для сервера (wrangler secret put PRIVATE_KEY)
   python owner/keys.py seal-secret                секрет шифрования модулей (wrangler secret put SEAL_SECRET; секрет GitHub WHYSLOW_SEAL_SEED)
 
