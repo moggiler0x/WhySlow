@@ -19,14 +19,14 @@ database_id = "d8bbb5e0-93fd-46f2-911d-7e17ec206647"
 [vars]
 # Открытый ключ — тот же, что PUBLIC_KEY в whyslow/license.py
 PUBLIC_KEY = "c8330862f212f43a65db9a709eed28a9b2929341a4c166785f656b6fc9735b25"
-# Telegram-бот (необязательно): ваш числовой id в Telegram и контакт для покупателей
-OWNER_CHAT_ID = ""
+# Telegram-бот (необязательно): контакт для покупателей. Ваш id в Telegram — секрет OWNER_CHAT_ID
 OWNER_CONTACT = ""
 
 # Секреты задаются командой «npx wrangler secret put ИМЯ», не здесь:
 #   PRIVATE_KEY      — вывод «python owner/keys.py server-secret» (ключ подписи)
 #   SEAL_SECRET      — вывод «python owner/keys.py seal-secret» (секрет шифрования модулей)
 #   ADMIN_TOKEN      — длинный случайный пароль для owner/keys.py
+#   OWNER_CHAT_ID    — ваш числовой id в Telegram (секретом, чтобы не светить его в репозитории)
 #   TG_TOKEN         — токен бота от @BotFather (если нужен бот)
 #   TG_SECRET        — случайная строка, защищает адрес бота от чужих запросов
 #   PAYMENT_TOKEN    — токен платёжного провайдера из @BotFather → Payments (если нужна оплата в боте)
