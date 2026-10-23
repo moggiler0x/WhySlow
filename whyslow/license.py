@@ -14,6 +14,11 @@
        Раз в день программа её продлевает; без интернета лицензия работает до конца недели.
     2. **Готовая лицензия** ``WS1....`` без сервера: покупатель присылает код устройства,
        владелец выпускает лицензию командой ``python owner/keys.py issue`` и отправляет её.
+* **Пробный период** — 7 дней бесплатно, один раз на компьютер (``start_trial()``). Его выдаёт
+  сервер и запоминает хеши серийных номеров железа (``hardware_ids()``): платы, BIOS, системного
+  диска, на Mac — IOPlatformUUID и серийного номера. Переустановка программы или системы
+  серийники не меняет, поэтому второй раз пробный период не получить. Сами серийники
+  с компьютера не уходят — только их хеши.
 
 Платные функции проверяют доступ так::
 
@@ -68,6 +73,8 @@ FEATURES = {
     "migrate": ("Переезд на новый ПК", "Moving to a new PC"),
 }
 
+TRIAL_DAYS = 7                  # пробный период, один раз на компьютер
+
 REFRESH_EVERY = 86400           # продлевать онлайн-лицензию раз в сутки
 CLOCK_SLACK = 2 * 86400         # на сколько можно «откатить» часы, прежде чем это заметим
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # без 0/O и 1/I, чтобы не путали
@@ -93,10 +100,13 @@ class Status:
     online: bool = False          # получено через код активации
     error: str = ""               # почему не активна, если ключ введён
     kid: str = ""
+    trial: bool = False           # это пробный период, а не оплаченная подписка
     extra: dict = field(default_factory=dict)
 
     @property
     def plan_name(self) -> str:
+        if self.trial:
+            return tr("Пробный период", "Free trial")
         p = PLANS.get(self.plan)
         return tr(*p["name"]) if p else self.plan
 
@@ -139,6 +149,61 @@ def device_id() -> str:
         chars = "".join(_CODE_ALPHABET[(n >> (5 * i)) & 31] for i in range(9, -1, -1))
         _device = chars[:5] + "-" + chars[5:]
     return _device
+
+
+# Заглушки, которые производители пишут вместо серийного номера: по ним компьютеры не различить
+_JUNK_SERIAL = re.compile(r"o\.?e\.?m|default|serial|to be filled|^none$|^n/?a$|not (?:applicable|specified|available)|"
+                          r"chassis|system product|^0*12345678|^03000200-0400-0500-0006-000700080009$", re.I)
+
+
+def _real_serial(s) -> str:
+    s = str(s or "").strip().strip(".").upper()
+    if len(s) < 4 or _JUNK_SERIAL.search(s) or not set(s) - set("0F-. "):
+        return ""
+    return s
+
+
+def _hardware_raw() -> dict[str, str]:
+    """Серийные номера железа, которые не меняются при переустановке программы и системы."""
+    out: dict[str, str] = {}
+    if IS_WINDOWS:
+        from .util import ps_json
+        rows = ps_json(
+            "$d = Get-CimInstance Win32_DiskDrive | Where-Object { $_.Index -eq 0 } | Select-Object -First 1; "
+            "[pscustomobject]@{ board = (Get-CimInstance Win32_BaseBoard).SerialNumber; "
+            "bios = (Get-CimInstance Win32_BIOS).SerialNumber; "
+            "uuid = (Get-CimInstance Win32_ComputerSystemProduct).UUID; "
+            "disk = $d.SerialNumber; "
+            "cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).ProcessorId } | ConvertTo-Json",
+            timeout=30)
+        row = rows[0] if rows else {}
+        for k in ("board", "bios", "uuid", "disk"):
+            out[k] = _real_serial(row.get(k))
+        # ProcessorId одинаков у всех процессоров одной модели — отдельно его не берём, только вместе с платой
+        cpu = _real_serial(row.get("cpu"))
+        if cpu and out.get("board"):
+            out["board+cpu"] = out["board"] + "/" + cpu
+    elif IS_MAC:
+        code, text = run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], timeout=5)
+        for k, name in (("uuid", "IOPlatformUUID"), ("serial", "IOPlatformSerialNumber")):
+            m = re.search(r'"%s"\s*=\s*"([^"]+)"' % name, text)
+            out[k] = _real_serial(m.group(1)) if code == 0 and m else ""
+    else:
+        for k, name in (("uuid", "product_uuid"), ("board", "board_serial"), ("serial", "product_serial")):
+            try:
+                out[k] = _real_serial(open(f"/sys/class/dmi/id/{name}", encoding="ascii").read())
+            except OSError:
+                pass
+    return {k: v for k, v in out.items() if v}
+
+
+def hardware_ids() -> list[str]:
+    """Хеши серийных номеров железа для пробного периода (SHA-256, по каждой детали отдельно,
+    чтобы замена одного диска не давала новый пробный период). Сами номера не отправляются.
+    Код устройства добавляется всегда: на виртуальных машинах серийников часто нет."""
+    raw = _hardware_raw()
+    raw["device"] = device_id()
+    return sorted(hashlib.sha256(f"whyslow-hw:{k}:{v}".encode()).hexdigest() for k, v in raw.items())
 
 
 # ------------------------------------------------------------------ токены ---
@@ -211,6 +276,9 @@ def _load() -> dict:
 
 
 def _save(d: dict) -> None:
+    # Отметку «пробный период уже был» не теряем при вводе другого ключа или отключении
+    if "trial_used" not in d and _load().get("trial_used"):
+        d = {**d, "trial_used": True}
     try:
         write_json(_path(), d)
     except OSError:
@@ -236,7 +304,9 @@ def status(now: float | None = None) -> Status:
         data = read_token(token, now=now)
     except LicenseError as e:
         st.error = str(e)
-        if st.online:
+        if d.get("trial") and float(_token_field(token, "exp")) < now:
+            st.error = tr(*_ERRORS["trial_over"])
+        elif st.online:
             st.error += tr(" — подключитесь к интернету, чтобы продлить", " — connect to the internet to renew")
         return st
     st.active = True
@@ -244,12 +314,28 @@ def status(now: float | None = None) -> Status:
     st.expires = float(data.get("sub") or data["exp"])
     st.devices = int(data.get("max") or PLANS[st.plan]["devices"])
     st.kid = data.get("kid", "")
+    st.trial = bool(data.get("trial"))
     st.extra = data
     if now > float(d.get("seen", 0)) + 3600:
         d["seen"] = now
         with _lock:
             _save(d)
     return st
+
+
+def _token_field(token: str, name: str, default=0):
+    """Поле лицензии без проверки — только чтобы объяснить, почему она не подошла."""
+    try:
+        return json.loads(_b64d(token.split(".")[1])).get(name, default)
+    except (ValueError, IndexError, AttributeError):
+        return default
+
+
+def trial_available() -> bool:
+    """Показывать ли кнопку пробного периода. Решает всё равно сервер, это только подсказка:
+    на этом компьютере пробный период уже брали или подписка уже есть."""
+    d = _load()
+    return bool(PUBLIC_KEY and server_url()) and not d.get("trial_used") and not status().active
 
 
 def has_premium(feature: str | None = None) -> bool:
@@ -290,6 +376,9 @@ def status_text(st: Status | None = None) -> str:
     if not st.active:
         return tr("Подписка не активна", "No active subscription")
     left = max(0, int((st.expires - time.time()) // 86400))
+    if st.trial:
+        return tr(f"Пробный период до {_date(st.expires)} (осталось {left} дн.)",
+                  f"Free trial until {_date(st.expires)} ({left} days left)")
     return tr(f"«{st.plan_name}» до {_date(st.expires)} (осталось {left} дн.)",
               f"“{st.plan_name}” until {_date(st.expires)} ({left} days left)")
 
@@ -356,6 +445,32 @@ def enter_key(text: str) -> Status:
     return status()
 
 
+def start_trial() -> Status:
+    """Включает бесплатный пробный период на этом компьютере. Бросает LicenseError, если его
+    здесь уже брали (сервер узнаёт компьютер по хешам серийников) или сервер недоступен."""
+    if not server_url():
+        raise LicenseError(tr("пробный период выдаёт сервер активации, а он в этой сборке не подключён",
+                              "the free trial comes from the activation server, which is not set up in this build"))
+    try:
+        data = _call("trial", {"hw": hardware_ids()})
+    except _Rejected as e:
+        if getattr(e, "code", "") == "trial_used":
+            with _lock:
+                d = _load()
+                d["trial_used"] = True
+                _save(d)
+            _notify()  # спрятать кнопку пробного периода на замках вкладок
+        raise
+    code = normalize_code(str(data.get("code", "")))
+    if not code:
+        raise LicenseError(tr("сервер активации ответил непонятно", "the activation server sent an odd reply"))
+    with _lock:
+        _save({"token": data["token"], "code": code, "trial": True, "trial_used": True,
+               "seen": time.time(), "refreshed": time.time()})
+    _notify()
+    return status()
+
+
 def refresh(force: bool = False) -> bool:
     """Продлевает лицензию, полученную по коду. True — если что-то поменялось.
     Сеть недоступна — молча оставляем как есть: лицензия ещё поработает без интернета."""
@@ -408,6 +523,10 @@ def deactivate() -> None:
 class _Rejected(LicenseError):
     """Сервер ответил, что ключ не годится (а не просто не ответил)."""
 
+    def __init__(self, message: str, code: str = ""):
+        super().__init__(message)
+        self.code = code
+
 
 def server_url() -> str:
     return (os.environ.get("WHYSLOW_LICENSE_SERVER") or SERVER_URL).rstrip("/")
@@ -436,17 +555,26 @@ _ERRORS = {
               "the key is already active on the maximum number of devices. Turn it off on another computer "
               "or switch to the 3 devices plan"),
     "device": ("этот компьютер отвязан от ключа — введите ключ снова", "this computer was unlinked from the key — enter it again"),
+    "trial_used": ("на этом компьютере пробный период уже был — дальше только подписка (кнопка «Купить подписку»)",
+                   "this computer has already had its free trial — from now on it takes a subscription (the Buy button)"),
+    "trial_over": ("пробный период закончился — чтобы платные функции работали дальше, купите подписку",
+                   "the free trial is over — buy a subscription to keep the paid features"),
+    "trial_device": ("пробный период работает только на том компьютере, где его включили",
+                     "a free trial only works on the computer where it was started"),
+    "busy": ("слишком много пробных периодов из вашей сети за сутки — попробуйте завтра",
+             "too many free trials from your network today — try again tomorrow"),
 }
 
 
-def _server(action: str, code: str) -> str:
+def _call(action: str, extra: dict) -> dict:
+    """POST /v1/<action> с кодом устройства. Возвращает ответ с уже проверенной лицензией."""
     base = server_url()
     if not base:
         raise LicenseError(tr("сервер активации ещё не подключён — попросите готовую лицензию для кода устройства "
                               f"{device_id()}",
                               f"the activation server is not set up yet — ask for a license for device code {device_id()}"))
     import platform
-    body = {"code": code, "device": device_id(), "name": platform.node()[:40], "version": __version__}
+    body = {**extra, "device": device_id(), "name": platform.node()[:40], "version": __version__}
     try:
         status_code, data = _post(f"{base}/v1/{action}", body)
     except (OSError, ValueError) as e:
@@ -454,14 +582,18 @@ def _server(action: str, code: str) -> str:
         raise LicenseError(tr("не удалось связаться с сервером активации: ", "could not reach the activation server: ")
                            + net.explain(e, tr("сервер", "server")))
     if action == "deactivate":
-        return ""
+        return {}
     if status_code == 200 and data.get("token"):
         read_token(data["token"])  # сервер тоже не может выдать то, что не подписано нашим ключом
-        return data["token"]
+        return data
     err = data.get("error", "")
     if err in _ERRORS:
-        raise _Rejected(tr(*_ERRORS[err]))
+        raise _Rejected(tr(*_ERRORS[err]), err)
     raise LicenseError(tr(f"сервер активации ответил ошибкой {status_code}", f"the activation server returned error {status_code}"))
+
+
+def _server(action: str, code: str) -> str:
+    return _call(action, {"code": code}).get("token", "")
 
 
 def ask_key(parent=None) -> None:

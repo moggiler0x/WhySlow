@@ -17,7 +17,7 @@
 |:---:|:---:|
 | [⬇ **Download**](README.en.md#download) | [⬇ **Скачать**](README.ru.md#скачать) |
 | [What it does](README.en.md#what-it-does) | [Что умеет](README.ru.md#что-умеет) |
-| [Subscription: 50 ⭐ / 120 ⭐](README.en.md#subscription) | [Подписка: 50 ⭐ / 120 ⭐](README.ru.md#подписка) |
+| [Subscription: 7 days free, then 50 ⭐ / 120 ⭐](README.en.md#subscription) | [Подписка: 7 дней бесплатно, потом 50 ⭐ / 120 ⭐](README.ru.md#подписка) |
 | [Screenshots](README.en.md#screenshots) | [Скриншоты](README.ru.md#скриншоты) |
 | [Features in detail](README.en.md#features-in-detail) | [Подробно о функциях](README.ru.md#подробно-о-функциях) |
 | [Safety and privacy](README.en.md#safety-and-privacy) | [Безопасность и приватность](README.ru.md#безопасность-и-приватность) |

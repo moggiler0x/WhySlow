@@ -94,7 +94,8 @@ How to install it and allow the first launch on your system — see [Install and
 
 ### With a subscription
 
-Paid tabs are already built in: without a subscription they show a lock with **Enter a key** and **Buy** buttons.
+Paid tabs are already built in: without a subscription they show a lock with **Try it free for 7 days**,
+**Enter a key** and **Buy** buttons.
 
 | Tab | What it does |
 |---|---|
@@ -110,6 +111,17 @@ Paid tabs are already built in: without a subscription they show a lock with **E
 
 Everything under [Free](#free) is free forever, with no ads or limits. A subscription unlocks every paid tab at once —
 there is nothing else to buy.
+
+### Free trial: 7 days
+
+You can try every paid tab **free for 7 days**, with no payment and no key: press **Try it free for 7 days**
+on any paid tab or in the **★ Subscription** window. It needs the internet, since the activation server starts the trial.
+
+The trial is given **once per computer**. The computer is recognised by its hardware serial numbers — motherboard,
+BIOS and system disk (on a Mac, the hardware UUID and serial number) — so reinstalling the app or even Windows
+won't give a second trial. The serial numbers themselves never leave the computer: only their SHA-256 hashes are sent,
+and the server stores a hash of those hashes. When the 7 days are up, the paid tabs lock again; buy a subscription
+to keep using them.
 
 ### Plans
 
@@ -137,7 +149,8 @@ There are two kinds of keys:
 * **Device key** `WS1.…` — a long string issued for “This computer's code” from the Subscription window. Works offline,
   but only on that computer.
 
-Text mode: `python3 -m whyslow --license` shows the status, `python3 -m whyslow --license KEY` enters a key.
+Text mode: `python3 -m whyslow --license` shows the status, `python3 -m whyslow --license KEY` enters a key,
+`python3 -m whyslow --license trial` starts the free trial.
 
 <br clear="right">
 
@@ -484,7 +497,7 @@ python3 -m whyslow --storage   # macOS: what “System Data” is made of and wh
 python3 -m whyslow --twin      # ⭐ what an upgrade would do for this computer
 python3 -m whyslow --risks     # ⭐ what might break and what it costs
 python3 -m whyslow --pests     # ⭐ hidden miners, risky extensions, night-time network use
-python3 -m whyslow --license [KEY]  # subscription status, or enter a key
+python3 -m whyslow --license [KEY]  # subscription status, or enter a key (trial — free trial)
 python3 -m whyslow --version   # version
 python3 -m whyslow --update    # update (asks for confirmation)
 python3 -m whyslow --cli --lang en   # language for this run: en or ru
@@ -630,6 +643,11 @@ Windows doesn't expose it. Press “Download and run LibreHardwareMonitor” on 
 WhySlow looks up its description in the file's properties and on Wikipedia, and “Suggest to the base…” lets you
 send an entry so everyone gets it.
 
+**Can I take the free trial again?**
+No, it is given once per computer. Reinstalling the app or Windows won't help: the server recognises the computer
+by hashes of the motherboard and disk serial numbers. If you bought a used PC and someone already took the trial on it,
+write to the [@WhySlowPCbot](https://t.me/WhySlowPCbot) bot.
+
 **Does the subscription renew automatically?**
 No. It lasts for the paid period; when it ends, the paid tabs lock again, while your data and the free features stay.
 To extend, pay for another month in the bot and enter the new code.
@@ -658,7 +676,8 @@ This section is only for the repository owner. The full step-by-step guide (in R
    `python owner/keys.py issue solo 1 CODE` and send them the `WS1.…` string.
 4. **Activation server and Telegram bot** (optional, Cloudflare free tier): `WS-…` codes, moving between computers,
    revoking, extending and payment right in the bot. Deploy it with sections 3–4 of [server/README.md](server/README.md);
-   put the server address into `SERVER_URL` in `whyslow/license.py`.
+   put the server address into `SERVER_URL` in `whyslow/license.py`. The same server hands out the 7-day free trial
+   (once per computer, by hashes of hardware serials) — see section 3b of [server/README.md](server/README.md).
 5. **Comparison with similar PCs** runs on the same server: create its database once with [server/COMPARE.md](server/COMPARE.md)
    (three commands).
 6. **The Buy link.** Buy buttons in the app open `PREMIUM_URL` from `whyslow/license.py` — currently the bot

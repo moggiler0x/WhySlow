@@ -21,7 +21,8 @@ function date(ts) {
 function describe(rec) {
   const state = rec.revoked ? "ОТОЗВАН" : rec.exp < now() ? "истёк" : `до ${date(rec.exp)}`;
   const devs = rec.devices.map((d) => `${d.id}${d.name ? ` (${d.name})` : ""}`).join(", ") || "нет";
-  return `${rec.code || rec.kid} · ${PLANS[rec.plan]?.name || rec.plan} · ${state}\nустройства ${rec.devices.length}/${rec.max}: ${devs}` +
+  const plan = rec.trial ? "пробный период" : PLANS[rec.plan]?.name || rec.plan;
+  return `${rec.code || rec.kid} · ${plan} · ${state}\nустройства ${rec.devices.length}/${rec.max}: ${devs}` +
     (rec.note ? `\n${rec.note}` : "");
 }
 
@@ -40,7 +41,9 @@ function pricesText(env) {
   const pay = "\n\nОплатить звёздами Telegram: /buy_solo или /buy_family — код придёт сюда сразу после оплаты.";
   const ask = env.OWNER_CONTACT ? `\nВопросы: ${env.OWNER_CONTACT}.` :
     env.OWNER_CHAT_ID ? "\nВопрос владельцу можно написать прямо сюда." : "";
-  return `Подписка WhySlow открывает платные функции программы.\n\n${lines.join("\n")}${pay}${ask}\n\n` +
+  return `Подписка WhySlow открывает платные функции программы.\n\n${lines.join("\n")}\n\n` +
+    "Сначала можно бесплатно попробовать 7 дней: в WhySlow «★ Подписка» → «Попробовать 7 дней бесплатно» " +
+    `(один раз на компьютер).${pay}${ask}\n\n` +
     "Код вводится в WhySlow: кнопка «★ Подписка» внизу окна → поле «Ключ».";
 }
 
@@ -94,6 +97,16 @@ async function paid(env, msg) {
   await say(env, msg.chat.id, rec.code);
   await say(env, msg.chat.id, "Откройте WhySlow → «Подписка» → вставьте код в поле «Ключ» → «Активировать».");
   if (env.OWNER_CHAT_ID) await say(env, env.OWNER_CHAT_ID, `Новая оплата от ${who}\n${describe(rec)}`);
+}
+
+// Сообщение владельцу в Telegram, если бот настроен. Ошибка связи не мешает основному ответу.
+export async function notifyOwner(env, text) {
+  if (!env.TG_TOKEN || !env.OWNER_CHAT_ID) return;
+  try {
+    await say(env, env.OWNER_CHAT_ID, text);
+  } catch {
+    // бот недоступен — не страшно
+  }
 }
 
 export async function handleTelegram(request, env, pathSecret) {

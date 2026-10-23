@@ -3,7 +3,7 @@
     from .license_ui import PremiumGate, show_license_dialog
     tabs.addTab(PremiumGate("compare", lambda: CompareTab(main)), "Сравнение")
 
-PremiumGate показывает замок с кнопкой «Ввести ключ», пока подписки нет, а после активации
+PremiumGate показывает замок с кнопками «Попробовать 7 дней бесплатно» и «Ввести ключ», пока подписки нет, а после активации
 сам строит вкладку и подменяет ею замок (и наоборот, когда подписка закончилась).
 """
 
@@ -49,7 +49,7 @@ def bus() -> _Bus:
 
 
 class LicenseDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, start_trial: bool = False):
         super().__init__(parent)
         g = _g()
         C, px, pt = g.C, g.px, g.pt
@@ -88,6 +88,22 @@ class LicenseDialog(QDialog):
 
         feats = ", ".join(tr(*v) for v in license.FEATURES.values())
         lay.addWidget(g.muted(tr(f"Подписка открывает: {feats}.", f"The subscription unlocks: {feats}.")))
+
+        # Пробный период: один раз на компьютер, выдаёт сервер
+        self.trial_box = QWidget()
+        tl = QHBoxLayout(self.trial_box)
+        tl.setContentsMargins(0, 0, 0, 0)
+        self.b_trial = QPushButton(tr(f"Попробовать {license.TRIAL_DAYS} дней бесплатно",
+                                      f"Try it free for {license.TRIAL_DAYS} days"))
+        self.b_trial.setObjectName("primary")
+        self.b_trial.setCursor(Qt.PointingHandCursor)
+        self.b_trial.clicked.connect(self.start_trial)
+        tl.addWidget(self.b_trial)
+        tl.addWidget(g.muted(tr("Все платные функции на неделю, без оплаты. Один раз на компьютер: "
+                                "переустановка программы или системы второй раз его не даст.",
+                                "Every paid feature for a week, no payment. Once per computer: "
+                                "reinstalling the app or the system won't give it again.")), 1)
+        lay.addWidget(self.trial_box)
 
         dev = QHBoxLayout()
         dev.addWidget(QLabel(tr("Код этого компьютера:", "This computer's code:")))
@@ -131,6 +147,8 @@ class LicenseDialog(QDialog):
         bottom.addWidget(b_close)
         lay.addLayout(bottom)
         self.refill()
+        if start_trial and license.trial_available():
+            QTimer.singleShot(0, self.start_trial)
 
     def refill(self):
         C = _g().C
@@ -141,11 +159,19 @@ class LicenseDialog(QDialog):
             how = tr("ключ проверяется на сервере раз в сутки и работает без интернета до недели",
                      "the key is checked online once a day and works offline for up to a week") if st.online else \
                 tr("ключ привязан к этому компьютеру", "the key is bound to this computer")
-            self.state.setText(tr(f"Все платные функции открыты, {how}.", f"All paid features are unlocked, {how}."))
+            if st.trial:
+                self.state.setText(tr("Все платные функции открыты на время пробного периода. Чтобы они "
+                                      "работали и после него, купите подписку и введите ключ ниже.",
+                                      "All paid features are unlocked for the trial. To keep them afterwards, "
+                                      "buy a subscription and enter the key below."))
+            else:
+                self.state.setText(tr(f"Все платные функции открыты, {how}.", f"All paid features are unlocked, {how}."))
         else:
             self.state.setText(st.error or tr("Купите подписку и введите полученный ключ ниже.",
                                               "Buy a subscription and enter the key you received below."))
-        self.b_off.setVisible(bool(license._load().get("token")))
+        d = license._load()
+        self.b_off.setVisible(bool(d.get("token")) and not (st.active and st.trial))
+        self.trial_box.setVisible(license.trial_available())
 
     def _say(self, text: str, ok: bool):
         C = _g().C
@@ -169,6 +195,22 @@ class LicenseDialog(QDialog):
 
         _g().run_async(lambda _p: license.enter_key(text), done, failed)
 
+    def start_trial(self):
+        self.b_trial.setEnabled(False)
+        self._say(tr("Включаю пробный период…", "Starting the free trial…"), True)
+
+        def done(st):
+            self.b_trial.setEnabled(True)
+            self._say(tr("Готово! ", "Done! ") + license.status_text(st), True)
+            self.refill()
+
+        def failed(msg):
+            self.b_trial.setEnabled(True)
+            self._say(msg or tr("ошибка", "error"), False)
+            self.refill()
+
+        _g().run_async(lambda _p: license.start_trial(), done, failed)
+
     def deactivate(self):
         if not _g().confirm(self, tr("Отключить подписку", "Turn off the subscription"),
                             tr("Убрать ключ с этого компьютера? Его можно будет ввести на другом.",
@@ -178,9 +220,9 @@ class LicenseDialog(QDialog):
                                                        self.refill()), lambda m: self._say(m, False))
 
 
-def show_license_dialog(parent=None) -> None:
+def show_license_dialog(parent=None, start_trial: bool = False) -> None:
     bus()
-    LicenseDialog(parent).exec()
+    LicenseDialog(parent, start_trial).exec()
 
 
 class PremiumGate(QStackedWidget):
@@ -215,8 +257,13 @@ class PremiumGate(QStackedWidget):
         lay.addWidget(note)
         row = QHBoxLayout()
         row.addStretch(1)
+        self.b_trial = QPushButton(tr(f"Попробовать {license.TRIAL_DAYS} дней бесплатно",
+                                      f"Try it free for {license.TRIAL_DAYS} days"))
+        self.b_trial.setObjectName("primary")
+        self.b_trial.setCursor(Qt.PointingHandCursor)
+        self.b_trial.clicked.connect(lambda: show_license_dialog(self.window(), start_trial=True))
+        row.addWidget(self.b_trial)
         b = QPushButton(tr("Ввести ключ", "Enter a key"))
-        b.setObjectName("primary")
         b.setCursor(Qt.PointingHandCursor)
         b.clicked.connect(lambda: show_license_dialog(self.window()))
         row.addWidget(b)
@@ -241,6 +288,7 @@ class PremiumGate(QStackedWidget):
                 traceback.print_exc()
                 self.content = None
         self.setCurrentWidget(self.content if self.content is not None else self.lock)
+        self.b_trial.setVisible(self.content is None and license.trial_available())
 
 
 class PremiumButton(QPushButton):
