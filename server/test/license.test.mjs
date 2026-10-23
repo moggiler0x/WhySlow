@@ -109,3 +109,49 @@ test("подделанная лицензия не проходит", async () =
   const forged = Buffer.from(Buffer.from(body, "base64url").toString().replace('"solo"', '"family"')).toString("base64url");
   assert.equal(await readToken(e, `${h}.${forged}.${sig}`), null);
 });
+
+const HW = ["a".repeat(64), "b".repeat(64)];
+
+test("пробный период: один раз на железо, переустановка не помогает", async () => {
+  const e = env();
+  const t = await call(e, "/v1/trial", { device: "AAAAA-BBBBB", hw: HW, name: "pc" });
+  assert.equal(t.status, 200);
+  const lic = await readToken(e, t.data.token);
+  assert.equal(lic.trial, 1);
+  assert.deepEqual(lic.dev, ["AAAAA-BBBBB"]);
+  assert.ok(lic.sub <= Date.now() / 1000 + 7 * 86400 + 5 && lic.sub > Date.now() / 1000 + 6 * 86400);
+  assert.ok(lic.keys.compare, "пробный период открывает платные модули");
+  // Сырые хеши программы не лежат в базе — только хеш от хеша
+  assert.ok(![...e.LICENSES.m.keys(), ...e.LICENSES.m.values()].some((v) => v.includes(HW[0])));
+  // Продление по выданному коду работает
+  assert.equal((await call(e, "/v1/refresh", { code: t.data.code, device: "AAAAA-BBBBB" })).status, 200);
+  // Переустановили систему: новый код устройства, но тот же диск — отказ
+  assert.deepEqual((await call(e, "/v1/trial", { device: "CCCCC-DDDDD", hw: [HW[1], "c".repeat(64)] })).data,
+    { error: "trial_used" });
+  // Код пробного периода нельзя перенести на другой компьютер, даже «отключив»
+  await call(e, "/v1/deactivate", { code: t.data.code, device: "AAAAA-BBBBB" });
+  assert.deepEqual((await call(e, "/v1/activate", { code: t.data.code, device: "CCCCC-DDDDD" })).data,
+    { error: "trial_device" });
+  assert.equal((await call(e, "/v1/refresh", { code: t.data.code, device: "AAAAA-BBBBB" })).status, 200);
+});
+
+test("пробный период закончился — trial_over, и без хешей железа не выдаётся", async () => {
+  const e = env();
+  assert.equal((await call(e, "/v1/trial", { device: "AAAAA-BBBBB", hw: [] })).status, 400);
+  assert.equal((await call(e, "/v1/trial", { device: "AAAAA-BBBBB", hw: ["серийник"] })).status, 400);
+  const t = await call(e, "/v1/trial", { device: "AAAAA-BBBBB", hw: HW });
+  for (const [k, v] of e.LICENSES.m) {
+    if (k.startsWith("lic:")) e.LICENSES.m.set(k, JSON.stringify({ ...JSON.parse(v), exp: 1 }));
+  }
+  assert.deepEqual((await call(e, "/v1/refresh", { code: t.data.code, device: "AAAAA-BBBBB" })).data, { error: "trial_over" });
+});
+
+test("пробных периодов с одного адреса — не больше трёх в сутки", async () => {
+  const e = env();
+  const ip = { "CF-Connecting-IP": "203.0.113.5" };
+  for (let i = 0; i < 3; i++) {
+    assert.equal((await call(e, "/v1/trial", { device: "AAAAA-BBBBB", hw: [String(i).repeat(64)] }, ip)).status, 200);
+  }
+  assert.deepEqual((await call(e, "/v1/trial", { device: "AAAAA-BBBBB", hw: ["9".repeat(64)] }, ip)).data, { error: "busy" });
+  assert.ok(![...e.LICENSES.m.keys()].some((k) => k.includes("203.0.113.5")));
+});

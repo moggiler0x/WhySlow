@@ -12,6 +12,8 @@ export const PLANS = {
 export const FEATURES = ["twin", "health_money", "xray", "gamemode", "compare", "pests", "migrate"];
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const TOKEN_DAYS = 7; // столько лицензия работает без связи с сервером
+export const TRIAL_DAYS = 7; // бесплатный пробный период, один раз на компьютер
+const TRIALS_PER_IP = 3; // сколько пробных периодов в сутки можно взять с одного адреса
 const DAY = 86400;
 
 export const now = () => Math.floor(Date.now() / 1000);
@@ -50,12 +52,12 @@ export async function putRecord(env, rec) {
   await env.LICENSES.put("lic:" + rec.kid, JSON.stringify(rec), { expiration: Math.max(rec.exp, now()) + 365 * DAY });
 }
 
-export async function createCode(env, plan, days, note = "") {
+export async function createCode(env, plan, days, note = "", extra = {}) {
   if (!PLANS[plan]) throw new Error("неизвестный тариф");
   const code = newCode();
   const rec = {
     kid: await kidOf(code), plan, exp: now() + Math.round(days * DAY), max: PLANS[plan].devices,
-    devices: [], revoked: false, note: String(note).slice(0, 200), created: now(),
+    devices: [], revoked: false, note: String(note).slice(0, 200), created: now(), ...extra,
   };
   await putRecord(env, rec);
   return { ...rec, code: formatCode(code) };
@@ -107,14 +109,16 @@ export async function activate(env, { code, device, name }, mode) {
   const rec = await getRecord(env, await kidOf(c));
   if (!rec) return { status: 404, error: "unknown" };
   if (mode === "deactivate") {
-    rec.devices = rec.devices.filter((d) => d.id !== device);
+    // Пробный период нельзя «отключить» и унести на другой компьютер
+    if (!rec.trial) rec.devices = rec.devices.filter((d) => d.id !== device);
     await putRecord(env, rec);
     return { ok: true };
   }
   if (rec.revoked) return { status: 403, error: "revoked" };
-  if (rec.exp < now()) return { status: 403, error: "expired" };
+  if (rec.exp < now()) return { status: 403, error: rec.trial ? "trial_over" : "expired" };
   let dev = rec.devices.find((d) => d.id === device);
   if (!dev) {
+    if (rec.trial) return { status: 403, error: "trial_device" };
     if (mode === "refresh") return { status: 403, error: "device" };
     if (rec.devices.length >= rec.max) return { status: 409, error: "limit" };
     dev = { id: device, name: String(name || "").slice(0, 40), at: now() };
@@ -122,9 +126,37 @@ export async function activate(env, { code, device, name }, mode) {
   }
   dev.seen = now();
   await putRecord(env, rec);
-  const token = await makeToken(env, {
+  return { token: await issueToken(env, rec, device) };
+}
+
+async function issueToken(env, rec, device) {
+  return makeToken(env, {
     v: 1, kid: rec.kid, plan: rec.plan, iat: now(), exp: Math.min(rec.exp, now() + TOKEN_DAYS * DAY),
     sub: rec.exp, max: rec.max, dev: [device], src: "online", keys: await featureKeys(env, FEATURES),
+    ...(rec.trial ? { trial: 1 } : {}),
   });
-  return { token };
+}
+
+// Компьютер узнаём по хешам серийников железа, которые прислала программа (hw). Каждый хеш
+// хешируем ещё раз и храним вечно как «trial:<хеш>»: сами серийники сервер не видит никогда.
+const trialKey = async (h) => "trial:" + (await sha256hex("whyslow-trial:" + h));
+
+// Пробный период из программы: {device, hw: [sha256 hex], name} → {code, token} или {error, status}
+export async function startTrial(env, { device, hw, name }, ip = "") {
+  const hashes = [...new Set(Array.isArray(hw) ? hw : [])].filter((h) => /^[0-9a-f]{64}$/.test(h)).slice(0, 8);
+  if (!/^[A-Z0-9]{5}-[A-Z0-9]{5}$/.test(device || "") || !hashes.length) return { status: 400, error: "bad_request" };
+  const keys = await Promise.all(hashes.map(trialKey));
+  for (const k of keys) if (await env.LICENSES.get(k)) return { status: 409, error: "trial_used" };
+  if (ip) {
+    const ipKey = "trialip:" + (await sha256hex("whyslow-ip:" + ip));
+    const n = Number(await env.LICENSES.get(ipKey)) || 0;
+    if (n >= TRIALS_PER_IP) return { status: 429, error: "busy" };
+    await env.LICENSES.put(ipKey, String(n + 1), { expirationTtl: DAY });
+  }
+  const { code, ...rec } = await createCode(env, "solo", TRIAL_DAYS, "пробный период", {
+    trial: true, devices: [{ id: device, name: String(name || "").slice(0, 40), at: now(), seen: now() }],
+  });
+  const mark = JSON.stringify({ kid: rec.kid, at: now() });
+  for (const k of keys) await env.LICENSES.put(k, mark);
+  return { code, token: await issueToken(env, rec, device) };
 }

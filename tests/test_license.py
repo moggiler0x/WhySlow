@@ -200,3 +200,62 @@ def test_owner_init_makes_separate_secrets(tmp_path, monkeypatch):
     fk = keys.feature_keys()
     assert fk["compare"] == seal.feature_key(sealing, "compare").hex()
     assert fk["compare"] != seal.feature_key(signing, "compare").hex()
+
+
+def _trial_server(monkeypatch, replies):
+    monkeypatch.setenv("WHYSLOW_LICENSE_SERVER", "https://lic.example")
+    monkeypatch.setattr(license, "_hardware_raw", lambda: {"board": "MB123456", "disk": "WD-XYZ9876"})
+    sent = []
+
+    def post(url, body):
+        sent.append((url.rsplit("/", 1)[1], body))
+        return replies[url.rsplit("/", 1)[1]]
+
+    monkeypatch.setattr(license, "_post", post)
+    return sent
+
+
+def test_trial_starts_once_and_sends_only_hashes(monkeypatch):
+    sub = int(time.time()) + 7 * 86400
+    t = token(src="online", trial=1, sub=sub, exp=sub)
+    sent = _trial_server(monkeypatch, {"trial": (200, {"code": "WS-ABCD-EFGH-JKLM-NPQR", "token": t}),
+                                       "deactivate": (200, {"ok": True})})
+    assert license.trial_available()
+    st = license.start_trial()
+    assert st.active and st.trial and st.online
+    assert "Пробный период" in license.status_text(st) and st.plan_name == "Пробный период"
+    action, body = sent[0]
+    assert action == "trial" and body["device"] == DEV
+    # Серийники не уходят с компьютера — только SHA-256 по каждой детали
+    assert len(body["hw"]) == 3 and all(len(h) == 64 for h in body["hw"])
+    assert "MB123456" not in str(body) and "WD-XYZ9876" not in str(body)
+    assert not license.trial_available()
+    # Отметка остаётся и после отключения
+    license.deactivate()
+    assert not license.trial_available()
+
+
+def test_trial_refused_by_server(monkeypatch):
+    _trial_server(monkeypatch, {"trial": (409, {"error": "trial_used"})})
+    with pytest.raises(license.LicenseError, match="пробный период уже был"):
+        license.start_trial()
+    assert not license.has_premium() and not license.trial_available()
+
+
+def test_trial_over_message(monkeypatch):
+    sub = int(time.time()) + 7 * 86400
+    t = token(src="online", trial=1, sub=sub, exp=sub)
+    _trial_server(monkeypatch, {"trial": (200, {"code": "WS-ABCD-EFGH-JKLM-NPQR", "token": t}),
+                                "refresh": (403, {"error": "trial_over"})})
+    license.start_trial()
+    st = license.status(now=sub + 3600)
+    assert not st.active and "пробный период закончился" in st.error
+    assert license.refresh(force=True)
+    assert "пробный период закончился" in license.status().error
+
+
+def test_junk_serials_ignored():
+    for junk in ("To be filled by O.E.M.", "Default string", "0", "00000000-0000-0000-0000-000000000000",
+                 "System Serial Number", "None", "03000200-0400-0500-0006-000700080009"):
+        assert license._real_serial(junk) == "", junk
+    assert license._real_serial(" C02XK1JHJGH5 ") == "C02XK1JHJGH5"

@@ -281,9 +281,15 @@ def find_pests() -> int:
 
 
 def license_cmd(key: str = "") -> int:
-    """Состояние подписки; с ключом — активирует его."""
+    """Состояние подписки; с ключом — активирует его, со словом trial — включает пробный период."""
     from . import license
-    if key:
+    if key.lower() == "trial":
+        try:
+            license.start_trial()
+        except license.LicenseError as e:
+            print(tr(f"Пробный период не включён: {e}", f"Free trial not started: {e}"))
+            return 1
+    elif key:
         try:
             license.enter_key(key)
         except license.LicenseError as e:

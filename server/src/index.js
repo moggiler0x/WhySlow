@@ -3,15 +3,16 @@
 //   POST /v1/activate   {code, device, name}  → {token}   программа: первый ввод кода
 //   POST /v1/refresh    {code, device}        → {token}   программа: продление раз в сутки
 //   POST /v1/deactivate {code, device}        → {ok}      программа: «Отключить на этом компьютере»
+//   POST /v1/trial      {device, hw, name}    → {code, token}  программа: пробный период, раз на компьютер
 //   POST /admin/*       (Authorization: Bearer ADMIN_TOKEN) — owner/keys.py
 //   POST /tg/<TG_SECRET>                                  Telegram-бот
 //
 // Другие функции подключаются строкой в ROUTES; проверка подписки — requireLicense из auth.js.
 
 import { json, requireLicense } from "./auth.js";
-import { handleTelegram } from "./bot.js";
+import { handleTelegram, notifyOwner } from "./bot.js";
 import { sameSecret } from "./crypto.js";
-import { activate, createCode, extend, getRecord, listRecords, resolveKid, setRevoked, unlink } from "./licenses.js";
+import { activate, createCode, startTrial, extend, getRecord, listRecords, resolveKid, setRevoked, unlink } from "./licenses.js";
 import { handleCompare, handleCompareForget } from "./compare.js";
 
 // Сравнение с похожими ПК живёт в отдельной базе D1; пока её не подключили — 503, а не падение
@@ -64,6 +65,13 @@ export default {
       const body = await request.json().catch(() => ({}));
       const r = await activate(env, body, v1[1]);
       return r.error ? json({ error: r.error }, r.status) : json(r);
+    }
+    if (path === "/v1/trial") {
+      const body = await request.json().catch(() => ({}));
+      const r = await startTrial(env, body, request.headers.get("CF-Connecting-IP") || "");
+      if (r.error) return json({ error: r.error }, r.status);
+      await notifyOwner(env, `Новый пробный период: ${body.device}${body.name ? ` (${String(body.name).slice(0, 40)})` : ""}`);
+      return json(r);
     }
     const adm = /^\/admin\/(\w+)$/.exec(path);
     if (adm) return admin(request, env, adm[1]);

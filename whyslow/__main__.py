@@ -66,7 +66,7 @@ def main() -> int:
     if "--risks" in sys.argv:
         from .cli import risk_cost
         return risk_cost()
-    if "--license" in sys.argv:  # --license [КЛЮЧ]: состояние подписки или ввод ключа без окна
+    if "--license" in sys.argv:  # --license [КЛЮЧ|trial]: состояние подписки, ввод ключа или пробный период без окна
         from .cli import license_cmd
         i = sys.argv.index("--license")
         return license_cmd(sys.argv[i + 1] if i + 1 < len(sys.argv) else "")
